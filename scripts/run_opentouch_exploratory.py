@@ -298,8 +298,10 @@ def run_split(cfg, splits, args, tag):
                                  norm=norm, device=args.device)
                 scores[ti] = h["best_val_nll"]
             t_in = min(scores, key=scores.get)
-            print(f"  t_in={t_in} ({t_in / cfg.fps:.1f} s); "
-                  f"val {args.select_on.upper()} {scores}")
+            # NLL, not args.select_on: this family scores its sweep by best_val_nll above,
+            # and printing the flag's name here would label the number with a criterion that
+            # did not produce it. The knob reaches prob_gru only.
+            print(f"  t_in={t_in} ({t_in / cfg.fps:.1f} s); val NLL {scores}")
             model, _, mnorm, hist = TM.train(cfg, enc, splits["train"], splits["val"],
                                              t_in, hp, norm=norm, device=args.device)
             # Every arm in this family is probabilistic (OQ-G overturned globally,
