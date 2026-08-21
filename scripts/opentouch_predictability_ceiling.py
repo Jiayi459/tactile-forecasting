@@ -102,17 +102,33 @@ def sharpness(preds_dir, chans, max_lag):
     where it need not be, and that gap is trainable.
     """
     import glob
-    out = collections.defaultdict(lambda: collections.defaultdict(list))
+    # Sums and counts, not a mean per clip: clips too short to yield any origin give an
+    # EMPTY slice, whose mean is NaN, and one NaN in a list poisons the aggregate. That is
+    # what turned the whole 2026-08-21 sharpness table into "nan (nanx)". Accumulating lets
+    # an empty clip contribute nothing, and weights each clip by how many origins it has
+    # rather than counting a 2-origin clip equally with a 200-origin one.
+    tot = collections.defaultdict(float)
+    cnt = collections.defaultdict(int)
     for f in sorted(glob.glob(os.path.join(preds_dir, "clip_*.npz"))):
         z = np.load(f, allow_pickle=True)
         for k in z.files:
             if not k.startswith("sigma_"):
                 continue
-            sg = z[k]                                   # (n_origins, H, C)
+            sg = np.asarray(z[k], dtype=float)          # (n_origins, H, C)
+            if sg.ndim != 3 or sg.shape[0] == 0:
+                continue
             for c in range(min(sg.shape[-1], len(chans))):
                 for h in (1, 5, 10, 20, 30):
                     if h <= sg.shape[1]:
-                        out[(k[6:], c)][h].append(float(np.nanmean(sg[:, h - 1, c])))
+                        col = sg[:, h - 1, c]
+                        good = np.isfinite(col)
+                        if good.any():
+                            tot[(k[6:], c, h)] += float(col[good].sum())
+                            cnt[(k[6:], c, h)] += int(good.sum())
+    out = collections.defaultdict(dict)
+    for key, n in cnt.items():
+        mdl, c, h = key
+        out[(mdl, c)][h] = tot[key] / n
     return out
 
 
@@ -188,8 +204,7 @@ def main():
                 cells = []
                 for h in (1, 5, 10, 20, 30):
                     v = per_h.get(h)
-                    cells.append(f"{np.mean(v):8.4g} ({np.mean(v) / fl:.2f}x)"
-                                 if v else " " * 16)
+                    cells.append(f"{v:8.4g} ({v / fl:.2f}x)" if v else " " * 16)
                 print(f"{mdl:10s} {chans[c]:9s} {fl:10.4g} " + " ".join(cells))
             print("x is sigma / floor. 1.0 means as narrow as the data allows; a large "
                   "multiple is uncertainty the model need not have and training can "
