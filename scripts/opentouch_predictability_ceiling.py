@@ -91,6 +91,31 @@ def measure(cache, limit, max_lag, chans):
     return data, R, var, diffs
 
 
+def sharpness(preds_dir, chans, max_lag):
+    """Mean predicted sigma per channel and horizon -> is the band as narrow as it could be?
+
+    Coverage alone does not answer that. A model emitting the global mean with the global
+    standard deviation also covers ~95%, so a wide, well-covering band is not evidence that
+    anything was learned. What matters is sharpness GIVEN calibration: how close the
+    predicted sigma sits to the irreducible noise floor sqrt(v_e) measured above. At the
+    floor the band cannot be narrowed by any model; far above it, the model is uncertain
+    where it need not be, and that gap is trainable.
+    """
+    import glob
+    out = collections.defaultdict(lambda: collections.defaultdict(list))
+    for f in sorted(glob.glob(os.path.join(preds_dir, "clip_*.npz"))):
+        z = np.load(f, allow_pickle=True)
+        for k in z.files:
+            if not k.startswith("sigma_"):
+                continue
+            sg = z[k]                                   # (n_origins, H, C)
+            for c in range(min(sg.shape[-1], len(chans))):
+                for h in (1, 5, 10, 20, 30):
+                    if h <= sg.shape[1]:
+                        out[(k[6:], c)][h].append(float(np.nanmean(sg[:, h - 1, c])))
+    return out
+
+
 def observed_skill(csv_path):
     """{(model, channel, h): skill} from a driver metric table, if one is given."""
     out = collections.defaultdict(list)
@@ -110,6 +135,8 @@ def main():
     ap.add_argument("--compare-cache", help="e.g. the uncorrected cache, for contrast")
     ap.add_argument("--csv", help="a driver metric table, to print observed skill beside "
                                   "the ceiling")
+    ap.add_argument("--preds", help="a saved prediction dir, to compare the model's own "
+                                    "sigma against the measured noise floor (sharpness)")
     ap.add_argument("--limit", type=int, default=600, help="clips to measure")
     ap.add_argument("--max-lag", type=int, default=30)
     a = ap.parse_args()
@@ -147,6 +174,27 @@ def main():
                                 for m in ("ar", "prob_gru")
                                 if (m, ch, str(h)) in obs)
                 print(f"{ch:9s} {h:3d} {mse_p:13.4g} {noise[c]:12.4g} {ceil:14.3f}   {got}")
+
+    if a.preds:
+        sh = sharpness(a.preds, chans, a.max_lag)
+        if sh:
+            print(f"\n=== sharpness: predicted sigma vs the noise floor ({a.preds}) ===")
+            print(f"{'model':10s} {'channel':9s} {'floor':>10s} " +
+                  " ".join(f"{'h=' + str(h):>16s}" for h in (1, 5, 10, 20, 30)))
+            for (mdl, c), per_h in sorted(sh.items()):
+                if c not in noise:
+                    continue
+                fl = float(np.sqrt(noise[c]))
+                cells = []
+                for h in (1, 5, 10, 20, 30):
+                    v = per_h.get(h)
+                    cells.append(f"{np.mean(v):8.4g} ({np.mean(v) / fl:.2f}x)"
+                                 if v else " " * 16)
+                print(f"{mdl:10s} {chans[c]:9s} {fl:10.4g} " + " ".join(cells))
+            print("x is sigma / floor. 1.0 means as narrow as the data allows; a large "
+                  "multiple is uncertainty the model need not have and training can "
+                  "attack. Below 1.0 would be overconfidence, and should show up as "
+                  "coverage under nominal.")
 
     print("\nHOW TO READ IT. Pure white noise has r(1) ~ 0 and a ceiling of exactly 0.500: "
           "no forecaster can beat persistence by more than that on noise. An observed skill "
