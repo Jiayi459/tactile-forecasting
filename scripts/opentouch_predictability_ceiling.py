@@ -109,6 +109,15 @@ def sharpness(preds_dir, chans, max_lag):
     # rather than counting a 2-origin clip equally with a 200-origin one.
     tot = collections.defaultdict(float)
     cnt = collections.defaultdict(int)
+    # sigma against the model's OWN realised error at the same origins. The noise floor is
+    # an ORACLE bound -- it assumes the smooth component's value at t+h is known -- so a
+    # real model's sigma exceeds it by however much it does not know where the envelope is
+    # going, and sigma/floor therefore measures ignorance, not miscalibration. sigma/RMSE is
+    # the calibration question, and it is computed here from one file so it cannot mix the
+    # two MSE conventions in this repo (the ceiling's median-over-clips against the driver's
+    # frame-pooled skill), which are not interconvertible.
+    sse = collections.defaultdict(float)
+    scn = collections.defaultdict(int)
     for f in sorted(glob.glob(os.path.join(preds_dir, "clip_*.npz"))):
         z = np.load(f, allow_pickle=True)
         for k in z.files:
@@ -117,18 +126,32 @@ def sharpness(preds_dir, chans, max_lag):
             sg = np.asarray(z[k], dtype=float)          # (n_origins, H, C)
             if sg.ndim != 3 or sg.shape[0] == 0:
                 continue
+            mdl = k[6:]
+            mu = np.asarray(z.get(f"mu_{mdl}"), dtype=float)
+            y, ors = np.asarray(z["y"], dtype=float), np.asarray(z["origins"])
             for c in range(min(sg.shape[-1], len(chans))):
                 for h in (1, 5, 10, 20, 30):
-                    if h <= sg.shape[1]:
-                        col = sg[:, h - 1, c]
-                        good = np.isfinite(col)
-                        if good.any():
-                            tot[(k[6:], c, h)] += float(col[good].sum())
-                            cnt[(k[6:], c, h)] += int(good.sum())
+                    if h > sg.shape[1]:
+                        continue
+                    col = sg[:, h - 1, c]
+                    good = np.isfinite(col)
+                    if good.any():
+                        tot[(mdl, c, h)] += float(col[good].sum())
+                        cnt[(mdl, c, h)] += int(good.sum())
+                    if mu is None or mu.shape != sg.shape:
+                        continue
+                    tgt = ors + h                        # mu[:, h-1] predicts frame o+h
+                    ok = tgt < len(y)
+                    if ok.any():
+                        e = y[tgt[ok], c] - mu[ok, h - 1, c]
+                        e = e[np.isfinite(e)]
+                        sse[(mdl, c, h)] += float((e ** 2).sum())
+                        scn[(mdl, c, h)] += int(e.size)
     out = collections.defaultdict(dict)
     for key, n in cnt.items():
         mdl, c, h = key
-        out[(mdl, c)][h] = tot[key] / n
+        rmse = np.sqrt(sse[key] / scn[key]) if scn.get(key) else float("nan")
+        out[(mdl, c)][h] = (tot[key] / n, rmse)
     return out
 
 
@@ -195,8 +218,12 @@ def main():
         sh = sharpness(a.preds, chans, a.max_lag)
         if sh:
             print(f"\n=== sharpness: predicted sigma vs the noise floor ({a.preds}) ===")
+            print("sigma, then (sigma/floor) and [sigma/own RMSE]. The first is how far "
+                  "above an ORACLE's irreducible error the model sits -- ignorance about "
+                  "the envelope, not a defect. The second is calibration: ~1.0 means the "
+                  "band matches the errors the model actually makes.")
             print(f"{'model':10s} {'channel':9s} {'floor':>10s} " +
-                  " ".join(f"{'h=' + str(h):>16s}" for h in (1, 5, 10, 20, 30)))
+                  " ".join(f"{'h=' + str(h):>22s}" for h in (1, 5, 10, 20, 30)))
             for (mdl, c), per_h in sorted(sh.items()):
                 if c not in noise:
                     continue
@@ -204,12 +231,20 @@ def main():
                 cells = []
                 for h in (1, 5, 10, 20, 30):
                     v = per_h.get(h)
-                    cells.append(f"{v:8.4g} ({v / fl:.2f}x)" if v else " " * 16)
+                    if not v:
+                        cells.append(" " * 22); continue
+                    sg, rm = v
+                    cells.append(f"{sg:7.4g} ({sg / fl:.2f}x)"
+                                 f"[{sg / rm:.2f}]" if np.isfinite(rm)
+                                 else f"{sg:7.4g} ({sg / fl:.2f}x)      ")
                 print(f"{mdl:10s} {chans[c]:9s} {fl:10.4g} " + " ".join(cells))
-            print("x is sigma / floor. 1.0 means as narrow as the data allows; a large "
-                  "multiple is uncertainty the model need not have and training can "
-                  "attack. Below 1.0 would be overconfidence, and should show up as "
-                  "coverage under nominal.")
+            print("(x) near 1.0 would mean the band is as narrow as ANY model could be; "
+                  "above 1.0 is how much the model does not know about where the smooth "
+                  "component is heading, and that gap is the same one the skill table "
+                  "shows at long horizons. [.] near 1.0 means honest: the band matches the "
+                  "errors actually made. Well above 1.0 is over-dispersion that training "
+                  "can attack; below 1.0 is overconfidence and should show as coverage "
+                  "under nominal.")
 
     print("\nHOW TO READ IT. Pure white noise has r(1) ~ 0 and a ceiling of exactly 0.500: "
           "no forecaster can beat persistence by more than that on noise. An observed skill "
