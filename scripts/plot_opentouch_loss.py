@@ -1,7 +1,9 @@
 """Training curves for the probGRU, plus a calibration check on its variance head.
 
 Reads the checkpoints --save-model wrote: each carries the final training's per-epoch NLL,
-the history sweep's best VAL NLL per input length, and which epoch was kept.
+the history sweep's best VAL score per input length, and which epoch was kept. The star
+marks the minimum of whichever curve hp["select_on"] used, read from the checkpoint, so a
+run selected on MSE is not drawn as if NLL had chosen its weights.
 
 WHAT THE CURVE IS FOR. Early stopping keeps the lowest-VAL-NLL weights, so a run cannot be
 hurt by training too long -- but where the minimum sits says something. On the 2026-08-17
@@ -116,8 +118,15 @@ def main():
     ax2 = ax.twinx()
     ax2.set_ylabel("VAL MSE (dotted, + = its own best)", fontsize=8)
 
+    crits = set()
     for name, ck in cks:
         h = ck.get("history", {})
+        # Which VAL curve actually kept the weights. Older checkpoints predate the knob and
+        # were all NLL-selected; newer ones say so themselves. The star has to sit on the
+        # curve that DID the selecting, or the figure claims weights came from somewhere
+        # they did not -- which is what the 2026-08-21 MSE run's first plot did.
+        crit = str(h.get("selected_on_metric", "nll")).split()[0].lower()
+        crits.add(crit)
         va = np.asarray(h.get("val_nll", []), dtype=float)
         tr = np.asarray(h.get("train_nll", []), dtype=float)
         if va.size == 0:
@@ -129,16 +138,18 @@ def main():
         if m.any():
             ax.plot(ep[m], tr[m], "o--", ms=3, lw=0.8, alpha=0.55,
                     color=line.get_color(), label=f"{tag} train")
-        b = int(np.nanargmin(va))
-        ax.plot(ep[b], va[b], "*", ms=12, color=line.get_color())
+        if crit == "nll":
+            b = int(np.nanargmin(va))
+            ax.plot(ep[b], va[b], "*", ms=12, color=line.get_color())
         # VAL MSE on a twin axis: if it stays flat while NLL climbs, the mean is fine and
         # only the variance head is degrading -- and early stopping on NLL is then picking
         # weights by a criterion the harness never scores.
         vm = np.asarray(h.get("val_mse", []), dtype=float)
         if vm.size == va.size and np.isfinite(vm).any():
             ax2.plot(ep, vm, lw=1.0, ls=":", color=line.get_color(), alpha=0.8)
-            ax2.plot(ep[int(np.nanargmin(vm))], np.nanmin(vm), "P", ms=7,
-                     color=line.get_color())
+            j = int(np.nanargmin(vm))
+            ax2.plot(ep[j], vm[j], "*" if crit == "mse" else "P",
+                     ms=12 if crit == "mse" else 7, color=line.get_color())
 
         sw = ck.get("sweep") or {}
         if sw:
@@ -148,12 +159,15 @@ def main():
             axs.plot(ck["t_in"] / 30.0, min(sw.values()), "*", ms=12,
                      color=axs.lines[-1].get_color())
 
+    kept = "/".join(sorted(c.upper() for c in crits)) or "NLL"
+    other = "MSE" if kept == "NLL" else "NLL"
     ax.set_xlabel("epoch"); ax.set_ylabel("Gaussian NLL")
     ax.set_title("probGRU training curves — solid/dashed = NLL, dotted = VAL MSE\n"
-                 "star = weights kept (min VAL NLL);  + = min VAL MSE", fontsize=10)
+                 f"star = weights kept (min VAL {kept});  + = min VAL {other}",
+                 fontsize=10)
     ax.legend(fontsize=7, ncol=2); ax.grid(alpha=0.25)
-    axs.set_xlabel("input history (s)"); axs.set_ylabel("best VAL NLL")
-    axs.set_title("history sweep, chosen on VAL\n"
+    axs.set_xlabel("input history (s)"); axs.set_ylabel(f"best VAL {kept}")
+    axs.set_title(f"history sweep, chosen on VAL {kept}\n"
                   "(≥2 s is mostly zero-padding: <50% of clips are long enough)",
                   fontsize=10)
     axs.legend(fontsize=7); axs.grid(alpha=0.25)
