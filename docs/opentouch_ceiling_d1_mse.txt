@@ -1,0 +1,25 @@
+
+=== D1: /users/jhao3/opentouch/cache_d1 ===
+channel      r(1)    r(2)    r(3)   r(10)  noise share  first r<0.2
+F_R         0.318   0.270   0.192   0.076        68.2%            3
+CoPx_R      0.403   0.329   0.239   0.060        59.7%            5
+CoPy_R      0.228   0.146   0.082   0.013        77.2%            2
+
+channel     h   MSE_persist    noise var  skill ceiling   observed
+F_R         1     2.655e+05     1.49e+05          0.439   ar 0.342  prob_gru 0.318
+F_R         5     3.578e+05     1.49e+05          0.584   ar 0.402  prob_gru 0.410
+F_R        10     3.769e+05     1.49e+05          0.605   ar 0.367  prob_gru 0.381
+F_R        20     4.428e+05     1.49e+05          0.663   ar 0.368  prob_gru 0.387
+F_R        30     4.486e+05     1.49e+05          0.668   ar 0.344  prob_gru 0.370
+CoPx_R      1      0.007736      0.00435          0.438   ar 0.391  prob_gru 0.386
+CoPx_R      5       0.01112      0.00435          0.609   ar 0.436  prob_gru 0.435
+CoPx_R     10       0.01294      0.00435          0.664   ar 0.410  prob_gru 0.409
+CoPx_R     20       0.01598      0.00435          0.728   ar 0.440  prob_gru 0.440
+CoPx_R     30       0.01541      0.00435          0.718   ar 0.454  prob_gru 0.455
+CoPy_R      1       0.01693     0.008718          0.485   ar 0.420  prob_gru 0.409
+CoPy_R      5       0.01975     0.008718          0.559   ar 0.484  prob_gru 0.477
+CoPy_R     10       0.02147     0.008718          0.594   ar 0.458  prob_gru 0.455
+CoPy_R     20       0.02378     0.008718          0.633   ar 0.486  prob_gru 0.482
+CoPy_R     30       0.02319     0.008718          0.624   ar 0.478  prob_gru 0.476
+
+HOW TO READ IT. Pure white noise has r(1) ~ 0 and a ceiling of exactly 0.500: no forecaster can beat persistence by more than that on noise. An observed skill close to the ceiling means the models are near the data's limit and the finding to report is the limit; an observed skill far below it means there is structure left to capture. The ceiling is conservative -- it assumes the smooth part is perfectly correlated frame to frame, which overstates the noise.

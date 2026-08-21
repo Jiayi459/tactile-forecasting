@@ -1,0 +1,66 @@
+clips scored: 2843 | models: ar, persistence, prob_gru, seasonal
+
+=== overall: R2 vs the class mean, per channel ===
+model                     F_R       CoPx_R       CoPy_R
+ar                     0.6530       0.2654       0.1152
+persistence            0.5032      -0.3458      -0.7105
+prob_gru               0.6511       0.2631       0.1064
+seasonal               0.4599      -0.3694      -0.7214
+
+=== overall: skill vs persistence (>0 better) ===
+model                     F_R       CoPx_R       CoPy_R
+ar                     0.3016       0.4541       0.4827
+prob_gru               0.2977       0.4525       0.4776
+seasonal              -0.0871      -0.0175      -0.0064
+
+=== G2: smooth (299 clips) vs abrupt (2544) ===
+model            class             F_R       CoPx_R       CoPy_R
+ar               smooth         0.6302       0.2344       0.1449
+ar               abrupt         0.6551       0.2678       0.1106
+persistence      smooth         0.4628      -0.3833      -0.6040
+persistence      abrupt         0.5070      -0.3435      -0.7252
+prob_gru         smooth         0.6558       0.2300       0.1394
+prob_gru         abrupt         0.6501       0.2658       0.1014
+seasonal         smooth         0.3461      -0.4344      -0.6293
+seasonal         abrupt         0.4718      -0.3641      -0.7344
+
+=== G2: dR2 = R2(smooth) - R2(abrupt), with 2000x bootstrap CI ===
+Two independent resamples, one per class: the classes are disjoint sets of clips, so there is nothing to pair.
+model                               F_R                 CoPx_R                 CoPy_R
+ar               -0.0249 [-0.102, 0.048] -0.0334 [-0.109, 0.031]  0.0343 [-0.009, 0.075]
+persistence      -0.0441 [-0.173, 0.073] -0.0398 [-0.240, 0.139]  0.1211 [-0.015, 0.253]
+prob_gru          0.0057 [-0.070, 0.069] -0.0357 [-0.113, 0.031]  0.0381 [-0.010, 0.083]
+seasonal         -0.1257 [-0.330, 0.047] -0.0703 [-0.276, 0.105]  0.1051 [-0.035, 0.240]
+
+=== G2 sensitivity: dropping the contentious subset (816 clips) ===
+smooth 271 | abrupt 1756 | 97% of the dropped clips are abrupt -- the two arms are NOT trimmed equally, so this pair of tables is not a symmetric robustness check and the difference between them is mostly a change in what abrupt contains
+ar                    -0.0261      -0.0482       0.0417
+persistence           -0.0491      -0.0331       0.1495
+prob_gru               0.0183      -0.0512       0.0450
+seasonal              -0.1310      -0.0667       0.1332
+
+=== per action (>=30 clips), R2 of each model ===
+action                 n class             ar persistence    prob_gru    seasonal
+picking up           931 abrupt        0.3357     -0.2360      0.3382     -0.2579
+placing              246 abrupt        0.3606     -0.1028      0.3711     -0.1314
+pulling              240 abrupt        0.3336     -0.1701      0.3494     -0.1865
+pressing             227 abrupt        0.3363     -0.1993      0.2824     -0.2272
+pushing              150 abrupt        0.3254     -0.1766      0.3169     -0.1967
+holding              112 smooth        0.2762     -0.2605      0.2777     -0.3829
+grasping             106 abrupt        0.3445     -0.1560      0.3363     -0.1298
+adjusting             83 abrupt        0.3020     -0.2434      0.3085     -0.2722
+turning               83 abrupt        0.3705     -0.0965      0.3820     -0.1088
+touching              78 abrupt        0.3333     -0.2480      0.3265     -0.2206
+moving                77 abrupt        0.3379     -0.1310      0.3408     -0.2516
+removing              53 abrupt        0.3721     -0.1022      0.3696     -0.1595
+sliding               52 smooth        0.2933     -0.2880      0.3313     -0.3127
+
+=== leave-one-action-out: dR2 with that action removed from its class ===
+If dropping one action flips or erases the contrast, the contrast was that action, not the trait.
+  ar               full -0.0080 | without picking up: -0.0113 | without holding:  0.0166
+  persistence      full  0.0124 | without picking up: -0.0126 | without holding:  0.0407
+  prob_gru         full  0.0027 | without picking up:  0.0032 | without holding:  0.0286
+  seasonal         full -0.0303 | without picking up: -0.0548 | without holding:  0.0210
+
+wrote docs/opentouch_report_d1_mse.csv (129 rows)
+F is ~99.3% DC and the grid sits at 95% of full scale (D1 declined), so read every number above as 'how well the constant plus its drift was reproduced'.
