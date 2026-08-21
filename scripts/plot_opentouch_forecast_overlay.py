@@ -48,17 +48,27 @@ STYLE = {"prob_gru": "C3", "ar": "C0", "persistence": "0.45", "seasonal": "C2",
 
 
 def rolling(z, model, H):
-    """Non-overlapping 1 s forecasts across the whole clip -> (frame_idx, mu(len,C)).
+    """Non-overlapping 1 s forecasts across the whole clip -> (frame_idx, mu, sigma).
 
     The saved predictions are at every origin (stride 1); taking every H-th reproduces the
-    original's non-overlapping walk instead of drawing H overlapping copies of each frame."""
+    original's non-overlapping walk instead of drawing H overlapping copies of each frame.
+
+    sigma comes back too, and is None for the models that do not produce one. Plotting mu
+    alone made the probabilistic models look like they had failed to represent the signal's
+    fluctuation: after the D1 correction the target oscillates fast, mu is nearly flat -- as
+    the MSE-optimal point forecast of a mostly-unpredictable signal must be -- and the band
+    that says "and it wanders this far" was simply never drawn. Measured coverage is 96.6%,
+    so the truth is inside the band almost always; a figure without it understates what the
+    model knows and invites the wrong fix."""
     ors, mu = z["origins"], z[f"mu_{model}"]
+    sg = z[f"sigma_{model}"] if f"sigma_{model}" in z.files else None
     if len(ors) == 0:
-        return np.zeros(0, int), np.zeros((0, mu.shape[-1]))
+        return np.zeros(0, int), np.zeros((0, mu.shape[-1])), None
     sel = range(0, len(ors), H)
     idx = np.concatenate([np.arange(ors[j] + 1, ors[j] + 1 + H) for j in sel])
     val = np.concatenate([mu[j] for j in sel], 0)
-    return idx, val
+    sig = np.concatenate([sg[j] for j in sel], 0) if sg is not None else None
+    return idx, val, sig
 
 
 def main():
@@ -66,6 +76,12 @@ def main():
     ap.add_argument("--preds", default="runs/preds")
     ap.add_argument("--n-clips", type=int, default=3)
     ap.add_argument("--clips", help="explicit comma-separated clip indices")
+    ap.add_argument("--band", action="store_true",
+                    help="shade ±2σ where the model provides it (probGRU). Without it the "
+                         "figure shows only the mean and understates what the model knows.")
+    ap.add_argument("--sample", action="store_true",
+                    help="also draw one trajectory drawn from the predictive distribution, "
+                         "which is what should be compared to the real line's roughness")
     ap.add_argument("--min-seconds", type=float, default=3.0,
                     help="skip clips shorter than this; a two-second clip shows one segment")
     ap.add_argument("--compare", metavar="DIR", help="second arm, overlaid dashed")
@@ -112,9 +128,24 @@ def main():
                 y, fps = z["y"], float(z["fps"])
                 tt = np.arange(len(y)) / fps
                 ax.plot(tt, y[:, k], "k-", lw=1.3, label="real")
-                idx, mu = rolling(z, m, H)
+                idx, mu, sig = rolling(z, m, H)
+                if sig is not None and a.band:
+                    ax.fill_between(idx / fps, mu[:, k] - 2 * sig[:, k],
+                                    mu[:, k] + 2 * sig[:, k],
+                                    color=STYLE.get(m, "C1"), alpha=0.18, lw=0,
+                                    label=f"{m} ±2σ")
                 ax.plot(idx / fps, mu[:, k], "-", color=STYLE.get(m, "C1"), lw=1.3,
                         label=f"{m} 1 s forecast")
+                if sig is not None and a.sample:
+                    # One draw from the model's own predictive distribution. mu answers
+                    # "where is it heading"; a draw answers "what could a second of this
+                    # look like", and only the draw is comparable to the black line's
+                    # roughness. Seeded per (clip, model) so redrawing the figure does not
+                    # silently change it.
+                    rng = np.random.default_rng(abs(hash((os.path.basename(path), m))) % 2**32)
+                    dr = mu[:, k] + sig[:, k] * rng.standard_normal(len(mu))
+                    ax.plot(idx / fps, dr, "-", color=STYLE.get(m, "C1"), lw=0.7,
+                            alpha=0.55, label=f"{m} one draw")
                 ax.text(0.015, 0.93, m, transform=ax.transAxes, fontsize=8,
                         color=STYLE.get(m, "C1"), fontweight="bold", va="top")
                 if a.compare:
@@ -122,7 +153,7 @@ def main():
                     if os.path.exists(p2):
                         z2 = np.load(p2, allow_pickle=True)
                         if f"mu_{m}" in z2.files:
-                            i2, m2 = rolling(z2, m, H)
+                            i2, m2, _ = rolling(z2, m, H)
                             ax.plot(i2 / fps, m2[:, k], "--", color="tab:brown", lw=1.1,
                                     label=f"{m} ({a.compare_label})")
                 if ri == 0:
