@@ -6054,3 +6054,253 @@ held-out 单位是 (subject, session):这些 session 确实不在 train(实测 0
 **方法学备注**:(b)(c) 都是**只看目录结构会误判**的结构性陷阱,故用逐帧比对与集合运算实测而非推断。
 275-session 全采样脚本跑得太慢(远端 range,每 session 2 次请求),已中止——
 `probe_d256.py --full` 在 CRC 本地磁盘上做同样的事,几分钟即可覆盖全部 80,819 片。
+
+---
+
+## 2026-08-21 — 【计划,待批准】把本仓库从 `Jianyi2004/TouchAnything` 的 fork 中独立出来
+
+用户诉求:"这个 repo 里绝大部分文件都独立于 TouchAnything,我想独立出来"。以下先把事实查清,再给方案,
+**未经用户在 OPEN QUESTIONS 上表态,不动任何一行代码、不推任何一个远端。**
+
+### 一、现状实测(命令与结论)
+
+| 项 | 实测值 |
+|---|---|
+| `origin` | `https://github.com/Jiayi459/TouchAnything.git`(public) |
+| GitHub fork 标记 | `isFork = true`,parent = `Jianyi2004/TouchAnything` |
+| 本地 remote | 只有 `origin`,**没有配置 upstream**(所以本地早已不与上游同步) |
+| 提交数 | 179 = 上游 17 + 自己 162 |
+| 上游最后一笔 | `d74f9ef` (Jianyi Zhou, 2026-05-21);自己第一笔 `1509fe9` (2026-06-17) |
+| 追踪文件 | 668 = 自己新增 **628** + 上游遗留 **40** |
+| `.git` 体积 | pack 281 MB |
+| submodule | 3 个:`third_party/hamer` / `chumpy` / `EasyMocap`(**均未 init,工作树里不存在**) |
+
+**用户的判断被证实**:94% 的文件(628/668)是本项目自己的。上游遗留的 40 个文件是:
+`LICENSE`、`README.md`(上游论文主页)、`environment.yaml`、`.gitmodules`、
+`assets/` 10 个 demo 图与 gif(工作树 71 MB)、`scripts/core/` 9 个、`scripts/tools/` 5 个、
+`scripts/utils/` 2 个、`scripts/data_processing/` 2 个、5 个 `scripts/run_*.sh`、
+`scripts/visualize_cleaned_data.py`、`scripts/batch_process_wilor_simple.py`、`src/__init__.py`。
+
+**代码耦合只有一处是真的**(其余全是注释/文档里的路径提及,删了不影响运行):
+- `src/touchanything/data/glove_augmentation.py:15-20` —— `sys.path.insert` 到
+  `scripts/data_processing/`,再 `from glove_augmentation_realistic import ...`。
+  **若要删除上游 `scripts/`,必须先把这个模块搬进 `src/`。**
+- 纯文本提及:`touchanything_dataset.py:4,24`、`configs/.../touchanything_with_glove_aug_wilor.yaml:65`。
+
+**仓库为什么大**:历史里最大的 blob 一半是上游 demo 资产
+(`grasping_beverage...gif` 24.1 MB、`bouncing_ping_pong_ball...gif` 19.7 MB、几个中文名 `.mp4` 12–25 MB),
+另一半是**我们自己入库的** `data/actionsense_states/*.npy`(402 个文件,单个最大 25.8 MB,工作树 416 MB)。
+⇒ **换仓库本身不会让仓库变小**;要变小得另外做历史重写,而且主要该清的是我们自己的 `data/`。
+
+### 二、许可证约束(与选哪条路无关,必须遵守)
+
+上游是 MIT,且**上游代码仍留在树里**(至少 `scripts/core/`、`assets/`、`environment.yaml`)。
+MIT 要求保留版权声明与许可证文本。⇒ **无论走哪条路,`LICENSE` 必须留着,并且应在新 README 里写明
+"本项目基于 Jianyi2004/TouchAnything (MIT) 派生"。** 只有把上游文件全部删干净,才谈得上去掉这层义务
+(即便如此,保留出处说明仍是更稳妥的做法)。
+
+### 三、三条可选路径
+
+**A. 新建一个非 fork 的空仓库,改 `origin` 后整体推过去(推荐)**
+- 操作:GitHub 上 new repo(**不要用 fork/import**)→ `git remote set-url origin <新地址>` → `git push -u origin main`。
+- 得到:GitHub 上不再显示 "forked from Jianyi2004/TouchAnything";不再属于上游 fork network;
+  PR 默认目标不再指向上游;179 笔历史(含上游 17 笔)完整保留,上游作者署名也保留(符合 MIT 精神)。
+- 代价:仓库地址变(旧地址的 star/watch 不跟过来,本仓库目前也没什么可丢的);体积不变。
+- 风险:低,且可逆(旧 fork 先归档不删,确认无误再处理)。
+
+**B. 在 A 的基础上另开全新历史(orphan commit)**
+- 操作:`git checkout --orphan` → 一次性提交当前树 → 推到新仓库。
+- 得到:历史干净、无上游 commit。
+- 代价:**162 笔自己的提交历史全部丢失**(bisect/blame/"这行为什么这么写"都没了;SESSION_LOG.md 只能部分补偿)。
+  且树里仍有上游文件 ⇒ MIT 义务不变,反而少了 commit 层面的署名。**不推荐。**
+
+**C. 保留现有仓库地址,请 GitHub 断开 fork 关系**
+- 先去 repo Settings → General → Danger Zone 看有没有 "Leave fork network"(GitHub 近年对部分仓库开放了自助入口);
+  没有就开 support ticket 请求 detach。
+- 得到:地址/star/issue 全部保留,fork 标记消失。
+- 代价:**依赖 GitHub 侧处理,时间不可控**;且这条我没有把握说自助入口一定存在,需要用户去界面上确认。
+
+**与路径正交的清理项**(可选,建议独立成一轮):
+1. 删除用不到的上游遗留(先搬 `glove_augmentation_realistic.py` 进 `src/`,再删 `scripts/core` 等);
+2. 重写 `README.md`(现在挂的是上游论文与作者名单,已经名不副实);
+3. 删掉 `.gitmodules` 里三个从未 init 的 submodule;
+4. `data/actionsense_states/` 402 个 npy 该不该在 git 里——这是仓库体积的真正大头。
+
+### OPEN QUESTIONS(等用户回答后才动手)
+
+- **Q1 走哪条路?** A(新空仓库+保留全历史,推荐)/ B(全新历史)/ C(请 GitHub 断开 fork)。
+- **Q2 新仓库叫什么、public 还是 private?** 现名 `TouchAnything` 会继续和上游撞名,建议改一个反映本项目
+  (触觉可预测性/预测研究)的名字。
+- **Q3 旧 fork `Jiayi459/TouchAnything` 怎么处理?** 归档保留 / 删除 / 原样留着。
+- **Q4 上游遗留文件与 `data/` 大文件,这一轮要不要一起清?** 还是先只做"独立",清理另开一轮。
+
+### 2026-08-21续3 — 【方法学裁定草案,待用户确认】统一全数据集的 skill 估计量
+
+用户裁定:**比那四个 OQ 更重要的是,所有数据集算 skill 的方法必须一样,要先定一种。**
+以下是我的清点、我的选择与理由。**本条仍只做分析,未改任何代码。**
+
+---
+
+#### 一、先清点:仓库里现在有 **5 个互不相同的 skill 估计量**,在 4 个轴上都不一致
+
+| # | 位置 | 参照物 | 聚合单元 | 掩码 | 产出 |
+|---|---|---|---|---|---|
+| 1 | `src/actionsense/eval_harness/{metrics,evaluate}.py`(**冻结**) | persistence / seasonal / ar | 逐帧池化 over (N,H) | ✅ `valid_mask` | `docs/harness_baselines.csv` |
+| 2 | `src/opentouch/{metrics,evaluate}.py`(#1 的逐字节 fork) | 同上 | 同上 | ✅ | `docs/opentouch_cv4*.csv` |
+| 3 | `src/opentouch/aggregate.py` | class_mean / train_mean / clip_mean(R²)或另一预测器(skill) | **逐 clip 等权,ratio-of-means** | ✅ | `docs/opentouch_report*.csv` |
+| 4 | `src/actionsense/state_forecast.py::skill_per_feature`;`src/actionsense/tactile_map/train.py::evaluate` | persistence(后者在**残差空间**,代数等价) | 逐帧池化 | ❌ **无掩码** | `docs/action_dynamics_results*.csv`, `docs/tactile_map_*.csv` |
+| 5 | `src/tactile_pixel/tactile_utils.py::horizon_metrics` | persistence = 最后输入帧 | 逐样本池化,逐 h | ✅(有效 taxel) | `docs/RESULTS.md` |
+
+**#4 无掩码这一条此前未被记录**:`tactile_map/train.py::evaluate`(第 110-115 行)直接
+`em.mean((0,1)) / ep.mean((0,1))`,**没有调用 `valid_mask`**。故 ActionSense 的 tactile_map/
+action_dynamics 那几张表里,**CoP 的 skill 把 CoP 未定义的低力帧也算进去了**,与 harness 的
+`docs/harness_baselines.csv` 不是同一个点集。这是必须统一的直接理由之一,不只是"美观问题"。
+
+---
+
+#### 二、"统一"要在四个轴上分别裁定,不是选一个公式
+
+**轴 A 参照物** / **轴 B 聚合单元** / **轴 C 点集(掩码)** / **轴 D 前瞻时间的刻度**。
+公式相同但任何一轴不同,数字都不可比。
+
+##### 轴 A — 裁定:**headline 用 persistence;`class_mean` 只留给 G2**
+
+理由是**可比性的定义级问题**:`class_mean` 是**被计分的那批 clip 的属性**,不是信号的属性。
+换一批 clip、换一个数据集,分母就换了。本项目已经在这上面吃过一次亏——D1 之前 R²≈0.87–0.93,
+而日志(2026-08-18 E5)自己的结论是它只能读作"对'常数+其漂移'的复现程度"。
+persistence 则是**信号自身的零阶零假设**,定义与被计分的人群无关。
+→ **跨数据集 headline = skill vs persistence。**
+→ **G2 的 ΔR² 继续用 `class_mean`**:那是**同一数据集内**的类别对照,"每类用自己的方差当分母"
+   正是 class-specific R² 的定义(`aggregate.py` Q1 已裁定)。**两者是两件事,不冲突。**
+
+##### 轴 B — 裁定:**逐 clip 等权 ratio-of-means(即 `aggregate.py` 的算法),放弃逐帧池化**
+
+**决定性理由:逐帧池化没有合法的重采样单元。** stride=1、H=30 时**同一帧是至多 30 个窗口的目标**,
+窗口之间高度重叠,clip 内又有 r(1)≈0.3 的自相关。**在帧上做 bootstrap 得到的 CI 会严重偏窄。**
+而 G2 的全部推断(ΔR² 的 CI 跨 0)都建立在 bootstrap 上 → **逐帧池化在本项目根本支撑不了推断。**
+次要理由:OpenTouch clip 长度跨 87 倍(0.53 s–46 s,`aggregate.py` Q2),逐帧池化下这个数字
+描述的是长 clip;而**长度分布是逐数据集不同的**,所以逐帧池化连"同一公式"都保证不了同一含义。
+
+##### 轴 C — 裁定:**一律用 harness 的 `valid_mask`**,#4 的两处必须补上
+
+##### 轴 D — 裁定:**前瞻时间用秒,不用帧序号;跨数据集表只在公共秒格点上取**
+
+**这是最容易被漏掉、但确实存在的不可比。** 两边的 `horizon_s` 都是 1.0 s(好消息),但:
+- ActionSense:`downsample: 3` → **10 Hz,H=10 步**,`h=1` = **100 ms**;
+- OpenTouch:`downsample: 1` → **30 Hz,H=30 步**,`h=1` = **33 ms**。
+
+→ **逐 h 的对照是错位的**(h=1 不是同一件事);
+→ 更隐蔽:现在的 `horizon_step="all"` 标量是在 h=1..H 上平均,**两边平均的是不同的前瞻网格**
+  (10 个点 vs 30 个点,且 OpenTouch 那 30 个点里挤满了容易的短前瞻)。**即使公式完全一致,
+  这个 "all" 标量也不可比。**
+**精确修法,且无需重训任何模型**:30 Hz 下 0.1 s = 3 帧,故对 OpenTouch 取
+**h ∈ {3,6,9,…,30}** 即得到与 ActionSense **逐点重合**的秒格点 {0.1,0.2,…,1.0} s。
+这是对已保存预测张量的**纯行选择**。
+**并建议取消 "all" 这个标量**;若必须要一个数,取 **lead = 1.0 s**(config 声明的 horizon 本身),
+一个定义明确的前瞻优于一个在网格上取的平均。
+
+---
+
+#### 三、可行性:**不需要动任何冻结文件**
+
+`src/actionsense/` 自 2026-08-10 起从不编辑,而 `eval_harness/baselines/base.py` **没有**
+OpenTouch fork 里那个 `predict_series_by_clip`,即 ActionSense 侧丢失了 clip 归属。
+**但它可以被重建,不必改冻结代码**:`origins(T, cfg)` 是纯函数,且 `predict_series` 按
+`sorted(data.items())` 迭代([base.py:57](src/actionsense/eval_harness/baselines/base.py#L57)),
+**顺序完全确定**。故按各 recording 的长度重放 `origins` 即可还原 `clip_ids`,再喂给
+`aggregate.clip_stats`。**冻结文件零改动。**
+
+另:`src/opentouch/aggregate.py` **不是任何冻结文件的 fork**(其 docstring 明说 "NEW MODULE"),
+且它的接口已经是数据集无关的——只吃 `(ytrue, mask, clip_ids, preds)` 数组。
+**把它提升为共享模块是零语义风险的**,不触犯"不改 actionsense"的规矩。
+
+---
+
+#### 四、跨数据集统一后,一行报告长什么样
+
+对每个 `(dataset, model, channel, lead_s)`:
+
+| 列 | 含义 | 为什么必须在表里 |
+|---|---|---|
+| `MSE` | 原始误差 | 唯一不依赖参照物的量 |
+| `skill` = S(model; persistence) | **headline** | 逐 clip 等权、掩码后、ratio-of-means |
+| `skill_CI` | clip 级 bootstrap | 轴 B 的存在理由 |
+| `R2_pers` = S(persistence; class_mean) | **参照物本身值多少钱** | 没有它,skill=0.48 无法判断是模型强还是参照物弱(2026-08-21续2 §二) |
+| `FAS` = skill / (1 − v_e/MSE_pers) | 占可达上限的比例 | 唯一有希望**跨数据集真正可比**的量 |
+
+**一条必须说清的保留意见**:即使四个轴全部统一,`skill vs persistence` 仍然**不是难度无关的**——
+persistence 的好坏取决于传感器噪声与采样率(同一数据集内 F 的 R²(pers)=0.50、CoPy=−0.71,
+差异已经如此之大)。**真正跨数据集可比的是 FAS**,因为它用噪声地板 v_e 归一。
+但 FAS 依赖白噪声假设(OQ-M4 存疑)。
+**故建议的分工:`skill` 作 headline(稳健、无附加假设),`FAS` 作解读(带假设,须与假设同时出现)。**
+
+---
+
+#### 五、范围上的一处反对意见
+
+"所有 dataset 用同一种 skill" 对**估计量**成立,但对**数字**不成立:
+`src/tactile_pixel` 的 skill 是 **21×21 压力图上的逐 taxel MSE**,目标空间与 F/CoP 力矩空间不同。
+**可以共用同一套配方**(persistence 参照 + 逐样本(此处 = 逐 trajectory)等权 + 掩码 + 秒刻度),
+**但它的数值与 moment-space 的 skill 不可放进同一列比较**。
+建议:配方统一、表分开,并在文中明说这两个数不是同一个量。(EgoTouch 已 deprecated,不阻塞。)
+
+---
+
+#### 六、落地顺序(全部不占 GPU,全部作用于已保存的预测)
+
+1. `aggregate.py` 提升为共享模块(纯移动 + import 修正)。
+2. 新增一个非冻结的 ActionSense 事后计分脚本:重建 `clip_ids` → `clip_stats` → 同一份表。
+3. 给 `#4` 的两处补掩码,或直接改为走同一条事后计分路径(更可取:少一个估计量)。
+4. 秒刻度对齐:OpenTouch 取 h∈{3,…,30};取消 "all" 标量。
+5. `docs/skill_comparison.md` 按新口径重写(该文件目前混用了 #1/#3/#4 的数字)。
+6. 天花板脚本按 §2 轴 B/C/D 重算(即 OQ-M1/M2 的落地)。
+
+---
+
+#### 七、OPEN QUESTIONS(接 OQ-M1..M4)
+
+- **OQ-M5**:同意"headline = 逐 clip 等权 skill vs persistence,`class_mean` R² 只留给 G2"吗?
+  这会改变论文正文引用的数字(ar/F:0.367 → 0.302),属于已报数字的口径修订。
+- **OQ-M6**:共享模块放哪?建议新建 `src/eval/`(与 `actionsense`/`opentouch`/`tactile_pixel` 平级),
+  而不是让别的包 import `src.opentouch.aggregate`。
+- **OQ-M7**:是否取消 `horizon_step="all"` 标量、改用 lead=1.0 s?
+- **OQ-M8**:`#4`(action_dynamics / tactile_map)的历史数字要不要重算并**修订已写入文档的值**?
+  它们目前无掩码,CoP 那几列与 harness 不同源。
+
+### 2026-08-21续 — 【已执行完毕】独立完成:新仓库 `Jiayi459/tactile-forecasting`,旧 fork 已归档
+
+用户对 OPEN QUESTIONS 的裁决:**Q1 = A**(新建非 fork 空仓库 + 保留全历史)、**Q2 = 改名 + private**、
+**Q3 = 旧 fork 先归档保留**、**Q4 = 这一轮只做独立,清理另开一轮**。仓库名后续定为 `tactile-forecasting`。
+
+**实际执行的动作(按序)与验证结果:**
+
+1. `gh repo create Jiayi459/tactile-forecasting --private` —— 建的是**空仓库**,不是 fork/import。
+   建后即验证:`isFork: false`、`visibility: PRIVATE`、`isEmpty: true`。
+2. `git remote rename origin oldfork` + `git remote add origin <新地址>`。
+   **刻意保留 `oldfork` 作为安全网**,而不是直接 `set-url` 覆盖。
+3. `git push -u origin main` —— 281 MB,前台跑满 10 分钟未完成(超时,`git ls-remote` 确认远端**无任何 ref**,
+   即未部分落地),改后台重跑,**exit 0**。
+4. 简介按用户更正改为三个数据集的正确列举:**ActionSense / OpenTouch / d256**(初版误写成 EgoTouch)。
+5. `gh repo archive Jiayi459/TouchAnything --yes` —— 旧 fork 现为 `isArchived: true`(只读,仍 public,未删)。
+
+**验证(不是"应该成功",是实测):**
+
+| 检查项 | 结果 |
+|---|---|
+| 本地 `main` SHA | `dc335576917e7032e5be5bbf4e15adc4a3b3926b` |
+| 远端 `main` SHA | `dc335576917e7032e5be5bbf4e15adc4a3b3926b` ✅ 一致 |
+| 远端 `main` 提交数 | **179**(= 本地 179,上游 17 + 自己 162 全部保留)|
+| 新仓库 fork 标记 | `isFork: false` ✅ 已脱离上游 fork network |
+| 上游追踪分支 | `main` → `origin/main`(指向新仓库)|
+| 旧 fork | `isArchived: true`,`isFork: true`(归档保留,未删)|
+
+**给用户的三点结论(已在对话中说明):**
+- 本地目录不需要重新 clone、不需要改名;`git push` 默认已走新仓库,旧地址只有显式 `git push oldfork` 才会碰到。
+- 后台大推送锁定的是启动时刻的 `dc33557`;期间新增的 commit 需要**再 push 一次**(只传增量)。
+- **CRC 上光 `git remote set-url` 不够**:原仓库 public 所以无需凭据,新仓库 private,`fetch/pull` 会卡认证。
+  已给出 SSH deploy key 方案(集群上不留明文 token),或 fine-grained 只读 PAT(不推荐,明文落在 `.git/config`)。
+
+**遗留(等用户决定,未擅自改动)**:
+- `scripts/crc/README.md:32` 仍硬编码旧 clone 地址 `https://github.com/Jiayi459/TouchAnything.git`,已失效。
+- 三、四两节里列的清理项(README 重写、删上游遗留代码、`data/` 402 个 npy 是否出库)按 Q4 裁决**另开一轮**。
+- MIT 义务未变:上游代码仍在树里 ⇒ `LICENSE` 必须保留,新 README 应写明派生自 `Jianyi2004/TouchAnything`。
