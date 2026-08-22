@@ -46,6 +46,6 @@ eval:
 paths:
   states_root: data/actionsense_states
   split_file: data/actionsense_states/splits.json
-  out_csv: docs/harness_baselines.csv      # tidy long table; a .parquet twin is written alongside
+  out_csv: docs/actionsense/harness_baselines.csv      # tidy long table; a .parquet twin is written alongside
 
 actions: [slice, peel]

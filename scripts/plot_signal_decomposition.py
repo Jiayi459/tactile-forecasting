@@ -65,7 +65,7 @@ def main():
         ax.set_xlabel("time (s)")
     fig.suptitle("Physical-state signal and its slow (low-pass) / fast (high-pass) split", fontsize=13)
     fig.tight_layout(rect=[0, 0, 1, 0.97])
-    out = "docs/signal_decomposition.png"
+    out = "docs/actionsense/signal_decomposition.png"
     fig.savefig(out, dpi=120)
     print(f"[done] {out}")
     # quick numbers

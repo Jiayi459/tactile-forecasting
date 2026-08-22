@@ -32,7 +32,7 @@ def main():
     ap.add_argument("--hidden", type=int, default=48)
     ap.add_argument("--epochs", type=int, default=80)
     ap.add_argument("--seed", type=int, default=1)
-    ap.add_argument("--out", default="docs/test_results.png")
+    ap.add_argument("--out", default="docs/actionsense/test_results.png")
     args = ap.parse_args()
     import torch
     import matplotlib

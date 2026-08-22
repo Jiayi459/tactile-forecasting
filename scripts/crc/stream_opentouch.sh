@@ -8,7 +8,7 @@
 #
 # Google Drive rate-limits bulk pulls, so a failed shard is LOGGED and skipped, never
 # fatal; rerunning picks up only what is missing (extraction is per-shard and append-only).
-#
+
 # Usage:
 #   pip install gdown h5py numpy
 #   bash scripts/crc/stream_opentouch.sh [WORKDIR]     # default ~/opentouch

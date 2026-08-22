@@ -60,7 +60,7 @@ def main():
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--outdir", default="runs")
-    ap.add_argument("--csv", default="docs/action_dynamics_results.csv")
+    ap.add_argument("--csv", default="docs/actionsense/action_dynamics_results.csv")
     args = ap.parse_args()
 
     subs = [s.strip() for s in args.actions.split(",")]

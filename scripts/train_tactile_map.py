@@ -29,7 +29,7 @@ def main():
     ap.add_argument("--histories", default=None)
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--epochs", type=int, default=None)
-    ap.add_argument("--csv", default="docs/tactile_map_cv_results.csv")
+    ap.add_argument("--csv", default="docs/actionsense/tactile_map_cv_results.csv")
     args = ap.parse_args()
 
     cfg = load_config()

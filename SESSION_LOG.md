@@ -406,7 +406,7 @@ hold steady" ≠ "high forecasting skill." Must pin down the metric (OPEN Q1).
   `categorize_actions.py`). Per EgoTouch trajectory: persistence nMSE @h={1,5,15,30}, periodicity
   (max total-force autocorr, lag 10–45 frames), contact_migration (1−IoU active-taxel mask @h15).
   Composite `PI = z(−persH15)+z(periodicity)+z(−migr15)`. Groups by verb category AND temporal
-  pattern (Axis B); ranks; writes `docs/predictability_by_category.csv`.
+  pattern (Axis B); ranks; writes `docs/actionsense/predictability_by_category.csv`.
 - DISCARDED a constant-velocity skill proxy: `h·velocity` extrapolation blows up on impulsive
   tactile spikes (velSk ≈ −15..−37), noise-dominated → not a valid training-free skill proxy.
   A real skill-over-persistence number needs the GPU forecaster. Documented in script docstring.
@@ -429,7 +429,7 @@ hold steady" ≠ "high forecasting skill." Must pin down the metric (OPEN Q1).
 - `docs/ACTION_CATEGORIES.md` — unified cross-dataset taxonomy (ActionSense+OpenTouch+Force-Vision
   +EgoTouch) mapped into Axes A/B/C/D + empirical predictability table + feedback-target implication
   (B1-periodic actions are the good feedback targets: they have a "correct rhythm/force template").
-- `scripts/predictability_by_category.py`, `docs/predictability_by_category.csv`.
+- `scripts/predictability_by_category.py`, `docs/actionsense/predictability_by_category.csv`.
 - Saved OpenTouch/ActionSense/Force-Vision paper PDFs were parsed via pypdf (pdftoppm/Read-PDF
   unavailable on Windows) to extract exact taxonomies.
 
@@ -438,7 +438,7 @@ User: "do a and b".
 - (a) Ran probe `--max-per-task 0` → **1,929 sequences**. Ranking reproduces the sampled run
   almost exactly (Cut PI +6.02, Take +2.90, Inflate +2.62, Spray +2.46, Wash +2.37; bottom:
   Press/Click −6.67, Plug/Insert −4.86, Pinch −4.17, Fold −2.34, Push/Pull −2.28, Squeeze −2.11,
-  Grasp/Hold/Lift −2.08). → ranking is ROBUST to sampling. Wrote `docs/predictability_by_category_full.csv`.
+  Grasp/Hold/Lift −2.08). → ranking is ROBUST to sampling. Wrote `docs/actionsense/predictability_by_category_full.csv`.
 - (b) Wired the REAL forecaster for per-category confirmation:
   - NEW `src/tactile_forecast/categories.py` = single source of truth (VERB_CATEGORY, CORE_GRASP,
     categorize, TEMPORAL_PATTERN, all_categories). Pure stdlib (both `src/__init__.py` and
@@ -927,7 +927,7 @@ Reduced demo (epochs15/folds3, pasts 1&3, both hands, raw&highpass) — full run
 - PER-STEP: skill RISES with forecast horizon (+0.11 @0.1s -> +0.59 @1.0s). Correct + expected:
   skill is vs persistence-of-fast, which is strong at 0.1s (autocorr ~0.8) but collapses by 1s
   (fast reverses), so the model's ADVANTAGE grows with horizon.
-- Full per-(input_mode,hand,history,step,channel) breakdown -> docs/action_dynamics_results.csv.
+- Full per-(input_mode,hand,history,step,channel) breakdown -> docs/actionsense/action_dynamics_results.csv.
 NEXT: run full matrix on CRC (python scripts/check_leakage.py && python scripts/train_action_dynamics.py
 --actions Slice,Peel) for the honest causal numbers; compare raw vs highpass definitively.
 
@@ -935,7 +935,7 @@ NEXT: run full matrix on CRC (python scripts/check_leakage.py && python scripts/
 Honest causal run (sosfilt, warmup 5s, all 6 leakage checks PASS). NOTE: ran SLICE ONLY (45 clips)
 — the qsub `-v ACTIONS="Slice,Peel"` comma was split by UGE, dropping Peel; rerun `qsub
 scripts/crc/train_state_gpu.job` (no -v, defaults to Slice,Peel) to add Peel. Results ->
-docs/action_dynamics_results.csv (per input_mode x hand x history x forecast-step x channel).
+docs/actionsense/action_dynamics_results.csv (per input_mode x hand x history x forecast-step x channel).
 
 Pooled MEAN skill vs persistence-of-fast (per history, from the .o tables):
              1s     2s     3s     5s    10s
@@ -961,7 +961,7 @@ FINDINGS (causal, Slice):
 
 ### FULL CAUSAL RESULT — Slice+Peel (CRC job 1170576, 2026-07-10)
 Honest causal (sosfilt, warmup 5s, leakage checks pass), pooled Slice(45)+Peel(30)=75 clips.
-docs/action_dynamics_results.csv (per input_mode x hand x history x step x channel).
+docs/actionsense/action_dynamics_results.csv (per input_mode x hand x history x step x channel).
 
 avg-over-steps MEAN skill by (mode, hand, history):
              1s     2s     3s     5s    10s
@@ -998,7 +998,7 @@ Post-hoc sigma-scaling to fix overconfident bands (coverage was ~0.76-0.86 << 0.
 
 ### RIGOROUS CODE + RESULTS REVIEW (2026-07-10, on request: "is F prediction too good?")
 
-Scope: full review of action_dynamics pipeline + docs/action_dynamics_results.csv +
+Scope: full review of action_dynamics pipeline + docs/actionsense/action_dynamics_results.csv +
 forecast_F/CoPx/CoPy figures. New diagnostic: scripts/tmp_diag_predictability.py (torch-free).
 
 VERIFIED CORRECT (no leakage found):
@@ -1051,7 +1051,7 @@ OTHER ISSUES (secondary):
 - hand="active" (action_dynamics.py:63-64) picks the hand from the WHOLE-clip mean force
   (future info). Default in plot_action_forecast.py only; CSV runs use explicit left/right. OK
   offline, flag for any online claim.
-- STALE CSV: docs/action_dynamics_results.csv header has `coverage` (one col) but the current
+- STALE CSV: docs/actionsense/action_dynamics_results.csv header has `coverage` (one col) but the current
   train_action_dynamics.py writes coverage_raw+coverage_cal - the CSV predates the calibration
   fix; regenerate.
 - NO SUBJECT ID in the manifest (probe_actionsense.py:234-237): clip-level split mixes
@@ -1089,7 +1089,7 @@ at 1 s. The model has genuine (small) value only at ~0.2-0.5 s lead.
 3. **Raw WAS trained.** The sweep trains both input_modes every run (`train_action_dynamics.py`
    default `--input-modes raw,highpass`, driven by `train_state_gpu.job:34`). CSV has raw+hp rows;
    raw/highpass only changes the INPUT, both predict the same high-pass target.
-4. **Horizon plot delivered** — `scripts/plot_horizon.py` -> `docs/horizon_highpass.png`.
+4. **Horizon plot delivered** — `scripts/plot_horizon.py` -> `docs/actionsense/horizon_highpass.png`.
    Calibrated highpass, right hand, 3 s history -> 1 s ahead on test clip 6. Per channel shows:
    history window consumed (grey), true future (black), forecast mean+calibrated +/-2sigma (blue),
    persistence (dashed). sigma_scale=1.966. Forecast bends toward truth (F, CoP-x); persistence flat.
@@ -1187,10 +1187,10 @@ There are three places a forecast is produced; only the OVERLAY PLOT re-anchors:
            consecutive 1 s blocks, RE-ANCHORS each block to a fresh GROUND-TRUTH window + true seed
            every 1 s. This makes forecast_F/CoPx/CoPy.png visually HUG the real curve (error can't
            accumulate past 1 s) — a flattering VISUAL only; it does NOT change the skill numbers.
-  => docs/horizon_highpass.png (single anchor, Path A/B) is the HONEST picture; forecast_*.png is
+  => docs/actionsense/horizon_highpass.png (single anchor, Path A/B) is the HONEST picture; forecast_*.png is
      flattering. This resolved the "why do these plots look so different" question.
 
-### 4. Results — skill per config (calibrated CSV docs/action_dynamics_results.csv)
+### 4. Results — skill per config (calibrated CSV docs/actionsense/action_dynamics_results.csv)
 Mean skill over the 10 forecast steps (0.1..1.0 s); skill = 1 - MSE_model/MSE_persistence:
   mode/hand/hist    F     CoP-x  CoP-y  mean   cov
   highpass/right/1s 0.394 0.455  0.390  0.413  0.948   <- best
@@ -1209,8 +1209,8 @@ flattered; the RANKING should survive a tougher baseline but magnitudes will dro
 ### 5. Calibration status
 Coverage@2sd was overconfident (~0.80) -> post-hoc sigma-scaling lifted it to ~0.947 across the
 whole matrix, skill UNCHANGED (calibration rescales the band, not the mean). Two CSVs kept:
-  docs/action_dynamics_results.csv        = calibrated (coverage_raw + coverage_cal)
-  docs/action_dynamics_results_precal.csv = pre-calibration (recovered from git)
+  docs/actionsense/action_dynamics_results.csv        = calibrated (coverage_raw + coverage_cal)
+  docs/actionsense/action_dynamics_results_precal.csv = pre-calibration (recovered from git)
 results_summary.png panel (d): solid=raw coverage (~0.80), dashed=calibrated (~0.95), red=ideal.
 
 ### 6. File map (what each script is)
@@ -1222,7 +1222,7 @@ results_summary.png panel (d): solid=raw coverage (~0.80), dashed=calibrated (~0
   scripts/plot_results_summary.py  = 4-panel summary from the CSV (no training).
   scripts/plot_forecast_overlay.py = whole-clip rolling overlay (Path C, re-anchored; flattering).
   scripts/plot_horizon.py          = NEW: single-anchor honest view (history + 1 s forecast + band +
-      persistence + truth), per channel -> docs/horizon_highpass.png.
+      persistence + truth), per channel -> docs/actionsense/horizon_highpass.png.
   scripts/plot_test_results.py     = predicted-vs-true scatter per channel.
   scripts/probe_*.py               = per-dataset predictability probes (categorization phase).
   scripts/crc/train_state_gpu.job  = UGE batch job (git pull; check_leakage; run sweep; writes to
@@ -1342,13 +1342,13 @@ BUILT (all imported from ONE place; harness is frozen):
                   ar (per-channel OLS AR(p) on normalized signal, fit TRAIN, order selected on
                   VAL, recursive causal forecast; numpy lstsq, no statsmodels).
     evaluate.py   fit(TRAIN)->select(VAL)->score(TEST once); determinism assert (two runs
-                  identical); writes docs/harness_baselines.csv with config_hash.
+                  identical); writes docs/actionsense/harness_baselines.csv with config_hash.
 - tests/test_harness.py (pytest, 6 tests, ALL PASS): seasonal exact on sine; seasonal selects
   true period; persistence MSE matches analytic 1-cos(2*pi*h/T); AR(2) coeff recovery + beats
   persistence; CoP masking excludes low-force frames from CoP but keeps force; causality (future
   corruption never changes a forecast issued at t) + non-vacuous past-dependence sanity.
 
-RESULTS (docs/harness_baselines.csv, config_hash ccb0d9c5, TEST split, mean skill vs persistence):
+RESULTS (docs/actionsense/harness_baselines.csv, config_hash ccb0d9c5, TEST split, mean skill vs persistence):
   persistence  nRMSE 0.517  (reference, skill 0)
   seasonal(3)  nRMSE 0.556  skill -0.13..-0.18  -> WORSE than persistence: raw aggregate force/CoP
                is NOT cleanly periodic at a single global period; copying a period back loses to
@@ -1424,10 +1424,10 @@ Reworked eval_harness/ (reused loaders/splits/masking; changed baselines + outpu
     per group on VAL by iterated H-step nMSE; recursive causal multi-step forecast.
 - metrics: added masked_horizon_mae. evaluate: skill vs persistence AND seasonal AND ar on identical
   masked frames; tidy LONG table [model,channel,hand,horizon_step,metric,value,n_frames,config_hash]
-  -> docs/harness_baselines.csv + .parquet (990 rows); sidecar _fitparams.csv (seasonal T + AR order
+  -> docs/actionsense/harness_baselines.csv + .parquet (990 rows); sidecar _fitparams.csv (seasonal T + AR order
   per group). External-model scoring: --model-preds preds.npz (standard target-time-indexed format).
   Determinism asserted (two runs identical).
-- scripts/plot_harness.py (plots only): docs/harness_skill_bars.png + harness_skill_curves.png.
+- scripts/plot_harness.py (plots only): docs/actionsense/harness_skill_bars.png + harness_skill_curves.png.
 - tests/test_harness.py: 7 pytest (added seasonal-fallback; group-aware). ALL PASS.
 - src/tactile_forecast/eval_harness/README.md: how to score any future model.
 
@@ -1583,8 +1583,8 @@ Headlines: (1) CNN > flatten at EVERY history -> the contact-patch SPATIAL STRUC
 predicting the CHANGE in F/CoP (answers the core question). (2) CNN improves with history (+0.05->+0.08).
 (3) flatten stuck at persistence. (4) AR on aggregates (+0.18) STILL beats map+CNN (+0.08) -> spatial
 structure helps vs flattening but hasn't beaten the strong aggregate baseline yet.
-Artifacts: docs/tactile_map_results.csv (9 models, tidy), docs/tactile_map_skill_vs_history.png,
-docs/tactile_map_skill_bars.png, scripts/plot_tactile_map.py. Ran on CPU locally (~25 min/sweep;
+Artifacts: docs/actionsense/tactile_map_results.csv (9 models, tidy), docs/actionsense/tactile_map_skill_vs_history.png,
+docs/actionsense/tactile_map_skill_bars.png, scripts/plot_tactile_map.py. Ran on CPU locally (~25 min/sweep;
 models tiny). NEXT ideas: give CNN more capacity / combine map+aggregate (hybrid) to try to beat AR;
 probabilistic head; or CRC GPU for a bigger sweep.
 
@@ -1596,14 +1596,14 @@ action_dynamics protocol onto the tactile-map CNN:
   5-fold CV by recording (norms+model fit on TRAIN; sigma calibrated on a VAL subset of TRAIN; skill
   vs persistence + coverage@2sd measured on the held-out TEST fold). Persistence == residual 0, so
   skill = 1 - MSE(mu)/MSE(resid). Uses ALL 75 map recordings (not the frozen 15-rec test).
-- scripts/train_tactile_map.py: CV sweep (encoder x history x folds) -> docs/tactile_map_cv_results.csv
+- scripts/train_tactile_map.py: CV sweep (encoder x history x folds) -> docs/actionsense/tactile_map_cv_results.csv
   [encoder,history_s,forecast_step_s, 6x <ch>_skill, mean_skill, coverage_raw, coverage_cal].
 - scripts/plot_tactile_map.py: skill-vs-history + coverage(raw/cal) from the CV CSV.
 - scripts/crc/train_tactile_map_gpu.job: symlinks ~/actionsense/states/clip_*.npy into data dir,
   runs the CV sweep on GPU (30 trainings = 2 enc x 3 hist x 5 folds; GPU now genuinely warranted).
 - tests: 9 pass (model shape now (mu,lv) clamped). Local smoke (2 folds, 3 ep, 1s): flatten -0.049,
   cnn +0.032; coverage 0.90->0.95 after calibration (works).
-SUPERSEDES the earlier deterministic frozen-split map result (docs/tactile_map_results.csv). Full CV
+SUPERSEDES the earlier deterministic frozen-split map result (docs/actionsense/tactile_map_results.csv). Full CV
 run to be done on CRC GPU (qsub train_tactile_map_gpu.job) with all data + 80 epochs, then pull the
 CSV + plot locally.
 
@@ -1638,12 +1638,12 @@ Auth: NetID password + Google Authenticator 2FA (Okta/authenticator) at the prom
 ### OVERFITTING CHECK (2026-07-22) — F/CoP probGRU overfits badly at 80 epochs (no early stopping)
 scripts/plot_fcop_loss_curve.py: reuses action_dynamics (load_pooled/Norm/windows/ProbGRU + NLL),
 splits clips 70/15/15, logs train/val/test NLL + MSE per epoch. Config raw/right/3s, 80 epochs.
-FINDING (docs/fcop_loss_curve.png): classic overfitting on BOTH metrics.
+FINDING (docs/actionsense/fcop_loss_curve.png): classic overfitting on BOTH metrics.
   MSE (mean, drives skill): min-val @epoch 10 (0.729) -> rises to 0.937 by epoch 80 (train 0.430).
   NLL (mean+variance):      min-val @epoch 10 (0.220) -> rises to ~1.0 by epoch 80 (train -0.236).
   val & test track each other closely (no distribution mismatch); both diverge from train after ~ep 10.
 IMPLICATION: action_dynamics.train runs 80 epochs and returns the FINAL model (NO early stopping) ->
-the F/CoP sweep results (docs/action_dynamics_results.csv, the +0.40 skills) come from OVERFIT models;
+the F/CoP sweep results (docs/actionsense/action_dynamics_results.csv, the +0.40 skills) come from OVERFIT models;
 early stopping at ~epoch 10 would improve skill AND calibration. The NEW tactile_map train.py already
 early-stops (keeps best-val), so the CRC tactile-map CV run is NOT affected -- only the old probGRU is.
 RECOMMENDATION: add early stopping (keep best-val weights) to action_dynamics.train + re-run the F/CoP
@@ -1656,7 +1656,7 @@ DEMONSTRATION (raw/right/3s, same 70/15/15 clip split, 80 epochs, held-out TEST)
   early-stop (best-val):  TEST mean skill +0.546, coverage 0.93  (per-ch F/x/y 0.54/0.55/0.54)
   overfit (80ep final):   TEST mean skill +0.401, coverage 0.81  (per-ch 0.30/0.49/0.42)
 => early stopping lifts skill +0.40->+0.55 (~36% rel) AND calibration 0.81->0.93; the force channel
-(most overfit) recovers most (0.30->0.54). The old F/CoP sweep numbers (docs/action_dynamics_results.csv)
+(most overfit) recovers most (0.30->0.54). The old F/CoP sweep numbers (docs/actionsense/action_dynamics_results.csv)
 were depressed by overfitting. TODO: re-run the full F/CoP sweep with early stopping to refresh the CSV.
 Baselines reminder: persistence = last-value (skill-0 reference, per-split); linear AR (harness, raw
 6-dim) = +0.18 mean skill (best right-CoP-x +0.25). Split confirmed leak-free (by clip, norm train-only).
@@ -1670,14 +1670,14 @@ Full CRC GPU run of the 5-fold probabilistic CV (train_tactile_map_gpu.job, all 
 => CNN beats flatten at EVERY history (spatial contact-patch structure contributes), now under the
 rigorous 5-fold + probabilistic + sigma-calibration protocol; bands calibrate cleanly to 0.95. CNN
 best at 10s (+0.063); flatten stays just below persistence. Consistent with the earlier deterministic
-frozen-split result (cnn +0.05..+0.08). Artifacts: docs/tactile_map_cv_results.csv, _skill_vs_history.png,
+frozen-split result (cnn +0.05..+0.08). Artifacts: docs/actionsense/tactile_map_cv_results.csv, _skill_vs_history.png,
 _coverage.png. (AR on aggregates +0.18 still the ceiling -- map+CNN helps vs flatten but not vs AR yet.)
 Added scripts/plot_tactile_map_loss_curve.py (train/val/test NLL+MSE per epoch for both encoders) to
 check whether the map model overfits like the F/CoP one (running).
 
 ### LOSS CURVES (2026-07-22) — tactile-map models overfit almost immediately (flatten ep1, cnn ep4)
 scripts/plot_tactile_map_loss_curve.py (3s history, 60 ep, split by clip 52/11/12, train-only norm,
-eval cap 2500). docs/tactile_map_loss_curve.png:
+eval cap 2500). docs/actionsense/tactile_map_loss_curve.png:
   flatten: min-val NLL @epoch 1; final NLL tr/va/te = -0.956/1.258/1.411 (memorizes instantly, val
            rises from epoch 1 -> NO generalization window).
   cnn:     min-val NLL @epoch 4; final NLL tr/va/te = -0.926/0.969/1.407 (val MSE dips/holds ~4 epochs
@@ -1690,8 +1690,8 @@ best-val) is essential (else val NLL ~1.3-1.4 by ep60). NEXT to widen the CNN le
 (activities/subjects), regularization (dropout/weight-decay/smaller d), or glove augmentation.
 
 ### F/CoP EARLY-STOPPED SWEEP (2026-07-23, CRC) — cross-validated, big improvement + corrects a finding
-Pulled runs/action_dynamics_results.csv -> docs/action_dynamics_results_earlystop.csv. Compared to the
-OLD overfit docs/action_dynamics_results.csv (mean skill vs persistence-of-fast, 5-fold CV):
+Pulled runs/action_dynamics_results.csv -> docs/actionsense/action_dynamics_results_earlystop.csv. Compared to the
+OLD overfit docs/actionsense/action_dynamics_results.csv (mean skill vs persistence-of-fast, 5-fold CV):
   Early stopping improved skill in EVERY config by +0.10..+0.23. Examples:
     raw/right 1s   +0.410 -> +0.513   highpass/right 3s +0.369 -> +0.519   raw/left 10s +0.219 -> +0.449
   New best ~+0.51-0.52 (right hand), ~+0.46 (left). Coverage stayed ~0.94-0.95 (calibration handled both).
@@ -1700,11 +1700,11 @@ history (right 1s +0.41 -> 10s +0.31). New (early-stopped): skill is ~FLAT acros
 -> 10s +0.50); the gain is LARGEST at 10s (+0.18..+0.23), exactly where overfitting was worst. So longer
 history was only losing because more input -> more overfitting without early stopping.
 NOTE: these probGRU skills are vs persistence-of-fast on the FAST 3-dim 1-hand target -- NOT directly
-comparable to the harness AR (+0.18, raw 6-dim target). docs/action_dynamics_results_earlystop.csv is the
-honest result; docs/action_dynamics_results.csv (overfit) kept for the before/after diff.
+comparable to the harness AR (+0.18, raw 6-dim target). docs/actionsense/action_dynamics_results_earlystop.csv is the
+honest result; docs/actionsense/action_dynamics_results.csv (overfit) kept for the before/after diff.
 
 ### BEFORE/AFTER early-stopping loss figure (2026-07-23)
-docs/fcop_earlystop_comparison.png (raw/right/3s): same loss curve, two DEPLOYED checkpoints marked.
+docs/actionsense/fcop_earlystop_comparison.png (raw/right/3s): same loss curve, two DEPLOYED checkpoints marked.
 AFTER early-stop (deploy min-val ep10): test NLL 0.217, test MSE 0.737. BEFORE (deploy final ep80):
 test NLL 1.036, test MSE 0.951. Early stopping recovers +0.818 NLL / +0.215 MSE on the held-out test
 by deploying the min-val checkpoint instead of the overfit final one. (Early stopping = checkpoint
@@ -1736,7 +1736,7 @@ DIFFERENT target/scale, not comparable to the fast-target MSEs above.
 
 ### DEFINITIVE COMPARISON (2026-07-23) — forecasting the raw 6-dim F/CoP, all same target/split/protocol
 Added aggregate-F/CoP encoder (neural AR: GRU on the 6-dim history) scored by the same 5-fold
-probabilistic CV as the map models. FOUR-WAY mean skill vs persistence (docs/forecaster_comparison.png):
+probabilistic CV as the map models. FOUR-WAY mean skill vs persistence (docs/actionsense/forecaster_comparison.png):
   history | linear-AR | GRU-aggregate | CNN-map | flatten-map | persistence
      1s   |  +0.180   |   +0.120      | +0.052  |  -0.040     |   0
      3s   |  +0.180   |   +0.138      | +0.050  |  -0.025     |   0
@@ -1752,7 +1752,7 @@ CONCLUSIONS:
     earlier finding -- but not enough to reach the aggregate, let alone AR.
  4. GRU-aggregate improves slightly with history (+0.12->+0.14) then plateaus, still below AR.
 Coverage ~0.94-0.95 (calibrated) for all learned models. Fast-component probGRU (action_dynamics)
-kept separate/untouched. Artifacts: docs/forecaster_comparison.png, tactile_map_cv_results_aggregate.csv,
+kept separate/untouched. Artifacts: docs/actionsense/forecaster_comparison.png, tactile_map_cv_results_aggregate.csv,
 scripts/plot_forecaster_comparison.py.
 
 ### RIGOR CHECK (2026-07-23) — GRU-aggregate vs linear AR: same target/input, protocol now matched
@@ -1764,7 +1764,7 @@ the FROZEN split (harness fit_and_forecast on splits.json, test 15), while the G
 FIXED: ran AR on the IDENTICAL 5-fold folds (same recs order, same seed=0 fold_of, same val carve) ->
 AR mean skill = +0.166 (per-fold 0.15-0.19, stable). So protocol-matched AR = +0.166 (vs +0.180 frozen).
 Ranking UNCHANGED and now fully apples-to-apples: AR +0.166 > GRU-aggregate +0.12-0.14 > CNN-map
-+0.05-0.06 > flatten-map -0.03 > persistence 0. Updated docs/forecaster_comparison.png (AR line 0.166).
++0.05-0.06 > flatten-map -0.03 > persistence 0. Updated docs/actionsense/forecaster_comparison.png (AR line 0.166).
 
 ---
 
@@ -1830,7 +1830,7 @@ Method: identical protocol to sec.2 (5-fold CV, probabilistic, residual, early-s
 input = past `t_in` frames of the raw 6-dim F/CoP itself (autoregressive; the neural counterpart of AR).
 Results (mean skill vs persistence, 5-fold CV): **1s +0.120, 3s +0.138, 10s +0.142** (coverage ~0.95).
 
-### 4. FOUR-WAY comparison (raw 6-dim target, IDENTICAL 5-fold CV, same input/target/data)  [docs/forecaster_comparison.png]
+### 4. FOUR-WAY comparison (raw 6-dim target, IDENTICAL 5-fold CV, same input/target/data)  [docs/actionsense/forecaster_comparison.png]
     linear-AR +0.166  >  GRU-aggregate +0.12..+0.14  >  CNN-map +0.05..+0.06  >  flatten-map -0.03  >  persistence 0
 RIGOR: verified GRU-aggregate and AR use the SAME target (load_target, raw 6-dim both hands, NOT fast),
 SAME autoregressive input, SAME Slice/Peel data, and (after fixing) the SAME 5-fold folds (AR re-scored
@@ -1842,7 +1842,7 @@ This is the ORIGINAL v2 model on a DIFFERENT target: the **high-pass FAST compon
 ([F_fast,x_fast,y_fast]). NOT comparable to the raw-target results above (different target/baseline).
 - **Overfitting fix**: `action_dynamics.train` originally ran 80 epochs and returned the FINAL model
   (no early stopping) -> badly overfit (train/val/test loss curve: val bottoms ~epoch 10 then rises;
-  `docs/fcop_earlystop_comparison.png`). Added early stopping (keep best-VAL). Effect (5-fold CV):
+  `docs/actionsense/fcop_earlystop_comparison.png`). Added early stopping (keep best-VAL). Effect (5-fold CV):
   skill improved **+0.10..+0.23 per config**; best ~**+0.51** (right hand); and skill became **~flat
   across history** (the earlier "more history HURTS" finding was an OVERFITTING ARTIFACT -- longer
   history overfit more without early stopping). Coverage ~0.95 (calibration handled both).
@@ -1879,10 +1879,10 @@ This is the ORIGINAL v2 model on a DIFFERENT target: the **high-pass FAST compon
 - AR uses its own order as history (not swept over t_in); it is a single number in the four-way plot.
 
 ### 8. ARTIFACTS
-- Figures: `docs/forecaster_comparison.png` (four-way), `tactile_map_skill_vs_history.png`,
+- Figures: `docs/actionsense/forecaster_comparison.png` (four-way), `tactile_map_skill_vs_history.png`,
   `tactile_map_coverage.png`, `tactile_map_loss_curve.png`, `fcop_earlystop_comparison.png`,
   `fcop_loss_curve.png`, `harness_*curves.png`.
-- Tables: `docs/tactile_map_cv_results.csv` (cnn/flatten), `tactile_map_cv_results_aggregate.csv`,
+- Tables: `docs/actionsense/tactile_map_cv_results.csv` (cnn/flatten), `tactile_map_cv_results_aggregate.csv`,
   `harness_baselines.csv` (persistence/seasonal/AR), `action_dynamics_results{,_earlystop}.csv` (fast).
 - Code: `src/actionsense/{eval_harness, tactile_map, action_dynamics.py}`; `scripts/train_tactile_map.py`,
   `plot_forecaster_comparison.py`, `plot_tactile_map*.py`, `plot_fcop_loss_curve.py`, `check_leakage.py`.
@@ -1939,13 +1939,13 @@ specific code and documents throughout; list references at the end; ask question
 - Read all 1,927 lines of SESSION_LOG.md (Sessions 1-4 + COMPREHENSIVE SUMMARY + COLD-START SNAPSHOT
   + rigorous review + CONSOLIDATED RESULTS + PORTABILITY).
 - **VERIFIED every quantitative claim against the committed artifacts** rather than trusting the log:
-  recomputed mean skills directly from `docs/harness_baselines.csv` (AR +0.1886 over 66 rows;
-  seasonal 0.0 == persistence, confirming the documented fallback), `docs/tactile_map_cv_results.csv`
+  recomputed mean skills directly from `docs/actionsense/harness_baselines.csv` (AR +0.1886 over 66 rows;
+  seasonal 0.0 == persistence, confirming the documented fallback), `docs/actionsense/tactile_map_cv_results.csv`
   (cnn +0.052/+0.050/+0.063, flatten -0.040/-0.025/-0.026), `_aggregate.csv` (+0.120/+0.138/+0.142),
   and both `action_dynamics_results{,_earlystop}.csv` (per-config means + calibrated coverage). All
   match the log. Also confirmed `splits.json` = train 45 / val 15 / test 15, n=75, seed 0.
 - Checked the harness config hash: `sha256(configs/actionsense/eval_harness.yaml)[:16]` =
-  **8afc249f260894fd**, which MATCHES the hash stamped in `docs/harness_baselines.csv`. The
+  **8afc249f260894fd**, which MATCHES the hash stamped in `docs/actionsense/harness_baselines.csv`. The
   `b0194860` cited in the 2026-07-16 log entry is stale — it predates commit `ee8d097` (reorg stage
   4a) which MOVED the yaml into `configs/actionsense/`, changing the file bytes and hence the hash.
   Results are current; only the log's hash string is historical. (No action needed; noted so a future
@@ -3869,7 +3869,7 @@ persistence 画成模型的一部分,它是基线。
 
 ### 2026-08-13续8 — 【重大】真实 tactile map 图暴露两个问题:F 被直流偏置主导、10/26 shard 标注疑似错配
 
-用户把 `docs/opentouch_tactile_map.png` 取回本地,Claude 直接读图分析(不再靠转述)。
+用户把 `docs/opentouch/exploratory/opentouch_tactile_map.png` 取回本地,Claude 直接读图分析(不再靠转述)。
 
 **问题 1:F 中 95%+ 是直流偏置,CoP 近乎失效。**
 - 每帧 F ≈ 700,000–770,000,**整段变化幅度仅约基线的 ±4%**;平均每格读数 ≈ 750000/256 ≈ 2930。
@@ -4301,7 +4301,7 @@ history 会重置**,须结合最近的 `sweep:` 行判断真实进度。
 - **单位是无量纲 grid units,不是 mm**;换算需 taxel pitch,且是沿贴合弯曲手面的薄膜距离,非 3D 欧氏。
 
 **各图纵轴的实际含义(易读错,记录在案)**:
-1. `docs/opentouch_fcop.png` — `plot_opentouch_fcop.py:27` 标注 `CoP x [-1,1]`,即原始网格坐标。
+1. `docs/opentouch/exploratory/opentouch_fcop.png` — `plot_opentouch_fcop.py:27` 标注 `CoP x [-1,1]`,即原始网格坐标。
 2. `docs/forecast_CoPx.png` 等 v2 图 — **不是位置**。`load_pooled(input_mode="highpass")` 的 target
    是 CoP 的高通(fast)残差,单位仍为 grid units 但零点是慢分量,不能据此推断"手上哪个位置"。
 3. harness 6 维 target(`eval_harness/dataset.py:3`)是 raw 网格坐标,训练时按通道 z-norm。
@@ -5190,7 +5190,7 @@ ActionSense 逐字一致"这一表述即为假。**本次运行两者均未启�
 ```
 qsub -v FOLDS=4,EPOCHS=20,FEATURES=raw+df,\
         SAVE_PREDS=runs/preds_df,SAVE_MODEL=runs/models_df,\
-        OUT=docs/opentouch_cv4_df.csv  scripts/crc/opentouch_probgru_gpu.job
+        OUT=docs/opentouch/df/opentouch_cv4_df.csv  scripts/crc/opentouch_probgru_gpu.job
 ```
 其余保持不变:location split、4 折、seed 0、hidden 48、lr 3e-3、batch 64、history 扫描 {1,2,3} s、
 按 VAL NLL 早停、`log_train_every=5`。产物与第一次 run **分目录存放**,互不覆盖。
@@ -5414,7 +5414,7 @@ qsub -v EPOCHS=8,SPLIT_MODE=random,MODEL=prob_gru,SAVE_MODEL=runs/models_diag,\
 
 # 3) D1 之后的正式一轮
 qsub -v CONFIG=configs/opentouch/eval_harness_d1.yaml,FOLDS=4,EPOCHS=20,MODEL=map_all,\
-        SAVE_PREDS=runs/preds_d1,SAVE_MODEL=runs/models_d1,OUT=docs/opentouch_cv4_d1.csv \
+        SAVE_PREDS=runs/preds_d1,SAVE_MODEL=runs/models_d1,OUT=docs/opentouch/d1/opentouch_cv4_d1.csv \
      scripts/crc/opentouch_probgru_gpu.job
 ```
 
@@ -5574,7 +5574,7 @@ F 的直流占比 99.78% 被移除,变异系数放大 23 倍,CoP 活动范围放
 **提交命令**:
 ```
 qsub -v CONFIG=configs/opentouch/eval_harness_d1.yaml,FOLDS=4,EPOCHS=8,MODEL=prob_gru,\
-        SAVE_PREDS=runs/preds_d1,SAVE_MODEL=runs/models_d1,OUT=docs/opentouch_cv4_d1.csv \
+        SAVE_PREDS=runs/preds_d1,SAVE_MODEL=runs/models_d1,OUT=docs/opentouch/d1/opentouch_cv4_d1.csv \
      scripts/crc/opentouch_probgru_gpu.job
 ```
 
@@ -5615,7 +5615,7 @@ signals-only 需 **12.34 GiB < 33 GiB 可用**,**放 home 可行**,落盘后 hom
 
 ## 2026-08-20 — 【D1 校正后 4 折结果】skill 翻倍,但预测曲线显示模型在"预测局部均值"而非动态
 
-产出:`docs/opentouch_cv4_d1.csv` + 三张 `docs/opentouch_forecast_d1_{F,CoPx,CoPy}.png`。
+产出:`docs/opentouch/d1/opentouch_cv4_d1.csv` + 三张 `docs/opentouch_forecast_d1_{F,CoPx,CoPy}.png`。
 **缺失**:`opentouch_loss_d1.png` 与 `opentouch_report_d1.csv` 未生成(那两步在 CRC 上失败,
 报错尚未取得),故本节的分析基于驱动脚本自带的指标表与预测曲线。
 
@@ -5859,7 +5859,7 @@ all 80821 files verified intact
 
     1 − R²_model = (1 − R²_persistence) · (1 − skill_vs_persistence)
 
-用 `docs/opentouch_report_d1.csv` 的 prob_gru 逐位验证(误差在第 5 位以内):
+用 `docs/opentouch/d1/opentouch_report_d1.csv` 的 prob_gru 逐位验证(误差在第 5 位以内):
 
 | 通道 | R²(persistence) | skill(prob_gru) | 1−(1−R²_p)(1−skill) | 实际 R²(prob_gru) |
 |---|---|---|---|---|
@@ -5874,7 +5874,7 @@ all 80821 files verified intact
 
 #### 二、D1 数字的实际解读:两个指标在 F 与 CoP 上方向相反,原因是 persistence 本身的好坏
 
-`docs/opentouch_report_d1.csv`(overall / all,per-clip 等权口径):
+`docs/opentouch/d1/opentouch_report_d1.csv`(overall / all,per-clip 等权口径):
 
 | 通道 | R²(pers) | R²(ar) | R²(prob_gru) | skill(ar) | skill(prob_gru) |
 |---|---|---|---|---|---|
@@ -5929,7 +5929,7 @@ h 的曲线,不是裸 skill。** "短 horizon 已达保守天花板的 78–89%"
 **但当前对照存在三处口径不一致,直接引用会出错:**
 
 - **(1) 两个 skill 混用(SESSION_LOG 2026-08-20 已记,此处指出它污染了天花板对照)。**
-  `opentouch_predictability_ceiling.py::observed_skill` 读的是 `docs/opentouch_cv4_d1.csv` 的
+  `opentouch_predictability_ceiling.py::observed_skill` 读的是 `docs/opentouch/d1/opentouch_cv4_d1.csv` 的
   `SS_vs_persistence`(**逐帧池化、逐 horizon**);而论文正文口径是 `opentouch_report_d1.csv` 的
   `skill`(**逐 clip 等权、全 horizon 合并**)。同为 ar 的 F 通道:前者 0.367,后者 0.302。
   **→ "78% of ceiling" 只对逐帧池化口径成立。** 若正文用 per-clip 口径,天花板必须按 per-clip
@@ -6145,7 +6145,7 @@ MIT 要求保留版权声明与许可证文本。⇒ **无论走哪条路,`LICEN
 
 | # | 位置 | 参照物 | 聚合单元 | 掩码 | 产出 |
 |---|---|---|---|---|---|
-| 1 | `src/actionsense/eval_harness/{metrics,evaluate}.py`(**冻结**) | persistence / seasonal / ar | 逐帧池化 over (N,H) | ✅ `valid_mask` | `docs/harness_baselines.csv` |
+| 1 | `src/actionsense/eval_harness/{metrics,evaluate}.py`(**冻结**) | persistence / seasonal / ar | 逐帧池化 over (N,H) | ✅ `valid_mask` | `docs/actionsense/harness_baselines.csv` |
 | 2 | `src/opentouch/{metrics,evaluate}.py`(#1 的逐字节 fork) | 同上 | 同上 | ✅ | `docs/opentouch_cv4*.csv` |
 | 3 | `src/opentouch/aggregate.py` | class_mean / train_mean / clip_mean(R²)或另一预测器(skill) | **逐 clip 等权,ratio-of-means** | ✅ | `docs/opentouch_report*.csv` |
 | 4 | `src/actionsense/state_forecast.py::skill_per_feature`;`src/actionsense/tactile_map/train.py::evaluate` | persistence(后者在**残差空间**,代数等价) | 逐帧池化 | ❌ **无掩码** | `docs/action_dynamics_results*.csv`, `docs/tactile_map_*.csv` |
@@ -6154,7 +6154,7 @@ MIT 要求保留版权声明与许可证文本。⇒ **无论走哪条路,`LICEN
 **#4 无掩码这一条此前未被记录**:`tactile_map/train.py::evaluate`(第 110-115 行)直接
 `em.mean((0,1)) / ep.mean((0,1))`,**没有调用 `valid_mask`**。故 ActionSense 的 tactile_map/
 action_dynamics 那几张表里,**CoP 的 skill 把 CoP 未定义的低力帧也算进去了**,与 harness 的
-`docs/harness_baselines.csv` 不是同一个点集。这是必须统一的直接理由之一,不只是"美观问题"。
+`docs/actionsense/harness_baselines.csv` 不是同一个点集。这是必须统一的直接理由之一,不只是"美观问题"。
 
 ---
 

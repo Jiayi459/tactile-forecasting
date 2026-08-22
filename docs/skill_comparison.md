@@ -17,7 +17,7 @@ ActionSense's `_R` channels are the closest match its two-handed target allows.
 | CNN (map) | 0.138 | 0.011 | 0.045 | — | — | — | — | — | — |
 | probGRU | (0.378) | (0.461) | (0.392) | 0.203 | 0.288 | 0.221 | **0.386** | **0.427** | **0.472** |
 
-ActionSense: harness baselines from `docs/harness_baselines.csv`; map arms are 10-fold CV
+ActionSense: harness baselines from `docs/actionsense/harness_baselines.csv`; map arms are 10-fold CV
 means at their best history from `docs/tactile_map_cv_results{,_aggregate}.csv`.
 OpenTouch: 4-fold location-held-out means from `docs/opentouch_cv4{,_d1}.csv`.
 Dashes are arms not yet run on OpenTouch, not zeros.

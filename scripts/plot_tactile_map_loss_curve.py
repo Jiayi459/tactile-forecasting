@@ -3,7 +3,7 @@
 Same idea as scripts/plot_fcop_loss_curve.py but for the map->F/CoP probGRU. Splits recordings
 70/15/15 by CLIP (norm on TRAIN only), trains each encoder while logging Gaussian NLL + MSE on
 train/val/test every epoch. Loss is evaluated on a capped random subset per split for speed. Writes
-docs/tactile_map_loss_curve.png (rows = flatten/cnn, cols = NLL/MSE).
+docs/actionsense/tactile_map_loss_curve.png (rows = flatten/cnn, cols = NLL/MSE).
 
     python scripts/plot_tactile_map_loss_curve.py --history 3 --epochs 60
 """
@@ -50,7 +50,7 @@ def main():
     ap.add_argument("--history", type=float, default=3.0)
     ap.add_argument("--epochs", type=int, default=60)
     ap.add_argument("--cap", type=int, default=2500)
-    ap.add_argument("--out", default="docs/tactile_map_loss_curve.png")
+    ap.add_argument("--out", default="docs/actionsense/tactile_map_loss_curve.png")
     args = ap.parse_args()
     import matplotlib
     matplotlib.use("Agg")

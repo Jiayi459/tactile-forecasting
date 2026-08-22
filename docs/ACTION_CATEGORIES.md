@@ -83,8 +83,8 @@ Metrics: `persH*` = persistence nMSE at horizon h frames (30 fps; **lower = easi
 | last | **Press/Click** | 20 | **1.399** | 1.665 | 0.599 | **0.689** | **−6.67** |
 
 Full-data run (`--max-per-task 0`) reproduces the sampled ranking almost exactly → robust.
-Full table incl. temporal-pattern grouping: `docs/predictability_by_category_full.csv`
-(sampled: `docs/predictability_by_category.csv`).
+Full table incl. temporal-pattern grouping: `docs/actionsense/predictability_by_category_full.csv`
+(sampled: `docs/actionsense/predictability_by_category.csv`).
 
 ---
 

@@ -99,7 +99,7 @@ def main():
     ap.add_argument("--folds", type=int, default=4)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--boot", type=int, default=2000, help="bootstrap resamples")
-    ap.add_argument("--out", default="docs/opentouch_report.csv")
+    ap.add_argument("--out", default="docs/opentouch/raw/opentouch_report.csv")
     a = ap.parse_args()
 
     cfg = load_config(a.config)

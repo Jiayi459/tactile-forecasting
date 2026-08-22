@@ -1,7 +1,7 @@
 """Four-way forecaster comparison on the raw 6-dim F/CoP target (all same target/split/protocol).
 
 Reads the CV result CSVs (aggregate + map encoders) and overlays the harness linear-AR reference.
-    docs/forecaster_comparison.png  mean skill vs persistence, per input-history.
+    docs/actionsense/forecaster_comparison.png  mean skill vs persistence, per input-history.
 
     python scripts/plot_forecaster_comparison.py
 """
@@ -31,7 +31,7 @@ def main():
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    data = {**load("docs/tactile_map_cv_results.csv"), **load("docs/tactile_map_cv_results_aggregate.csv")}
+    data = {**load("docs/actionsense/tactile_map_cv_results.csv"), **load("docs/actionsense/tactile_map_cv_results_aggregate.csv")}
     hists = [1.0, 3.0, 10.0]
 
     def skill(enc):
@@ -48,8 +48,8 @@ def main():
     ax.set_xlabel("input history"); ax.set_ylabel("mean skill vs persistence (5-fold CV)")
     ax.set_title("Forecasting the raw 6-dim F/CoP: linear AR > GRU-aggregate > CNN-map > flatten-map")
     ax.legend(fontsize=9); ax.grid(alpha=.3)
-    fig.tight_layout(); fig.savefig("docs/forecaster_comparison.png", dpi=120)
-    print("[done] docs/forecaster_comparison.png")
+    fig.tight_layout(); fig.savefig("docs/actionsense/forecaster_comparison.png", dpi=120)
+    print("[done] docs/actionsense/forecaster_comparison.png")
 
 
 if __name__ == "__main__":

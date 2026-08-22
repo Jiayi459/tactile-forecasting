@@ -25,7 +25,7 @@ L+R pressure grids and computes, per sequence:
       -> combines "slow to decorrelate", "repeatable", and "spatially stable".
 
 Aggregates by verb category AND by temporal-pattern class (Axis B), then ranks.
-Writes docs/predictability_by_category.csv.
+Writes docs/actionsense/predictability_by_category.csv.
 """
 from __future__ import annotations
 

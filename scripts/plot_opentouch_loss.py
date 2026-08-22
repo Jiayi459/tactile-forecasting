@@ -102,7 +102,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", default="runs/models")
     ap.add_argument("--preds", default="runs/preds")
-    ap.add_argument("--out", default="docs/opentouch_loss.png")
+    ap.add_argument("--out", default="docs/opentouch/raw/opentouch_loss.png")
     a = ap.parse_args()
 
     cks = load_ckpts(a.models)

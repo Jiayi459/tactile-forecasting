@@ -56,7 +56,7 @@ def main():
     ap.add_argument("--actions", required=True,
                     help="comma-separated action labels, e.g. holding,sliding")
     ap.add_argument("--n", type=int, default=3, help="clips per action")
-    ap.add_argument("--out", default="docs/opentouch_fcop.png")
+    ap.add_argument("--out", default="docs/opentouch/exploratory/opentouch_fcop.png")
     args = ap.parse_args()
 
     import matplotlib

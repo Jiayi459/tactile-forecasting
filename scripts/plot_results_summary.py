@@ -1,6 +1,6 @@
 """Plot the action-dynamics results CSV (skill by history / forecast-step / channel / hand).
 
-Pure visualization of docs/action_dynamics_results.csv (written by train_action_dynamics.py) —
+Pure visualization of docs/actionsense/action_dynamics_results.csv (written by train_action_dynamics.py) —
 no training. Four panels:
   (a) mean skill vs history-length, one line per (input_mode, hand)
   (b) per-channel skill (F, CoP-x, CoP-y) vs history, for one input_mode/hand
@@ -22,10 +22,10 @@ import numpy as np
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--csv", default="docs/action_dynamics_results.csv")
+    ap.add_argument("--csv", default="docs/actionsense/action_dynamics_results.csv")
     ap.add_argument("--focus-mode", default="raw", help="input_mode for panels (b)/(c)")
     ap.add_argument("--focus-hand", default="right", help="hand for panels (b)/(c)")
-    ap.add_argument("--out", default="docs/results_summary.png")
+    ap.add_argument("--out", default="docs/actionsense/results_summary.png")
     args = ap.parse_args()
     import matplotlib
     matplotlib.use("Agg")

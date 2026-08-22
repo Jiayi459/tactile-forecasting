@@ -1,9 +1,9 @@
 """Plot the tactile-map CV results (flatten vs CNN): skill vs history + coverage.
 
-Pure visualization of docs/tactile_map_cv_results.csv (written by scripts/train_tactile_map.py,
+Pure visualization of docs/actionsense/tactile_map_cv_results.csv (written by scripts/train_tactile_map.py,
 the 5-fold probabilistic CV). Draws:
-  docs/tactile_map_skill_vs_history.png   mean skill vs persistence, flatten vs cnn, per history
-  docs/tactile_map_coverage.png           band coverage vs history (raw vs calibrated)
+  docs/actionsense/tactile_map_skill_vs_history.png   mean skill vs persistence, flatten vs cnn, per history
+  docs/actionsense/tactile_map_coverage.png           band coverage vs history (raw vs calibrated)
 
     python scripts/plot_tactile_map.py
 """
@@ -18,7 +18,7 @@ import numpy as np
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--csv", default="docs/tactile_map_cv_results.csv")
+    ap.add_argument("--csv", default="docs/actionsense/tactile_map_cv_results.csv")
     args = ap.parse_args()
     import matplotlib
     matplotlib.use("Agg")
@@ -46,8 +46,8 @@ def main():
     ax.set_xlabel("input history"); ax.set_ylabel("mean skill vs persistence (5-fold CV)")
     ax.set_title("Tactile-map -> F/CoP (probabilistic, 5-fold CV): CNN vs flatten")
     ax.legend(); ax.grid(alpha=.3)
-    fig.tight_layout(); fig.savefig("docs/tactile_map_skill_vs_history.png", dpi=120)
-    print("[done] docs/tactile_map_skill_vs_history.png")
+    fig.tight_layout(); fig.savefig("docs/actionsense/tactile_map_skill_vs_history.png", dpi=120)
+    print("[done] docs/actionsense/tactile_map_skill_vs_history.png")
 
     # ---- (2) coverage vs history (raw solid, calibrated dashed) ----
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -59,8 +59,8 @@ def main():
     ax.set_xlabel("input history"); ax.set_ylabel("coverage @ 2sd")
     ax.set_title("Band coverage (solid=raw, dashed=calibrated)")
     ax.legend(fontsize=8); ax.grid(alpha=.3)
-    fig.tight_layout(); fig.savefig("docs/tactile_map_coverage.png", dpi=120)
-    print("[done] docs/tactile_map_coverage.png")
+    fig.tight_layout(); fig.savefig("docs/actionsense/tactile_map_coverage.png", dpi=120)
+    print("[done] docs/actionsense/tactile_map_coverage.png")
 
 
 if __name__ == "__main__":

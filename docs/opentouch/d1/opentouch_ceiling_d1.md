@@ -6,7 +6,7 @@ output in [opentouch_ceiling_d1.txt](opentouch_ceiling_d1.txt). 600 clips, lags
 `raw` the uncorrected one.
 
 Skill = 1 - MSE(model)/MSE(persistence), pooled over frames, mean of 4
-location-held-out folds, from `docs/opentouch_cv4_d1.csv`. Observed skill is shown
+location-held-out folds, from `docs/opentouch/d1/opentouch_cv4_d1.csv`. Observed skill is shown
 only against the D1 ceiling: the models were trained on the corrected target, so
 pairing them with the raw ceiling would divide across two different problems. The
 `raw` sections are there for the contrast in autocorrelation and ceiling alone.

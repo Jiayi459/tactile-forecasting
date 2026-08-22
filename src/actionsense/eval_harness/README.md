@@ -25,7 +25,7 @@ and **deterministic** (the run asserts two passes are identical). Everything is 
 ## Run the baselines
 
 ```bash
-python -m src.actionsense.eval_harness.evaluate      # -> docs/harness_baselines.csv (+ .parquet)
+python -m src.actionsense.eval_harness.evaluate      # -> docs/actionsense/harness_baselines.csv (+ .parquet)
 python scripts/plot_harness.py                            # -> docs/harness_skill_{bars,curves}.png
 pytest tests/test_harness.py                              # synthetic-signal unit tests
 ```

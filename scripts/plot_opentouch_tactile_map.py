@@ -69,7 +69,7 @@ def main():
                                       "plot_opentouch_fcop.py")
     ap.add_argument("--n", type=int, default=2, help="clips per action")
     ap.add_argument("--frames", type=int, default=8, help="evenly spaced frames per clip")
-    ap.add_argument("--out", default="docs/opentouch_tactile_map.png")
+    ap.add_argument("--out", default="docs/opentouch/exploratory/opentouch_tactile_map.png")
     args = ap.parse_args()
     if not args.idx and not args.actions:
         raise SystemExit("give --idx or --actions")

@@ -36,7 +36,7 @@ linear s, v_e also equals (r(1) - r(2))/(1 - r(1)) corrected... rather than rely
 algebra, the script simply reports r(1), r(2) and r(3) so the shape is visible.
 
     python scripts/opentouch_predictability_ceiling.py --cache ~/opentouch/cache_d1 \
-        --compare-cache ~/opentouch/cache --csv docs/opentouch_cv4_d1.csv
+        --compare-cache ~/opentouch/cache --csv docs/opentouch/d1/opentouch_cv4_d1.csv
 """
 from __future__ import annotations
 

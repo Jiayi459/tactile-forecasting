@@ -9,7 +9,7 @@
 # Submit from repo root after `git pull` and `mkdir -p logs`:
 #   qsub scripts/crc/train_tactile_map_gpu.job
 #   qsub -v EPOCHS=80 scripts/crc/train_tactile_map_gpu.job
-# 5-fold probabilistic CV -> docs/tactile_map_cv_results.csv (skill + coverage). Plot locally.
+# 5-fold probabilistic CV -> docs/actionsense/tactile_map_cv_results.csv (skill + coverage). Plot locally.
 # NOTE: no inline comments on #$ lines.
 #$ -M jhao3@nd.edu
 #$ -m abe
@@ -39,7 +39,7 @@ python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
 python scripts/train_tactile_map.py --epochs "${EPOCHS:-80}" --folds "${FOLDS:-5}"
 
 echo ""
-echo "[done] 5-fold CV skill + coverage -> docs/tactile_map_cv_results.csv"
+echo "[done] 5-fold CV skill + coverage -> docs/actionsense/tactile_map_cv_results.csv"
 echo "Pull to local + plot:"
-echo "  scp -J jhao3@bastion.crc.nd.edu jhao3@crcfe01.crc.nd.edu:~/TouchAnything/docs/tactile_map_cv_results.csv docs/"
+echo "  scp -J jhao3@bastion.crc.nd.edu jhao3@crcfe01.crc.nd.edu:~/TouchAnything/docs/actionsense/tactile_map_cv_results.csv docs/"
 echo "  python scripts/plot_tactile_map.py"

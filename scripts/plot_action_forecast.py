@@ -42,7 +42,7 @@ def main():
     ap.add_argument("--hidden", type=int, default=48)
     ap.add_argument("--epochs", type=int, default=80)
     ap.add_argument("--ckpt", default=None, help="plot a saved checkpoint instead of sweeping")
-    ap.add_argument("--out", default="docs/action_forecast_density.png")
+    ap.add_argument("--out", default="docs/actionsense/action_forecast_density.png")
     args = ap.parse_args()
     import matplotlib
     matplotlib.use("Agg")

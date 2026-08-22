@@ -1,8 +1,8 @@
 """Plot the frozen-harness results table (pure visualization; no evaluation).
 
-Reads docs/harness_baselines.csv (written by eval_harness/evaluate.py) and produces:
-  docs/harness_skill_bars.png   per-channel bar chart of FULL-horizon skill vs persistence
-  docs/harness_skill_curves.png per-horizon-step skill curves (x = lead time, y = SS)
+Reads docs/actionsense/harness_baselines.csv (written by eval_harness/evaluate.py) and produces:
+  docs/actionsense/harness_skill_bars.png   per-channel bar chart of FULL-horizon skill vs persistence
+  docs/actionsense/harness_skill_curves.png per-horizon-step skill curves (x = lead time, y = SS)
 
     python scripts/plot_harness.py
 """
@@ -21,7 +21,7 @@ from src.actionsense.eval_harness.config import load_config  # noqa: E402
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--csv", default="docs/harness_baselines.csv")
+    ap.add_argument("--csv", default="docs/actionsense/harness_baselines.csv")
     ap.add_argument("--ref", default="persistence", help="skill baseline to plot against")
     args = ap.parse_args()
     import matplotlib
@@ -45,8 +45,8 @@ def main():
     ax.set_xticks(x + w * (len(models) - 1) / 2); ax.set_xticklabels(channels)
     ax.set_ylabel(f"skill vs {args.ref}  (1 - MSE/MSE_ref)")
     ax.set_title("Full-horizon (1 s) skill by channel"); ax.legend(); ax.grid(alpha=.3, axis="y")
-    fig.tight_layout(); fig.savefig("docs/harness_skill_bars.png", dpi=120)
-    print("[done] docs/harness_skill_bars.png")
+    fig.tight_layout(); fig.savefig("docs/actionsense/harness_skill_bars.png", dpi=120)
+    print("[done] docs/actionsense/harness_skill_bars.png")
 
     # ---- (2) per-horizon-step skill curves, one subplot per channel ----
     steps = sorted(int(s) for s in df.horizon_step.unique() if s != "all")
@@ -66,8 +66,8 @@ def main():
             ax.set_xlabel("lead time (s)")
     axes[0, 0].legend(fontsize=8)
     fig.suptitle("Skill vs lead time, per channel", fontsize=13)
-    fig.tight_layout(rect=[0, 0, 1, 0.97]); fig.savefig("docs/harness_skill_curves.png", dpi=120)
-    print("[done] docs/harness_skill_curves.png")
+    fig.tight_layout(rect=[0, 0, 1, 0.97]); fig.savefig("docs/actionsense/harness_skill_curves.png", dpi=120)
+    print("[done] docs/actionsense/harness_skill_curves.png")
 
     # ---- (3) MSE and MAE error curves, one subplot per channel, one line per baseline ----
     all_models = [m for m in ["persistence", "seasonal", "ar"] if m in df.model.unique()]

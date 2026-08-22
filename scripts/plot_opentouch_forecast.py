@@ -51,7 +51,7 @@ def main():
                     help="which forecast origin to draw, as a fraction of the clip (0..1)")
     ap.add_argument("--history-s", type=float, default=3.0,
                     help="seconds of run-up to draw before the origin")
-    ap.add_argument("--out", default="docs/opentouch_forecast.png")
+    ap.add_argument("--out", default="docs/opentouch/raw/opentouch_forecast.png")
     ap.add_argument("--per-channel", action="store_true",
                     help="one figure per channel (out stem gets _F_R etc.) instead of one "
                          "figure with the channels side by side")

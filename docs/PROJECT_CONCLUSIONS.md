@@ -166,9 +166,9 @@ component with a probabilistic GRU (mean + log-variance, Gaussian NLL), 5-fold C
      5 s warm-up trim ([action_dynamics.py:39-51](../src/actionsense/action_dynamics.py#L39-L51)).
      **Skill fell +0.70 → ≈ +0.40: the leak had inflated the headline by ~0.3.**
   2. **Overfitting fix.** `train()` ran 80 epochs and returned the *final* model with no early
-     stopping, while validation loss bottomed at ~epoch 10 (`docs/fcop_loss_curve.png`). Adding
+     stopping, while validation loss bottomed at ~epoch 10 (`docs/actionsense/fcop_loss_curve.png`). Adding
      best-validation checkpointing lifted every configuration by **+0.10 … +0.23**.
-- **Final early-stopped results** (`docs/action_dynamics_results_earlystop.csv`, mean over the 10
+- **Final early-stopped results** (`docs/actionsense/action_dynamics_results_earlystop.csv`, mean over the 10
   forecast steps, 5-fold CV, calibrated coverage ≈ 0.94–0.95):
 
   | input / hand | 1 s | 2 s | 3 s | 5 s | 10 s |
@@ -223,7 +223,7 @@ but found that **the baseline was too weak**:
 - **Figure-reading insight** (resolved a persistent confusion): three code paths produce a forecast,
   and only the overlay plot re-anchors. `plot_forecast_overlay.py` tiles a clip into consecutive 1 s
   blocks, each re-seeded from ground truth — visually flattering but metric-neutral.
-  `docs/horizon_highpass.png` (single anchor) is the honest picture; the reported skill numbers come
+  `docs/actionsense/horizon_highpass.png` (single anchor) is the honest picture; the reported skill numbers come
   from the honest path.
 
 ## 6. Phase E — Frozen evaluation harness and the four-way comparison
@@ -245,7 +245,7 @@ but found that **the baseline was too weak**:
   `eval.py`/`baselines.py`, missing deps, missing val split) were **surfaced and resolved with the
   user before any code was written**, not silently worked around.
 
-### 6.2 Classical baselines (frozen TEST, `docs/harness_baselines.csv`)
+### 6.2 Classical baselines (frozen TEST, `docs/actionsense/harness_baselines.csv`)
 | baseline | nRMSE | mean skill vs persistence |
 |---|--:|--:|
 | persistence | 0.517 | 0 (reference) |
@@ -267,7 +267,7 @@ but found that **the baseline was too weak**:
   training mean and scored −1.9 … −2.2, despite `corr(model, true) = 0.78` (the map *does* carry
   signal — the net was hedging). Predicting the **residual over persistence** made the worst case
   equal persistence and fixed it.
-- **5-fold CV, probabilistic, early-stopped, σ-calibrated** (`docs/tactile_map_cv_results.csv`):
+- **5-fold CV, probabilistic, early-stopped, σ-calibrated** (`docs/actionsense/tactile_map_cv_results.csv`):
 
   | history | CNN(map) | flatten(map) |
   |---|--:|--:|
@@ -278,7 +278,7 @@ but found that **the baseline was too weak**:
   coverage 0.93 raw → 0.95 calibrated.
 - **CNN > flatten at every history** → the **spatial structure of the contact patch does contribute**
   to predicting the *change* in F/CoP. Flatten sits at or below persistence.
-- **Mechanism established, not assumed** (`docs/tactile_map_loss_curve.png`): both encoders overfit
+- **Mechanism established, not assumed** (`docs/actionsense/tactile_map_loss_curve.png`): both encoders overfit
   almost immediately — flatten's validation NLL bottoms at **epoch 1**, the CNN's at **epoch 4**.
   The CNN's spatial inductive bias extracts a little *generalizable* signal before overfitting;
   flatten memorizes instantly. So the modest +0.05–0.06 reflects **data scarcity (45 training
@@ -286,7 +286,7 @@ but found that **the baseline was too weak**:
 
 ### 6.4 The four-way comparison (the project's headline result)
 All four forecasters on the **same** raw 6-dim target, same Slice+Peel data, same autoregressive
-input convention, and — after a rigor fix — the **same 5-fold folds** (`docs/forecaster_comparison.png`):
+input convention, and — after a rigor fix — the **same 5-fold folds** (`docs/actionsense/forecaster_comparison.png`):
 
 | history | linear AR | GRU-aggregate | CNN-map | flatten-map | persistence |
 |---|--:|--:|--:|--:|--:|
@@ -431,11 +431,11 @@ harness AR replaces the proposed AR(1) baseline, and the probGRU predicts the ol
 - CRC: [scripts/crc/](../scripts/crc/) — `README.md`, `stream_actionsense.sh`, `train_state_gpu.job`, `train_tactile_map_gpu.job`.
 
 ### Result artifacts (numbers in this document were re-verified against these)
-- [docs/harness_baselines.csv](harness_baselines.csv) (+ `.parquet`, `_fitparams.csv`) — persistence / seasonal / AR, config hash `8afc249f260894fd`.
-- [docs/tactile_map_cv_results.csv](tactile_map_cv_results.csv) — CNN vs flatten, 5-fold CV.
-- [docs/tactile_map_cv_results_aggregate.csv](tactile_map_cv_results_aggregate.csv) — GRU-aggregate.
-- [docs/action_dynamics_results_earlystop.csv](action_dynamics_results_earlystop.csv) — fast-target probGRU (honest); [docs/action_dynamics_results.csv](action_dynamics_results.csv) (overfit, kept for the before/after diff); `_precal.csv` (pre-calibration).
-- [docs/predictability_by_category_full.csv](predictability_by_category_full.csv) (EgoTouch, n=1,929), [docs/predictability_by_category.csv](predictability_by_category.csv) (sampled).
+- [docs/actionsense/harness_baselines.csv](harness_baselines.csv) (+ `.parquet`, `_fitparams.csv`) — persistence / seasonal / AR, config hash `8afc249f260894fd`.
+- [docs/actionsense/tactile_map_cv_results.csv](tactile_map_cv_results.csv) — CNN vs flatten, 5-fold CV.
+- [docs/actionsense/tactile_map_cv_results_aggregate.csv](tactile_map_cv_results_aggregate.csv) — GRU-aggregate.
+- [docs/actionsense/action_dynamics_results_earlystop.csv](action_dynamics_results_earlystop.csv) — fast-target probGRU (honest); [docs/actionsense/action_dynamics_results.csv](action_dynamics_results.csv) (overfit, kept for the before/after diff); `_precal.csv` (pre-calibration).
+- [docs/actionsense/predictability_by_category_full.csv](predictability_by_category_full.csv) (EgoTouch, n=1,929), [docs/actionsense/predictability_by_category.csv](predictability_by_category.csv) (sampled).
 - Figures: `forecaster_comparison.png`, `tactile_map_skill_vs_history.png`, `tactile_map_coverage.png`, `tactile_map_loss_curve.png`, `fcop_earlystop_comparison.png`, `fcop_loss_curve.png`, `horizon_highpass.png`, `harness_skill_{bars,curves}.png`, `results_summary.png`.
 - Data: `data/actionsense_states/` — `state_*.npy` (299), `clip_*.npy` (100 raw maps), `manifest.jsonl`, `splits.json` (train 45 / val 15 / test 15, seed 0, stratified by action×object).
 - Tests: [tests/test_harness.py](../tests/test_harness.py) (7), [tests/test_tactile_map.py](../tests/test_tactile_map.py) (10).

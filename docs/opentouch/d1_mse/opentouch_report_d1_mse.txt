@@ -62,5 +62,5 @@ If dropping one action flips or erases the contrast, the contrast was that actio
   prob_gru         full  0.0027 | without picking up:  0.0032 | without holding:  0.0286
   seasonal         full -0.0303 | without picking up: -0.0548 | without holding:  0.0210
 
-wrote docs/opentouch_report_d1_mse.csv (129 rows)
+wrote docs/opentouch/d1_mse/opentouch_report_d1_mse.csv (129 rows)
 F is ~99.3% DC and the grid sits at 95% of full scale (D1 declined), so read every number above as 'how well the constant plus its drift was reproduced'.

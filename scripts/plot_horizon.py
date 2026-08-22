@@ -54,7 +54,7 @@ def main():
     ap.add_argument("--cut", type=float, default=0.4)
     ap.add_argument("--epochs", type=int, default=80)
     ap.add_argument("--clip-rank", type=int, default=0, help="which eligible test clip (0=first)")
-    ap.add_argument("--out", default="docs/horizon_highpass.png")
+    ap.add_argument("--out", default="docs/actionsense/horizon_highpass.png")
     args = ap.parse_args()
     import matplotlib
     matplotlib.use("Agg")

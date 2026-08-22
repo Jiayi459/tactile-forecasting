@@ -3,7 +3,7 @@
 The library `action_dynamics.train` doesn't record a loss history, so this script reuses its data +
 model (load_pooled, Norm, windows, ProbGRU, the Gaussian-NLL objective) and runs its OWN loop that
 evaluates the loss on train / val / test splits every epoch. Splits are by CLIP (no window leakage);
-norm is fit on TRAIN only. Writes docs/fcop_loss_curve.png.
+norm is fit on TRAIN only. Writes docs/actionsense/fcop_loss_curve.png.
 
     python scripts/plot_fcop_loss_curve.py --input-mode raw --hand right --history 3
 """
@@ -48,7 +48,7 @@ def main():
     ap.add_argument("--hidden", type=int, default=48)
     ap.add_argument("--lr", type=float, default=3e-3)
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--out", default="docs/fcop_loss_curve.png")
+    ap.add_argument("--out", default="docs/actionsense/fcop_loss_curve.png")
     args = ap.parse_args()
     import matplotlib
     matplotlib.use("Agg")
