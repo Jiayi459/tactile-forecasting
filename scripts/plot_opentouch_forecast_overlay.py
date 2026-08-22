@@ -138,14 +138,20 @@ def main():
                         label=f"{m} 1 s forecast")
                 if sig is not None and a.sample:
                     # One draw from the model's own predictive distribution. mu answers
-                    # "where is it heading"; a draw answers "what could a second of this
-                    # look like", and only the draw is comparable to the black line's
-                    # roughness. Seeded per (clip, model) so redrawing the figure does not
-                    # silently change it.
+                    # "where is it heading"; a draw shows the spread around that, and only
+                    # the draw is on the same footing as the black line's roughness. Seeded
+                    # per (clip, model) so redrawing the figure does not silently change it.
+                    #
+                    # The noise is INDEPENDENT PER FRAME, hence the label: the head predicts
+                    # a diagonal Gaussian, so there is no joint distribution across the
+                    # horizon to sample a trajectory from. The real signal is not white --
+                    # measured r(1) is 0.318 for F -- so this draw is JAGGIER than any real
+                    # second of data, and it is a picture of the marginal spread rather than
+                    # of a plausible realisation.
                     rng = np.random.default_rng(abs(hash((os.path.basename(path), m))) % 2**32)
                     dr = mu[:, k] + sig[:, k] * rng.standard_normal(len(mu))
                     ax.plot(idx / fps, dr, "-", color=STYLE.get(m, "C1"), lw=0.7,
-                            alpha=0.55, label=f"{m} one draw")
+                            alpha=0.55, label=f"{m} draw (indep/frame)")
                 ax.text(0.015, 0.93, m, transform=ax.transAxes, fontsize=8,
                         color=STYLE.get(m, "C1"), fontweight="bold", va="top")
                 if a.compare:
