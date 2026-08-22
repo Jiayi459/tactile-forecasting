@@ -1,0 +1,80 @@
+clips scored: 2843 | models: ar, cnn, flatten, map_aggregate, persistence, seasonal
+
+=== overall: R2 vs the class mean, per channel ===
+model                     F_R       CoPx_R       CoPy_R
+ar                     0.6530       0.2654       0.1152
+cnn                   -1.8159     -13.9050      -4.2122
+flatten               -1.8159     -13.9050      -4.2122
+map_aggregate          0.6611       0.2476       0.1012
+persistence            0.5032      -0.3458      -0.7105
+seasonal               0.4599      -0.3694      -0.7214
+
+=== overall: skill vs persistence (>0 better) ===
+model                     F_R       CoPx_R       CoPy_R
+ar                     0.3016       0.4541       0.4827
+cnn                   -4.6678     -10.0749      -2.0472
+flatten               -4.6678     -10.0749      -2.0472
+map_aggregate          0.3178       0.4409       0.4745
+seasonal              -0.0871      -0.0175      -0.0064
+
+=== G2: smooth (299 clips) vs abrupt (2544) ===
+model            class             F_R       CoPx_R       CoPy_R
+ar               smooth         0.6302       0.2344       0.1449
+ar               abrupt         0.6551       0.2678       0.1106
+cnn              smooth        -2.2202     -16.3134      -3.8360
+cnn              abrupt        -1.7750     -13.6712      -4.2629
+flatten          smooth        -2.2202     -16.3134      -3.8360
+flatten          abrupt        -1.7750     -13.6712      -4.2629
+map_aggregate    smooth         0.6433       0.2206       0.1326
+map_aggregate    abrupt         0.6626       0.2495       0.0964
+persistence      smooth         0.4628      -0.3833      -0.6040
+persistence      abrupt         0.5070      -0.3435      -0.7252
+seasonal         smooth         0.3461      -0.4344      -0.6293
+seasonal         abrupt         0.4718      -0.3641      -0.7344
+
+=== G2: dR2 = R2(smooth) - R2(abrupt), with 2000x bootstrap CI ===
+Two independent resamples, one per class: the classes are disjoint sets of clips, so there is nothing to pair.
+model                               F_R                 CoPx_R                 CoPy_R
+ar               -0.0249 [-0.102, 0.048] -0.0334 [-0.109, 0.031]  0.0343 [-0.009, 0.075]
+cnn              -0.4452 [-0.823,-0.133] -2.6422 [-6.258, 0.175]  0.4269 [-0.140, 0.928]
+flatten          -0.4452 [-0.823,-0.133] -2.6422 [-6.258, 0.175]  0.4269 [-0.140, 0.928]
+map_aggregate    -0.0192 [-0.104, 0.058] -0.0289 [-0.114, 0.044]  0.0362 [-0.013, 0.084]
+persistence      -0.0441 [-0.173, 0.073] -0.0398 [-0.240, 0.139]  0.1211 [-0.015, 0.253]
+seasonal         -0.1257 [-0.330, 0.047] -0.0703 [-0.276, 0.105]  0.1051 [-0.035, 0.240]
+
+=== G2 sensitivity: dropping the contentious subset (816 clips) ===
+smooth 271 | abrupt 1756 | 97% of the dropped clips are abrupt -- the two arms are NOT trimmed equally, so this pair of tables is not a symmetric robustness check and the difference between them is mostly a change in what abrupt contains
+ar                    -0.0261      -0.0482       0.0417
+cnn                   -0.4193      -2.5428       0.5318
+flatten               -0.4193      -2.5428       0.5318
+map_aggregate         -0.0152      -0.0468       0.0425
+persistence           -0.0491      -0.0331       0.1495
+seasonal              -0.1310      -0.0667       0.1332
+
+=== per action (>=30 clips), R2 of each model ===
+action                 n class             ar         cnn     flatten map_aggrega persistence    seasonal
+picking up           931 abrupt        0.3357     -6.2419     -6.2419      0.3263     -0.2360     -0.2579
+placing              246 abrupt        0.3606     -7.0653     -7.0653      0.3612     -0.1028     -0.1314
+pulling              240 abrupt        0.3336     -5.9605     -5.9605      0.3302     -0.1701     -0.1865
+pressing             227 abrupt        0.3363     -6.6956     -6.6956      0.3282     -0.1993     -0.2272
+pushing              150 abrupt        0.3254     -7.7870     -7.7870      0.3083     -0.1766     -0.1967
+holding              112 smooth        0.2762     -7.6413     -7.6413      0.2801     -0.2605     -0.3829
+grasping             106 abrupt        0.3445     -7.2758     -7.2758      0.3400     -0.1560     -0.1298
+adjusting             83 abrupt        0.3020     -8.0338     -8.0338      0.2947     -0.2434     -0.2722
+turning               83 abrupt        0.3705     -5.7656     -5.7656      0.3633     -0.0965     -0.1088
+touching              78 abrupt        0.3333     -6.9792     -6.9792      0.3049     -0.2480     -0.2206
+moving                77 abrupt        0.3379     -6.4050     -6.4050      0.3363     -0.1310     -0.2516
+removing              53 abrupt        0.3721     -6.5882     -6.5882      0.3581     -0.1022     -0.1595
+sliding               52 smooth        0.2933     -9.2813     -9.2813      0.2920     -0.2880     -0.3127
+
+=== leave-one-action-out: dR2 with that action removed from its class ===
+If dropping one action flips or erases the contrast, the contrast was that action, not the trait.
+  ar               full -0.0080 | without picking up: -0.0113 | without holding:  0.0166
+  cnn              full -0.8868 | without picking up: -0.6618 | without holding: -0.8259
+  flatten          full -0.8868 | without picking up: -0.6618 | without holding: -0.8259
+  map_aggregate    full -0.0040 | without picking up: -0.0076 | without holding:  0.0146
+  persistence      full  0.0124 | without picking up: -0.0126 | without holding:  0.0407
+  seasonal         full -0.0303 | without picking up: -0.0548 | without holding:  0.0210
+
+wrote docs/opentouch_report_d1_map.csv (195 rows)
+F is ~99.3% DC and the grid sits at 95% of full scale (D1 declined), so read every number above as 'how well the constant plus its drift was reproduced'.

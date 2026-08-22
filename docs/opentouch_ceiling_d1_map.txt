@@ -1,0 +1,39 @@
+
+=== D1: /users/jhao3/opentouch/cache_d1 ===
+channel      r(1)    r(2)    r(3)   r(10)  noise share  first r<0.2
+F_R         0.318   0.270   0.192   0.076        68.2%            3
+CoPx_R      0.403   0.329   0.239   0.060        59.7%            5
+CoPy_R      0.228   0.146   0.082   0.013        77.2%            2
+
+channel     h   MSE_persist    noise var  skill ceiling   observed
+F_R         1     2.655e+05     1.49e+05          0.439   ar 0.342
+F_R         5     3.578e+05     1.49e+05          0.584   ar 0.402
+F_R        10     3.769e+05     1.49e+05          0.605   ar 0.367
+F_R        20     4.428e+05     1.49e+05          0.663   ar 0.368
+F_R        30     4.486e+05     1.49e+05          0.668   ar 0.344
+CoPx_R      1      0.007736      0.00435          0.438   ar 0.391
+CoPx_R      5       0.01112      0.00435          0.609   ar 0.436
+CoPx_R     10       0.01294      0.00435          0.664   ar 0.410
+CoPx_R     20       0.01598      0.00435          0.728   ar 0.440
+CoPx_R     30       0.01541      0.00435          0.718   ar 0.454
+CoPy_R      1       0.01693     0.008718          0.485   ar 0.420
+CoPy_R      5       0.01975     0.008718          0.559   ar 0.484
+CoPy_R     10       0.02147     0.008718          0.594   ar 0.458
+CoPy_R     20       0.02378     0.008718          0.633   ar 0.486
+CoPy_R     30       0.02319     0.008718          0.624   ar 0.478
+
+=== sharpness: predicted sigma vs the noise floor (runs/preds_d1_map) ===
+sigma, then (sigma/floor) and [sigma/own RMSE]. The first is how far above an ORACLE's irreducible error the model sits -- ignorance about the envelope, not a defect. The second is calibration: ~1.0 means the band matches the errors the model actually makes.
+model      channel        floor                    h=1                    h=5                   h=10                   h=20                   h=30
+cnn        F_R              386       0 (0.00x)[0.00]       0 (0.00x)[0.00]       0 (0.00x)[0.00]       0 (0.00x)[0.00]       0 (0.00x)[0.00]
+cnn        CoPx_R       0.06595       0 (0.00x)[0.00]       0 (0.00x)[0.00]       0 (0.00x)[0.00]       0 (0.00x)[0.00]       0 (0.00x)[0.00]
+cnn        CoPy_R       0.09337       0 (0.00x)[0.00]       0 (0.00x)[0.00]       0 (0.00x)[0.00]       0 (0.00x)[0.00]       0 (0.00x)[0.00]
+flatten    F_R              386       0 (0.00x)[0.00]       0 (0.00x)[0.00]       0 (0.00x)[0.00]       0 (0.00x)[0.00]       0 (0.00x)[0.00]
+flatten    CoPx_R       0.06595       0 (0.00x)[0.00]       0 (0.00x)[0.00]       0 (0.00x)[0.00]       0 (0.00x)[0.00]       0 (0.00x)[0.00]
+flatten    CoPy_R       0.09337       0 (0.00x)[0.00]       0 (0.00x)[0.00]       0 (0.00x)[0.00]       0 (0.00x)[0.00]       0 (0.00x)[0.00]
+map_aggregate F_R              386   482.7 (1.25x)[0.87]   522.1 (1.35x)[0.89]   515.1 (1.33x)[0.85]   554.9 (1.44x)[0.85]   579.5 (1.50x)[0.87]
+map_aggregate CoPx_R       0.06595  0.1258 (1.91x)[0.80]  0.1368 (2.07x)[0.82]  0.1405 (2.13x)[0.82]  0.1462 (2.22x)[0.82]  0.1473 (2.23x)[0.83]
+map_aggregate CoPy_R       0.09337  0.1503 (1.61x)[0.90]  0.1559 (1.67x)[0.90]  0.1559 (1.67x)[0.89]  0.1604 (1.72x)[0.90]  0.1618 (1.73x)[0.91]
+(x) near 1.0 would mean the band is as narrow as ANY model could be; above 1.0 is how much the model does not know about where the smooth component is heading, and that gap is the same one the skill table shows at long horizons. [.] near 1.0 means honest: the band matches the errors actually made. Well above 1.0 is over-dispersion that training can attack; below 1.0 is overconfidence and should show as coverage under nominal.
+
+HOW TO READ IT. Pure white noise has r(1) ~ 0 and a ceiling of exactly 0.500: no forecaster can beat persistence by more than that on noise. An observed skill close to the ceiling means the models are near the data's limit and the finding to report is the limit; an observed skill far below it means there is structure left to capture. The ceiling is conservative -- it assumes the smooth part is perfectly correlated frame to frame, which overstates the noise.
