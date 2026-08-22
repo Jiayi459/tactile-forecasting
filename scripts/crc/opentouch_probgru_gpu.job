@@ -69,6 +69,7 @@ python -u scripts/run_opentouch_exploratory.py \
     ${FEATURES:+--features "$FEATURES"} \
     ${WEIGHT_DECAY:+--weight-decay "$WEIGHT_DECAY"} \
     ${SELECT_ON:+--select-on "$SELECT_ON"} \
+    ${BASELINE_SCOPE:+--baseline-scope "$BASELINE_SCOPE"} \
     ${DROPOUT:+--dropout "$DROPOUT"} \
     ${EPOCHS:+--epochs "$EPOCHS"} \
     ${HISTORIES:+--histories "$HISTORIES"} \

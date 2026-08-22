@@ -132,6 +132,12 @@ def main():
                     help="Adam weight decay for prob_gru (0 = ActionSense's setting)")
     ap.add_argument("--dropout", type=float, default=0.0,
                     help="dropout on the prob_gru heads (0 = the verbatim architecture)")
+    ap.add_argument("--baseline-scope", default="shard",
+                    choices=["shard", "trainval", "train"],
+                    help="clips the map arms' per-taxel baseline is estimated from. 'shard' "
+                         "uses that shard's own frames, which is the only scope that yields "
+                         "an estimate for a wholly held-out location; it is transductive in "
+                         "the inputs and never in the targets.")
     ap.add_argument("--select-on", default="nll", choices=["nll", "mse"],
                     help="VAL curve that picks the probGRU weights and input history. The "
                          "harness scores point error only, so 'mse' aligns selection with "
@@ -295,7 +301,8 @@ def run_split(cfg, splits, args, tag):
             for sec in hs:
                 ti = max(1, int(round(sec * cfg.fps)))
                 *_, h = TM.train(cfg, enc, splits["train"], splits["val"], ti, hp,
-                                 norm=norm, device=args.device)
+                                 norm=norm, device=args.device,
+                                 base_scope=args.baseline_scope)
                 scores[ti] = h["best_val_nll"]
             t_in = min(scores, key=scores.get)
             # NLL, not args.select_on: this family scores its sweep by best_val_nll above,
@@ -303,12 +310,14 @@ def run_split(cfg, splits, args, tag):
             # did not produce it. The knob reaches prob_gru only.
             print(f"  t_in={t_in} ({t_in / cfg.fps:.1f} s); val NLL {scores}")
             model, _, mnorm, hist = TM.train(cfg, enc, splits["train"], splits["val"],
-                                             t_in, hp, norm=norm, device=args.device)
+                                             t_in, hp, norm=norm, device=args.device,
+                                             base_scope=args.baseline_scope)
             # Every arm in this family is probabilistic (OQ-G overturned globally,
             # 2026-08-19), so every arm's sigma is saved -- a variance that is trained and
             # never recorded cannot be checked against the errors it claims to describe.
-            preds, sd = TM.predict_with_sigma(model, cfg, enc, norm, mnorm, splits["test"],
-                                              t_in, splits["train"] + splits["val"])
+            preds, sd = TM.predict_with_sigma(
+                model, cfg, enc, norm, mnorm, splits["test"], t_in,
+                TM.scope_ids(cfg, splits["train"], splits["val"], args.baseline_scope))
             if args.save_preds:
                 sig[which] = sd
             print(f"  best val NLL {hist['best_val_nll']:.6f}")

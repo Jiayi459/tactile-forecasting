@@ -22,9 +22,13 @@ THREE THINGS DIFFER, EACH DECIDED RATHER THAN DRIFTED INTO (user rulings, 2026-0
      under which a taxel's median IS its resting level (SESSION_LOG 2026-08-16).
      CAVEAT worth stating wherever these numbers appear: the median is pooled over a
      SHARD, so for a held-out location it is estimated from that location's own frames --
-     transductive in the inputs, never in the targets. --baseline-scope train restricts it
-     to TRAIN clips, at the cost of having no estimate at all for a location that is
-     entirely held out.
+     transductive in the inputs, never in the targets. --baseline-scope train (or trainval)
+     restricts it, at the cost of having NO estimate at all for a location that is entirely
+     held out -- and under location-held-out CV that is every test location, so those scopes
+     drop the whole test set. That is why "shard" is the default rather than a loosening:
+     see scope_ids(). Until 2026-08-22 this paragraph described a flag that did not exist,
+     while base_scope="shard" quietly meant TRAIN+VAL, and the resulting empty test set was
+     filled with zeros and scored.
 
   3. THE HISTORY SWEEP IS {1,2,3} s, NOT {1,3,10}. OQ-H (2026-08-11): a 10 s history leaves
      90 of 2958 clips, and even 3 s already leaves ~75% of clips with no unpadded window.
@@ -177,6 +181,29 @@ def taxel_baselines(cfg: Config, idxs: list[int], max_frames: int = 20000,
     return out
 
 
+def scope_ids(cfg: Config, train_ids: list[int], val_ids: list[int], scope: str) -> list[int]:
+    """Which clips the per-taxel baseline may be estimated from.
+
+    "shard" is the scope this module's docstring has always described and, until 2026-08-22,
+    the only one that works under location-held-out CV. A taxel's resting level is a property
+    of the hardware, so pooling a shard's own frames to find it is transductive in the INPUTS
+    and never in the targets -- the argument recorded on 2026-08-16.
+
+    "trainval" was what `base_scope="shard"` actually did, despite the name, and "train" is
+    stricter still. Both leave a wholly held-out location with NO baseline, at which point
+    every one of its clips is dropped. That is not a conservative choice, it is a broken one:
+    the 2026-08-22 map run reported a full metric table for flatten and cnn whose predictions
+    were arrays of zeros, because every test clip had been dropped this way and filled in.
+    """
+    if scope == "train":
+        return sorted(set(train_ids))
+    if scope == "trainval":
+        return sorted(set(train_ids) | set(val_ids))
+    if scope == "shard":
+        return sorted(shard_of(cfg))
+    raise ValueError(f"baseline scope must be shard/trainval/train, got {scope!r}")
+
+
 def load_map(cfg: Config, idx: int, base: np.ndarray) -> np.ndarray:
     """clip_<idx>.npy -> (T,1,16,16) float32, baseline removed and clipped at zero."""
     p = os.path.join(cfg.abspath("states_root"), f"clip_{idx}.npy")
@@ -265,7 +292,7 @@ def train(cfg: Config, encoder: str, train_ids: list[int], val_ids: list[int], t
     gen = configure_determinism(int(hp["seed"]))
     if norm is None:
         norm = Norm.from_train({i: load_target(cfg, i) for i in train_ids})
-    base_ids = train_ids if base_scope == "train" else sorted(set(train_ids) | set(val_ids))
+    base_ids = scope_ids(cfg, train_ids, val_ids, base_scope)
     tr_in, mnorm = build_inputs(cfg, encoder, train_ids, base_ids, norm, hp["alpha"])
     va_in, _ = build_inputs(cfg, encoder, val_ids, base_ids, norm, hp["alpha"], mnorm)
 
@@ -330,10 +357,23 @@ def predict_with_sigma(model, cfg: Config, encoder: str, norm: Norm, mnorm,
         Y = np.asarray(load_target(cfg, i), dtype=np.float64)
         z = norm.z(Y)
         ors = origins(len(z), cfg)
-        if i not in inputs or len(ors) == 0:
-            mus[i] = np.zeros((len(ors), cfg.horizon, C))
-            sds[i] = np.zeros((len(ors), cfg.horizon, C))
+        if len(ors) == 0:
+            # A clip too short for a single origin genuinely has no forecast to make; the
+            # empty arrays are the right answer and score_external expects them.
+            mus[i] = np.zeros((0, cfg.horizon, C))
+            sds[i] = np.zeros((0, cfg.horizon, C))
             continue
+        if i not in inputs:
+            # Zeros here are not an answer, they are a fabrication, and they scored as one:
+            # on 2026-08-22 every test clip landed in this branch (their shards had no
+            # baseline under the trainval scope) and flatten and cnn returned complete
+            # metric tables built entirely from zero arrays, identical to four decimals.
+            raise RuntimeError(
+                f"clip {i} has {len(ors)} origins but no input: its shard has no taxel "
+                f"baseline under the current scope. Under location-held-out CV a held-out "
+                f"shard is absent from TRAIN+VAL by construction -- use baseline scope "
+                f"'shard', which estimates the resting level from that shard's own frames "
+                f"(transductive in inputs, never in targets).")
         X, _ = windows(cfg, [i], t_in, {i: inputs[i]}, norm)
         mu, lv = model(X.to(dev))
         resid = mu.cpu().numpy().astype(np.float64)

@@ -149,3 +149,43 @@ def test_map_arms_refuse_to_run_without_maps(cfg, tmp_path):
                               Norm.from_train({i: load_target(cfg, i) for i in ids[:4]}),
                               TM.DEFAULT_HP["alpha"])
     assert set(agg) == set(ids[:4]) and mn is None
+
+
+def test_held_out_shard_gets_a_baseline_under_the_shard_scope(cfg, tmp_path):
+    """The scope that made flatten and cnn return arrays of zeros, and the one that does not.
+
+    The fixture puts clips in shards sh0/sh1 by parity. Holding out a whole shard is what
+    location-held-out CV does, and under a TRAIN-only scope that shard has no taxel baseline
+    at all, so every one of its clips is dropped.
+    """
+    ids = [r["idx"] for r in (json.loads(l) for l in open(tmp_path / "manifest.jsonl"))]
+    train = [i for i in ids if i % 2 == 0]          # sh0 only
+    held = [i for i in ids if i % 2 == 1]           # sh1, wholly unseen
+
+    assert TM.scope_ids(cfg, train, [], "train") == sorted(train)
+    assert set(TM.scope_ids(cfg, train, [], "shard")) == set(ids)   # reaches the held-out shard
+
+    norm = Norm.from_train({i: load_target(cfg, i) for i in train})
+    a = TM.DEFAULT_HP["alpha"]
+    strict, _ = TM.build_inputs(cfg, "flatten", held, TM.scope_ids(cfg, train, [], "train"),
+                                norm, a)
+    assert strict == {}                              # every held-out clip dropped
+    wide, _ = TM.build_inputs(cfg, "flatten", held, TM.scope_ids(cfg, train, [], "shard"),
+                              norm, a)
+    assert set(wide) == set(held)                    # all of them recovered
+
+    with pytest.raises(ValueError, match="scope"):
+        TM.scope_ids(cfg, train, [], "everything")
+
+
+def test_a_clip_with_origins_and_no_input_raises_instead_of_predicting_zeros(cfg, tmp_path):
+    """Zeros for a droppable input are a fabrication, and on 2026-08-22 they were scored."""
+    ids = [r["idx"] for r in (json.loads(l) for l in open(tmp_path / "manifest.jsonl"))]
+    train, held = [i for i in ids if i % 2 == 0], [i for i in ids if i % 2 == 1]
+    norm = Norm.from_train({i: load_target(cfg, i) for i in train})
+    hp = dict(TM.DEFAULT_HP, d=8, hidden=8, epochs=1, batch=8)
+    model, _, mnorm, _ = TM.train(cfg, "flatten", train, train[:2], 15, hp, norm=norm,
+                                  device="cpu", base_scope="shard")
+    with pytest.raises(RuntimeError, match="no input"):
+        TM.predict_with_sigma(model, cfg, "flatten", norm, mnorm, held, 15,
+                              TM.scope_ids(cfg, train, [], "train"))

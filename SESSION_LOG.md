@@ -6571,3 +6571,40 @@ OpenTouch 现仅有 aggregate,**flatten/cnn 待重跑**。→ "空间结构有�
 
 **注意**:D-TEST 约定(2026-08-21)本身是有效的——正是它让这个错误在提交作业前暴露,
 而不是又浪费一次 GPU 作业。
+
+### 2026-08-22续2 — flatten/cnn 故障的**真实**根因(Claude 的第一次诊断是错的)
+
+**先更正**:上一节把根因判为"cache_d1 缺少 clip_*.npy"。**该判断错误。**
+用户在 CRC 上的检查表明:`cache_d1` 有全部 **2904** 个 `clip_*.npy`(实体文件,非软链接),
+形状 (T,1,16,16) float16,且**已完成 D1 校正**(mean 6.57、**零占比 91.6%**,
+对照原始 cache 的 mean 2924、零占比 0.5%)。GRID=16 也是对的。
+Claude 加的"无 map 则报错"护栏本身合理,**但它并未解释这次故障**。
+
+**真实根因(三个缺陷叠加)**:
+1. `predict_with_sigma` 对"取不到输入"的 clip **静默填零**
+   (`if i not in inputs or len(ors)==0: mus[i]=zeros`)。
+2. `build_inputs` 丢弃**所属 shard 不在 `bases` 中**的 clip,而 `bases` 由 `base_ids` 估计。
+3. 驱动传入的 `base_ids = train+val`。**按地点留出时,test 的 shard 按构造不在 train+val 中**
+   → 全部 test clip 被丢 → 全部填零。
+
+**证据(决定性)**:`mu_flatten` 与 `mu_cnn` 的 `min=max=0`、`sigma` 亦全为 0,
+且 `np.array_equal(mu_flatten, mu_cnn) == True`。**两臂的"预测"是同一个全零数组**——
+不是训练发散,是数组分配后从未写入。`map_aggregate` 不经此路径,故完好
+(mu ∈ [−0.336, 2204],sigma ∈ [0.055, 736])。
+
+**文档与实现长期不一致**:模块文档描述了 `--baseline-scope train` 这一**从未实现**的开关;
+而 `train(base_scope="shard")` 的 "shard" 分支**实际是 `train ∪ val`**,并非文档所述的"整个
+shard"。**两个分支在按地点留出下都无法为留出地点给出基线。**
+
+**修复(三处)**:
+- 新增 `scope_ids(cfg, train, val, scope)`,`shard`(默认)= 该 shard 自身全部帧、
+  `trainval` = 旧的错误命名行为、`train` = 最严;
+- `predict_with_sigma`:`len(ors)==0` 仍返回**空**数组(正确,该 clip 本就无预测可做);
+  但 **`i not in inputs` 改为抛 `RuntimeError`**——填零不是答案,是伪造,而它被当作答案计了分;
+- 驱动新增 `--baseline-scope`(默认 `shard`),作业脚本新增 `BASELINE_SCOPE`;模块文档更正。
+
+**依据**:逐格静息电平是**硬件属性**,由该 shard 自身帧估计**只在输入上是 transductive,
+目标上从不**——这是 2026-08-16 已记录的论证,本次只是让实现与之相符。
+
+**待跑**:`docs/opentouch/d1_map/` 下 flatten/cnn 的全部数字**作废,不得引用**;
+map_aggregate 的数字**有效**(其通路不受影响)。
