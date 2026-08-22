@@ -6547,3 +6547,27 @@ OpenTouch 现仅有 aggregate,**flatten/cnn 待重跑**。→ "空间结构有�
 **把原始 map 软链接进 cache_d1** —— `ln -s ~/opentouch/cache/clip_*.npy ~/opentouch/cache_d1/`。
 这样:map 输入为原始图 + 脚本内 TRAIN-only 基线扣除(**无二次校正**),
 目标取自 cache_d1 的校正 state(**与 d1/d1_mse 可比**)。
+
+### 2026-08-22续 — pytest 门有洞:tactile_map 测试从未被执行过
+
+**发现**:在 CRC 上按 D-TEST 约定单跑 `tests/test_opentouch_tactile_map.py`,
+`test_windows_are_residual_and_left_padded` **失败**(1 failed, 8 passed;Claude 新增的
+无 map 护栏测试通过)。
+
+**根因(两层)**:
+1. **作业脚本的 pytest 门只列了两个文件**
+   (`tests/test_opentouch_prob_gru.py tests/test_opentouch_gru_aggregate.py`),
+   **`tests/test_opentouch_tactile_map.py` 从未被任何地方执行过**——本机 torch 不可用,
+   CRC 又没跑它。该断言自 `33e2137` 写下起一直未验证,**整个 map 运行期间都带着它**。
+2. **失败的是断言本身,不是代码**:`min_history=15` → 首个 origin 为 t=15 →
+   窗口 `M[t-t_in+1 : t+1]` = `M[0:16]`,即 **16 帧真实数据、24 帧填充**;
+   测试写死 `X[0, :25]`,把"origin 在 15"错算为 15 帧历史(0..15 共 16 帧,差一)。
+
+**修复**:
+- 断言改为**由配置推导**:`pad = t_in - (min_history + 1)`,并补一条
+  `X[0, pad]` 非零的断言,防止将来 pad 算多了也能"通过";
+- **作业脚本的门改为 `python -m pytest tests/ -q`(全量)**。
+  **一个会跳过文件的门就是有洞的门**——这是本次的系统性教训,优先级高于单个断言。
+
+**注意**:D-TEST 约定(2026-08-21)本身是有效的——正是它让这个错误在提交作业前暴露,
+而不是又浪费一次 GPU 作业。

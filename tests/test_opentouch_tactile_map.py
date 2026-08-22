@@ -86,7 +86,13 @@ def test_windows_are_residual_and_left_padded(cfg):
     X, Y = TM.windows(cfg, [0], 40, inp, norm)
     n_or = len(origins(len(load_target(cfg, 0)), cfg))
     assert X.shape == (n_or, 40, 3) and Y.shape == (n_or, cfg.horizon, 3)
-    assert torch.allclose(X[0, :25], torch.zeros(25, 3))     # early origin is left-padded
+    # Derived, not a magic number. The first origin is min_history, and the window is
+    # M[t-t_in+1 : t+1], so it holds min_history+1 real frames -- 16, not 15. The literal 25
+    # here asserted 15 and had never been executed: the job's pytest gate listed only the
+    # prob_gru and gru_aggregate files, so this one ran for the first time on 2026-08-22.
+    pad = 40 - (cfg.raw["eval"]["min_history"] + 1)
+    assert torch.allclose(X[0, :pad], torch.zeros(pad, 3))   # early origin is left-padded
+    assert not torch.allclose(X[0, pad], torch.zeros(3))     # and real data starts right after
     z = norm.z(np.asarray(load_target(cfg, 0), dtype=np.float64))
     t = int(origins(len(z), cfg)[0])
     assert np.allclose(Y[0].numpy(), (z[t + 1:t + 1 + cfg.horizon] - z[t]), atol=1e-5)

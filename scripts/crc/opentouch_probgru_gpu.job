@@ -52,7 +52,11 @@ test -f data/opentouch_states/manifest.jsonl || {
 # The torch-dependent tests only ever execute where torch works, i.e. here. Running them
 # first means a broken fork fails in seconds instead of after hours of training.
 python -c "import pytest" 2>/dev/null || pip install pytest --quiet
-python -m pytest tests/test_opentouch_prob_gru.py tests/test_opentouch_gru_aggregate.py -q
+# tests/ in full, not a hand-listed subset. The old list named prob_gru and gru_aggregate
+# only, so tests/test_opentouch_tactile_map.py had never run anywhere -- torch does not
+# import on the machine they are written on -- and a wrong assertion in it sat undetected
+# through the whole map run. A gate that skips files is a gate with holes in it.
+python -m pytest tests/ -q
 
 python -u scripts/run_opentouch_exploratory.py \
     --model "${MODEL:-prob_gru}" \
