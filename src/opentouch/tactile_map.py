@@ -259,9 +259,14 @@ def build_inputs(cfg: Config, encoder: str, ids: list[int], base_ids: list[int],
     sh = shard_of(cfg)
     raw = {i: load_map(cfg, i, bases[sh[i]]) for i in ids if sh[i] in bases}
     if not raw:
-        raise FileNotFoundError(
-            f"every one of the {len(ids)} clips was dropped for want of a shard baseline; "
-            f"the {encoder!r} arm cannot train on an empty input set")
+        # RuntimeError, not FileNotFoundError: the maps are on disk, the SCOPE excluded every
+        # shard they belong to. Keeping the two apart matters because the fixes differ --
+        # one wants files, the other wants --baseline-scope shard.
+        raise RuntimeError(
+            f"all {len(ids)} clips dropped for want of a shard baseline: none of their "
+            f"shards appears among the {len(base_ids)} clips the baseline may be estimated "
+            f"from. Under location-held-out CV that is what any TRAIN-restricted scope does "
+            f"to the test set; use baseline scope 'shard'.")
     if mnorm is None:
         mnorm = MapNorm.from_train(raw, alpha)
     return {i: mnorm.apply(m) for i, m in raw.items()}, mnorm

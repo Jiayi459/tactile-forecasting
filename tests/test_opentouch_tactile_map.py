@@ -156,7 +156,7 @@ def test_held_out_shard_gets_a_baseline_under_the_shard_scope(cfg, tmp_path):
 
     The fixture puts clips in shards sh0/sh1 by parity. Holding out a whole shard is what
     location-held-out CV does, and under a TRAIN-only scope that shard has no taxel baseline
-    at all, so every one of its clips is dropped.
+    at all -- which must be an error, not an empty dict that something downstream fills in.
     """
     ids = [r["idx"] for r in (json.loads(l) for l in open(tmp_path / "manifest.jsonl"))]
     train = [i for i in ids if i % 2 == 0]          # sh0 only
@@ -167,9 +167,8 @@ def test_held_out_shard_gets_a_baseline_under_the_shard_scope(cfg, tmp_path):
 
     norm = Norm.from_train({i: load_target(cfg, i) for i in train})
     a = TM.DEFAULT_HP["alpha"]
-    strict, _ = TM.build_inputs(cfg, "flatten", held, TM.scope_ids(cfg, train, [], "train"),
-                                norm, a)
-    assert strict == {}                              # every held-out clip dropped
+    with pytest.raises(RuntimeError, match="shard baseline"):
+        TM.build_inputs(cfg, "flatten", held, TM.scope_ids(cfg, train, [], "train"), norm, a)
     wide, _ = TM.build_inputs(cfg, "flatten", held, TM.scope_ids(cfg, train, [], "shard"),
                               norm, a)
     assert set(wide) == set(held)                    # all of them recovered
@@ -179,13 +178,28 @@ def test_held_out_shard_gets_a_baseline_under_the_shard_scope(cfg, tmp_path):
 
 
 def test_a_clip_with_origins_and_no_input_raises_instead_of_predicting_zeros(cfg, tmp_path):
-    """Zeros for a droppable input are a fabrication, and on 2026-08-22 they were scored."""
+    """Zeros for a droppable input are a fabrication, and on 2026-08-22 they were scored.
+
+    A PARTIAL drop is the case that reaches predict_with_sigma: some shards have a baseline
+    and some do not, so build_inputs returns a non-empty dict that is nonetheless missing
+    clips. Asking it to predict for both shards while the baseline covers only one is exactly
+    that.
+    """
     ids = [r["idx"] for r in (json.loads(l) for l in open(tmp_path / "manifest.jsonl"))]
     train, held = [i for i in ids if i % 2 == 0], [i for i in ids if i % 2 == 1]
     norm = Norm.from_train({i: load_target(cfg, i) for i in train})
     hp = dict(TM.DEFAULT_HP, d=8, hidden=8, epochs=1, batch=8)
     model, _, mnorm, _ = TM.train(cfg, "flatten", train, train[:2], 15, hp, norm=norm,
                                   device="cpu", base_scope="shard")
+
+    # sh0 is covered, sh1 is not: a non-empty input set that still omits half the clips
     with pytest.raises(RuntimeError, match="no input"):
-        TM.predict_with_sigma(model, cfg, "flatten", norm, mnorm, held, 15,
+        TM.predict_with_sigma(model, cfg, "flatten", norm, mnorm, train + held, 15,
                               TM.scope_ids(cfg, train, [], "train"))
+
+    # and with the shard scope every one of them predicts
+    mus, sds = TM.predict_with_sigma(model, cfg, "flatten", norm, mnorm, train + held, 15,
+                                     TM.scope_ids(cfg, train, [], "shard"))
+    assert set(mus) == set(train + held)
+    assert all(np.isfinite(v).all() for v in mus.values())
+    assert any(v.size and float(np.ptp(v)) > 0 for v in sds.values())   # not an array of zeros
