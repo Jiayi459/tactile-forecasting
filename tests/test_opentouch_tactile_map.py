@@ -119,3 +119,27 @@ def test_a_zero_residual_reproduces_persistence(cfg):
     ors = origins(len(Y), cfg)
     assert np.allclose(preds[te[0]], np.repeat(Y[ors][:, None, :], cfg.horizon, axis=1),
                        atol=1e-6)
+
+
+def test_map_arms_refuse_to_run_without_maps(cfg, tmp_path):
+    """A cache holding states but no clip_*.npy must fail, not report numbers from nothing.
+
+    On 2026-08-22 the D1 cache had no maps, taxel_baselines skipped every missing file, and
+    flatten and cnn each returned a full metric table -- identical to four decimals, sigma
+    exactly 0 -- having trained on an empty input set. The aggregate arm reads state_*.npy
+    and was unaffected, which is precisely why the failure was silent.
+    """
+    ids = [r["idx"] for r in
+           (json.loads(l) for l in open(tmp_path / "manifest.jsonl"))]
+    TM.taxel_baselines(cfg, ids)                     # maps present: fine
+
+    for p in tmp_path.glob("clip_*.npy"):
+        p.unlink()
+    with pytest.raises(FileNotFoundError, match="clip"):
+        TM.taxel_baselines(cfg, ids)
+
+    # the aggregate arm reads state_*.npy and must still be usable without any map
+    agg, mn = TM.build_inputs(cfg, "aggregate", ids[:4], ids[:4],
+                              Norm.from_train({i: load_target(cfg, i) for i in ids[:4]}),
+                              TM.DEFAULT_HP["alpha"])
+    assert set(agg) == set(ids[:4]) and mn is None

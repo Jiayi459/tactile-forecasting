@@ -6483,3 +6483,67 @@ observed 列为 MSE 选权重版本,与 NLL 版差异 ≤0.007(见前一节)。
 
 **N6(不变,仍为唯一有实质空间的方向)**——长 horizon 慢包络,缺口 0.15–0.30。
 **N3(不变)**——D1 上跑 map 三臂。
+
+## 2026-08-22 — docs/ 重组 + 【map 三臂 D1 结果】aggregate 有效,flatten/cnn 是**静默故障**
+
+### 一、docs/ 重组(用户指示)
+
+86 个文件原本平铺在一个目录,仅靠命名区分(`opentouch_cv4.csv` / `_df` / `_d1` / `_d1_mse` /
+`_d1_map`)。现改为按传感器、再按 run 分层:
+```
+docs/*.md                 项目级文档(结论/计划/跨传感器对比)
+docs/actionsense/     34  harness、tactile_map、action_dynamics 全部结果
+docs/opentouch/{raw,df,d1,d1_mse,d1_map,exploratory}/   7/4/9/11/7/2
+```
+**74 个文件以 `git mv` 移动**(保留历史),**89 处引用全部改写**。两个实现要点:
+(a) 替换**按路径长度从长到短**,否则 `docs/opentouch_cv4.csv` 会污染 `docs/opentouch_cv4_d1.csv`;
+(b) 第一遍 glob 漏了 `src/**/*.md`,改用 `git ls-files` 覆盖全部被跟踪文本文件后重扫,
+残留为 **0**。新增 `docs/README.md` 记录布局及两条最易误读之处
+(绝对误差不可跨 D1 比较;两个 skill 口径不可互换)。
+`d1_band` 三图归入 **`d1_mse/`**——它们由 `runs/preds_d1_mse` 绘制,不是独立训练。
+
+### 二、map_aggregate:有效,且与既有各臂**基本打平**
+
+| 模型 | R²(F/CoPx/CoPy) | skill(F/CoPx/CoPy) |
+|---|---|---|
+| **map_aggregate** | **0.6611**/0.2476/0.1012 | **0.3178**/0.4409/0.4745 |
+| ar | 0.6530/**0.2654**/**0.1152** | 0.3016/**0.4541**/**0.4827** |
+| prob_gru(d1_mse) | 0.6511/0.2631/0.1064 | 0.2977/0.4525/0.4776 |
+
+**map_aggregate 在 F 上最好(R² 0.6611、skill 0.3178),在 CoP 上略差于 ar。三者差距 ≤0.02。**
+→ 与此前结论一致:**换架构在这份数据上买不到东西**,天花板才是约束。
+
+**sharpness 交叉验证(重要)**:map_aggregate 的 σ/自身 RMSE = **0.80–0.91**,
+与 prob_gru 的 **0.82–0.90** 几乎相同。**两个不同模型给出同一个偏离**,
+说明**残差重尾是数据的性质,不是某个模型的毛病**——8/21 的结论由此加固。
+
+### 三、flatten 与 cnn:**静默故障,数字无效,不得引用**
+
+**症状**:两臂 R²(−1.8159/−13.9050/−4.2122)与 skill(−4.6678/−10.0749/−2.0472)
+**逐位相同**,且 **σ 恒为 0**。不同架构不可能给出相同到小数点后四位的结果。
+
+**根因**:`aggregate` 经 `load_target` 读 `state_*.npy`;**`flatten`/`cnn` 经 `taxel_baselines`
++ `load_map` 读 `clip_*.npy`**。而 `taxel_baselines` 对缺失文件是 **`continue` 静默跳过**
+(`tactile_map.py:153`),`cache_d1` 中若无 map 文件则 `bases={}` → `build_inputs` 返回**空字典**
+→ **两臂在零数据上训练与预测**,落入同一 fallback。
+**这正是提交前已提醒过的风险**(cache_d1 可能只有 state 文件),
+**但它没有报错,而是安静地产出了一整张指标表——这比崩溃更糟。**
+
+**修复**:`taxel_baselines` 在**一个 map 都没找到**时抛 `FileNotFoundError`,并在错误信息中给出
+补救命令;`build_inputs` 在输入集为空时同样抛错。新增测试覆盖"有 state 无 map"的情形,
+并断言 **aggregate 臂在无 map 时仍可用**——正是这一点使故障得以静默。
+**该测试本地为 skip(torch 不可用),按 D-TEST 约定须先在 CRC 上单跑 pytest 再提交作业。**
+
+### 四、与 ActionSense 的对照表仍有两格空缺
+
+ActionSense:aggregate **0.181** > cnn **0.138** > flatten **−0.042**
+(空间结构在该传感器上帮倒忙,除非用卷积)。
+OpenTouch 现仅有 aggregate,**flatten/cnn 待重跑**。→ "空间结构有没有用"**尚未回答**。
+
+### 五、重跑方案(推荐)
+
+`tactile_map` **自身已实现 D1**(`taxel_baselines` 注释即 "D1's estimator",且**仅由 TRAIN 估计**,
+比 cache 级 D1 更严格、不会泄漏)。故**不应**再让它读一份已校正的 map。推荐:
+**把原始 map 软链接进 cache_d1** —— `ln -s ~/opentouch/cache/clip_*.npy ~/opentouch/cache_d1/`。
+这样:map 输入为原始图 + 脚本内 TRAIN-only 基线扣除(**无二次校正**),
+目标取自 cache_d1 的校正 state(**与 d1/d1_mse 可比**)。

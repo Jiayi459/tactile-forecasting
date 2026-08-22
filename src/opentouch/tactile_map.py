@@ -147,11 +147,13 @@ def taxel_baselines(cfg: Config, idxs: list[int], max_frames: int = 20000,
         if i in set(idxs):
             by_shard[sh].append(i)
     out = {}
+    missing = 0
     for sh, ids in by_shard.items():
         frames, n = [], 0
         for i in sorted(ids):
             p = os.path.join(root, f"clip_{i}.npy")
             if not os.path.exists(p):
+                missing += 1
                 continue
             a = np.load(p).astype(np.float32).reshape(-1, GRID * GRID)[::stride]
             frames.append(a); n += len(a)
@@ -159,6 +161,19 @@ def taxel_baselines(cfg: Config, idxs: list[int], max_frames: int = 20000,
                 break
         if frames:
             out[sh] = np.median(np.concatenate(frames, 0)[:max_frames], axis=0)
+    if not out:
+        # Skipping a missing clip is right; skipping ALL of them and returning {} is not.
+        # build_inputs then yields an empty dict, both map arms train on nothing, and the
+        # run still emits a full metric table -- which is what happened on 2026-08-22:
+        # flatten and cnn came back identical to four decimals with sigma exactly 0, because
+        # neither had seen a single frame. A run that reports numbers from no data is worse
+        # than one that crashes.
+        raise FileNotFoundError(
+            f"no clip_*.npy under {root} ({missing} expected files absent), so the map arms "
+            f"have no input. The aggregate arm reads state_*.npy and would still run, which "
+            f"is why this fails loudly instead of quietly. If this cache holds corrected "
+            f"states only, link the maps in beside them: "
+            f"ln -s ~/opentouch/cache/clip_*.npy {root}/")
     return out
 
 
@@ -216,6 +231,10 @@ def build_inputs(cfg: Config, encoder: str, ids: list[int], base_ids: list[int],
     bases = taxel_baselines(cfg, base_ids)
     sh = shard_of(cfg)
     raw = {i: load_map(cfg, i, bases[sh[i]]) for i in ids if sh[i] in bases}
+    if not raw:
+        raise FileNotFoundError(
+            f"every one of the {len(ids)} clips was dropped for want of a shard baseline; "
+            f"the {encoder!r} arm cannot train on an empty input set")
     if mnorm is None:
         mnorm = MapNorm.from_train(raw, alpha)
     return {i: mnorm.apply(m) for i, m in raw.items()}, mnorm
