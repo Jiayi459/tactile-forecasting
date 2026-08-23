@@ -118,6 +118,8 @@ def main():
     ax2 = ax.twinx()
     ax2.set_ylabel("VAL MSE (dotted, + = its own best)", fontsize=8)
 
+    arms_present = {ck.get("arm") or os.path.basename(n).split("_location")[0]
+                    for n, ck in cks}
     crits = set()
     for name, ck in cks:
         h = ck.get("history", {})
@@ -131,7 +133,13 @@ def main():
         tr = np.asarray(h.get("train_nll", []), dtype=float)
         if va.size == 0:
             continue
-        tag = ck.get("split", name).replace("location-k4-", "").replace("-seed0", "")
+        fold = ck.get("split", name).replace("location-k4-", "").replace("-seed0", "")
+        # One directory can now hold several arms (the map family saves checkpoints since
+        # 2026-08-23), and four folds of three arms all labelled "fold0..fold3" would be
+        # twelve indistinguishable curves. Older checkpoints predate the field and fall back
+        # to the filename, which already begins with the arm.
+        arm = ck.get("arm") or os.path.basename(name).split("_location")[0]
+        tag = fold if len(arms_present) < 2 else f"{arm} {fold}"
         ep = np.arange(1, va.size + 1)
         line, = ax.plot(ep, va, lw=1.4, label=f"{tag} val")
         m = np.isfinite(tr)

@@ -12,15 +12,18 @@ ActionSense's `_R` channels are the closest match its two-handed target allows.
 |---|---|---|---|---|---|---|---|---|---|
 | seasonal | 0.000 | 0.000 | 0.000 | −0.019 | −0.015 | −0.016 | −0.038 | −0.033 | −0.009 |
 | AR | 0.200 | 0.254 | 0.194 | 0.149 | 0.214 | 0.171 | **0.367** | **0.431** | **0.476** |
-| GRU-aggregate | 0.181 | 0.233 | 0.175 | — | — | — | — | — | — |
-| flatten (map) | −0.042 | −0.002 | −0.051 | — | — | — | — | — | — |
-| CNN (map) | 0.138 | 0.011 | 0.045 | — | — | — | — | — | — |
+| GRU-aggregate | 0.181 | 0.233 | 0.175 | — | — | — | **0.360** | **0.422** | **0.469** |
+| flatten (map) | −0.042 | −0.002 | −0.051 | — | — | — | **0.273** | **0.331** | **0.407** |
+| CNN (map) | 0.138 | 0.011 | 0.045 | — | — | — | **0.333** | **0.374** | **0.424** |
 | probGRU | (0.378) | (0.461) | (0.392) | 0.203 | 0.288 | 0.221 | **0.386** | **0.427** | **0.472** |
 
 ActionSense: harness baselines from `docs/actionsense/harness_baselines.csv`; map arms are 10-fold CV
 means at their best history from `docs/tactile_map_cv_results{,_aggregate}.csv`.
 OpenTouch: 4-fold location-held-out means from `docs/opentouch_cv4{,_d1}.csv`.
-Dashes are arms not yet run on OpenTouch, not zeros.
+Map arms on OpenTouch are the `d1_map2` rerun (`docs/opentouch/d1_map2/`); the `d1_map`
+numbers for flatten and cnn were arrays of zeros and must not be quoted. Remaining dashes are
+the uncorrected OpenTouch column, where the map arms were never run and will not be -- that
+target is superseded.
 
 ## What differs between the two columns
 
@@ -63,9 +66,18 @@ GRU had was largely an advantage at reproducing a constant.
 back to persistence when no cycle is found, which is every group. On OpenTouch it is
 slightly negative, i.e. the few groups where a period was detected were hurt by using it.
 
-**The map arms are the open question.** On ActionSense, flatten is *worse* than persistence
-(−0.042 on F) while CNN is clearly positive (0.138), and the aggregate encoder beats both
-(0.181) -- so on that sensor the raw map hurt unless a convolution exploited its structure,
-and even then it did not beat using the summary signal alone. Those arms exist for
-OpenTouch now but have not been run; the D1 correction makes them worth running, since the
-map's DC was the same 99.78%.
+**The map ordering replicates, and the ranking is monotone in raw spatial detail.**
+aggregate > CNN > flatten holds on every channel of both sensors. Ordering it by how much of
+the raw map each arm is handed puts AR first (never sees it, and linear), then GRU-aggregate
+(never sees it), then CNN (sees it, exploits the structure), then flatten (sees it, ignores
+the structure) -- and skill falls monotonically along that order, on OpenTouch:
+0.367 > 0.360 > 0.333 > 0.273 on F. **A linear AR baseline beats a CNN on the 16x16 map, on
+all three channels.**
+
+Two claims therefore have two sensors behind them: the raw map carries no predictable
+information beyond F and CoP, which are close to sufficient statistics for this task; and if
+an arm must read the map, exploiting its spatial structure beats flattening it.
+
+One difference is worth keeping: on OpenTouch flatten stays clearly positive (0.27-0.41),
+where on ActionSense it fell *below* persistence (−0.042). Reading the raw map costs less
+here, but it still costs.

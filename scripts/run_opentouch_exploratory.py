@@ -321,6 +321,23 @@ def run_split(cfg, splits, args, tag):
             if args.save_preds:
                 sig[which] = sd
             print(f"  best val NLL {hist['best_val_nll']:.6f}")
+            if args.save_model:
+                # The map arms went unrecorded until 2026-08-23, so the 8-epoch budget they
+                # were compared under could not be checked the way prob_gru's was: no
+                # curves, no way to see whether VAL had bottomed. mnorm rather than
+                # fnorm/vocab is the only difference in what a map arm needs to be replayed.
+                import torch
+                os.makedirs(args.save_model, exist_ok=True)
+                ck = os.path.join(args.save_model, f"{which}_{tag}.pt")
+                torch.save({"state_dict": model.state_dict(), "hp": hp, "t_in": t_in,
+                            "arm": which, "encoder": enc,
+                            "norm": {"mean": norm.mean, "std": norm.std},
+                            "mnorm": ({"mean": mnorm.mean, "std": mnorm.std,
+                                       "alpha": mnorm.alpha} if mnorm else None),
+                            "baseline_scope": args.baseline_scope,
+                            "channels": list(cfg.channels), "config_hash": cfg.config_hash,
+                            "split": tag, "history": hist, "sweep": scores}, ck)
+                print(f"  saved model -> {ck}")
         elif which == "gru_aggregate":
             from src.opentouch import gru_aggregate as G
             hp = dict(gcfg.raw["model"], **gcfg.raw["optim"])
@@ -369,7 +386,7 @@ def run_split(cfg, splits, args, tag):
             os.makedirs(args.save_model, exist_ok=True)
             ck = os.path.join(args.save_model, f"prob_gru_{tag}.pt")
             torch.save({"state_dict": model.state_dict(), "hp": hp, "t_in": t_in,
-                        "vocab": vocab, "by_idx": by_idx,
+                        "arm": which, "vocab": vocab, "by_idx": by_idx,
                         "norm": {"mean": norm.mean, "std": norm.std},
                         "fnorm": {"mean": fnorm.mean, "std": fnorm.std},
                         "channels": list(cfg.channels), "config_hash": cfg.config_hash,
