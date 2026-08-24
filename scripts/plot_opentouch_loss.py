@@ -215,9 +215,14 @@ def main():
         print("Gaussian errors give σ/|err| = 1.48 and 95.4% coverage. Above -> the head "
               "hedges with intervals wider than its mistakes; below -> it is overconfident. "
               "The harness scores point error only, so neither shows up anywhere else.")
-        first = sorted(cov)[0]
-        line = "  ".join(f"{c} {v[0]:.1%}" for c, v in cov[first].items())
-        fig.suptitle(f"±2σ coverage (nominal 95.4%) — {first}: {line}", fontsize=10)
+        # Every arm, not just the alphabetically first: a three-arm figure titled with one
+        # arm's coverage reads as if that were the figure's subject, the same way the
+        # forecast overlay once did (2026-08-20).
+        chans = list(cov[sorted(cov)[0]])
+        bits = ["  ".join(f"{m} " + "/".join(f"{cov[m][c][0]:.1%}" for c in chans)
+                          for m in sorted(cov))]
+        fig.suptitle(f"±2σ coverage (nominal 95.4%), {'/'.join(chans)} — {bits[0]}",
+                     fontsize=9)
     # The right bound leaves the legend its column; tight_layout would otherwise expand the
     # axes back over it.
     fig.tight_layout(rect=(0, 0, 0.84, 0.93 if cov else 1.0))
