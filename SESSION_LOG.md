@@ -6848,3 +6848,69 @@ map 三臂的目的是"**只换输入表示、不换模型架构**",但 `tactile
 ### 四、下一步
 
 跑 `MODEL=pg_all`,与 `d1_map2/3` 对照即可分离"输入表示"与"骨干"两个因素。
+
+## 2026-08-24续2 — Hausdorff 接入 ActionSense;probGRU 移植的**阻塞点**;AS_forecast 三图溯源
+
+### 一、Hausdorff:实现共享,两侧接入
+
+新建 `src/shape_metrics.py`(**置于 `src/` 顶层,不属于任一侧**)。
+`src/opentouch/metrics.py` 是 harness 的**有意分叉**;而 Hausdorff 是相反的情形——
+**在两个传感器上计算它的全部意义就是互相比较,定义绝不能漂移**,故单一实现。
+
+**关键性质(已验证)**:该度量对**共同平移不变**。ActionSense 的 tactile_map 目标是
+**残差**(相对最后观测值),而绝对值 = 残差 + 同一常数(预测与真值共用),
+**故在残差空间计算与在绝对空间计算完全等价,不是近似**。
+另:真值在该段为常值时返回 **NaN 而非 0**——否则"无形状可比"会被记为完美匹配,美化每个模型。
+
+合成验证(单位正弦):完美 **0.0000** / 相位偏移 0.4 rad **0.3005** / 平直(均值)**0.9945**。
+
+**接线**:`tactile_map/train.py` 的 `evaluate()` 与 `cross_validate()` 改为**返回 dict**
+(此前是 3 元组;**加第四个返回值到位置元组,正是 2026-08-19 崩掉整个作业的那种形状**),
+新增 `hausdorff_ch` 与 `hausdorff_ratio_ch`;`scripts/train_tactile_map.py` 打印并写入 CSV。
+OpenTouch 侧的 `opentouch_report.py` 改为 import 共享实现。
+**这些改动本地无法执行(需 torch),按 D-TEST 须先在 CRC 跑 pytest。**
+
+### 二、AS_forecast_{F,CoPx,CoPy}.png 溯源(用户提问)
+
+**出处**:`scripts/plot_forecast_overlay.py`,用的是 **`action_dynamics.py` 的 probGRU**,
+**不是** harness 打分的那套。y 轴标签即写着 "**fast** total force"。
+**训练设置**:`--actions Slice,Peel`(仅两类动作)、`--input-mode raw`、`downsample=3`
+(**10 Hz**)、`epochs=60`、`cut=0.4`、warmup 5 s、每个 history 长度各训一个模型。
+
+**"为什么预测这么好"——三个原因,都不是模型更强**:
+1. **目标是 FAST 分量**(`build_features` 注释原文:"target: always fast")。
+   直流与慢漂移已被滤除,剩下围绕零的强振荡,自相关远高于 RAW。
+   (对照:OpenTouch 校正后 r(1)=0.318。)
+2. **划分是随机 clip 划分,不是按录制/被试/地点留出**。
+   `split_train_test` 对 clip 索引做随机置换取 25% 作 test(seed=1)。
+   **同一段录制、同一个人、同一动作的相邻片段可以一个进训练、一个进测试。**
+   较 OpenTouch 的"整地点留出"宽松得多——**这是最大的差别**。
+3. **10 Hz、1 秒 = 10 步自回归**,而 OpenTouch 是 30 Hz / 30 步,误差累积少三分之二。
+
+**已确认无 clip 级泄漏**:所绘 clip 取自 `test_ids`,训练集显式排除。
+**但该图不经 harness 打分**,故其观感与 harness 数字(ar 0.200 等)并不矛盾,**也不可相互引用**。
+
+### 三、【阻塞】把 probGRU 移到 ActionSense 的 harness 路径上——需用户决定
+
+**已定**:目标用 **RAW**(用户 2026-08-24 指示,且这是硬约束——**harness 只给 RAW 打分**,
+预测 FAST 的臂填不进对照表)。
+
+**阻塞点:动作嵌入的标签从哪来。**
+- `action_dynamics.py` 的 probGRU 有 **8 维 action embedding**,其标签来自**每个 clip 一个 label**
+  (clip = 一个动作片段),按前缀匹配到 `--actions` 给定的类别。
+- 而 harness 路径的 `MapWindows`/`AggWindows` 是**整段录制上的滚动窗口,只产出 (X, Y),没有标签**;
+  一段录制内含多个活动,**"每录制一个标签"是错的**。
+
+**OPEN QUESTIONS(须先答再写代码)**
+- **Q13.1 动作嵌入怎么办?**
+  (a) **去掉嵌入** → 简单,但它就不再是"同一个 probGRU",与 OpenTouch 侧的 `pg_all` 不可比;
+  (b) **从活动时间线为每个 origin 取标签** → 保持架构一致,但需确认 harness 数据里有逐帧活动标注;
+  (c) 全部置为单一 id(等价于常数嵌入)→ 架构形状保留、信息为零,**最接近 (a) 但改动最小**。
+  **Claude 倾向 (b);若数据不支持,则选 (c) 并明确记录该臂缺少动作信息。**
+- **Q13.2 预测残差还是绝对值?** OpenTouch 的 `pg_all` 预测**绝对值**;
+  ActionSense 的 tactile_map 预测**残差**。**须与 OpenTouch 一致(绝对值),否则两侧的
+  pg_all 不是同一个模型。**
+- **Q13.3 代码放哪?** 建议在 `src/actionsense/tactile_map/` 内新增 `backbone` 选项
+  (`seq2seq` | `probgru`),复用其数据管线与 CV;**不新建平行模块**,避免第三份实现。
+- **Q13.4 通道数**:harness 是 **6 通道(双手)**,而 `action_dynamics.ProbGRU` 硬编码 3(单手)。
+  OpenTouch 的分叉已参数化 `n_out`,**沿用参数化版本即可**。

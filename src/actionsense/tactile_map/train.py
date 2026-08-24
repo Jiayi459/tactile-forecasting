@@ -15,6 +15,7 @@ from ..eval_harness.config import Config
 from ..eval_harness.dataset import Norm, load_target
 from ..eval_harness.splits import load_splits
 from . import data as D
+from ...shape_metrics import hausdorff_scaled
 from .models import build_model
 
 EPS = 1e-12
@@ -107,13 +108,33 @@ def _predict(model, ds, batch=128):
 
 
 def evaluate(model, ds, sigma_scale=1.0):
-    """skill vs persistence (per channel, per step) + coverage@2sd. Persistence predicts residual 0."""
+    """skill vs persistence (per channel, per step) + coverage@2sd + Hausdorff.
+
+    Persistence predicts residual 0. -> dict, not a tuple: this used to return three values
+    and adding a fourth to a positional return is the shape that crashed a whole OpenTouch
+    job on 2026-08-19, after it had finished training.
+
+    Hausdorff is computed on the RESIDUAL curves, which is exact rather than approximate:
+    the metric is invariant to adding the same constant to both sets, and absolute equals
+    residual plus the last observed value, the same constant for prediction and truth alike.
+    It answers what MSE cannot -- a flat forecast through an oscillation is charged its
+    amplitude, where MSE rewards it for sitting in the middle.
+    """
     mu, sd, resid = _predict(model, ds)
     em = (mu - resid) ** 2; ep = resid ** 2
-    sk_ch = 1 - em.mean((0, 1)) / (ep.mean((0, 1)) + EPS)
-    sk_step = 1 - em.mean(0) / (ep.mean(0) + EPS)
-    cov = float((np.abs(resid - mu) <= 2 * sigma_scale * sd).mean())
-    return sk_ch, sk_step, cov
+    out = {"skill_ch": 1 - em.mean((0, 1)) / (ep.mean((0, 1)) + EPS),
+           "skill_step": 1 - em.mean(0) / (ep.mean(0) + EPS),
+           "coverage": float((np.abs(resid - mu) <= 2 * sigma_scale * sd).mean())}
+    C = mu.shape[-1] if len(mu) else 0
+    hd, hd_p = np.full(C, np.nan), np.full(C, np.nan)
+    for c in range(C):
+        h = hausdorff_scaled(mu[:, :, c], resid[:, :, c])
+        p0 = hausdorff_scaled(np.zeros_like(mu[:, :, c]), resid[:, :, c])
+        if np.isfinite(h).any():
+            hd[c], hd_p[c] = np.nanmean(h), np.nanmean(p0)
+    out["hausdorff_ch"] = hd
+    out["hausdorff_ratio_ch"] = hd / hd_p       # vs persistence, as the skill columns are
+    return out
 
 
 def calibrate_sigma(model, ds, target=0.95):
@@ -130,7 +151,7 @@ def cross_validate(cfg: Config, tm: dict, encoder: str, t_in: int, recs: list[in
     cov_raw, cov_cal)."""
     rng = np.random.default_rng(seed)
     fold_of = rng.integers(0, folds, size=len(recs))
-    skc, sks, cr, cc = [], [], [], []
+    skc, sks, cr, cc, hdc, hdr = [], [], [], [], [], []
     for f in range(folds):
         te = [recs[i] for i in range(len(recs)) if fold_of[i] == f]
         tr = [recs[i] for i in range(len(recs)) if fold_of[i] != f]
@@ -153,7 +174,12 @@ def cross_validate(cfg: Config, tm: dict, encoder: str, t_in: int, recs: list[in
         model = train_model(train_ds, val_ds, cfg, encoder, tm, seed=seed,
                             materialize=(encoder == "aggregate"))
         s = calibrate_sigma(model, val_ds)
-        sk_ch, sk_step, c_raw = evaluate(model, test_ds, sigma_scale=1.0)
-        _, _, c_cal = evaluate(model, test_ds, sigma_scale=s)
+        ev = evaluate(model, test_ds, sigma_scale=1.0)
+        sk_ch, sk_step, c_raw = ev["skill_ch"], ev["skill_step"], ev["coverage"]
+        hd_ch, hd_ratio = ev["hausdorff_ch"], ev["hausdorff_ratio_ch"]
+        c_cal = evaluate(model, test_ds, sigma_scale=s)["coverage"]
         skc.append(sk_ch); sks.append(sk_step); cr.append(c_raw); cc.append(c_cal)
-    return np.array(skc), np.array(sks), float(np.mean(cr)), float(np.mean(cc))
+        hdc.append(hd_ch); hdr.append(hd_ratio)
+    return {"skill_ch": np.array(skc), "skill_step": np.array(sks),
+            "coverage_raw": float(np.mean(cr)), "coverage_cal": float(np.mean(cc)),
+            "hausdorff_ch": np.array(hdc), "hausdorff_ratio_ch": np.array(hdr)}

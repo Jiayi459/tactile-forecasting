@@ -37,6 +37,7 @@ from src.actionsense.eval_harness.config import load_config          # noqa: E40
 from src.opentouch import aggregate, bootstrap, masking, trait       # noqa: E402
 from src.opentouch import splits as SP                               # noqa: E402
 from src.opentouch.baselines import origins                          # noqa: E402
+from src.shape_metrics import hausdorff_scaled                       # noqa: E402
 from src.opentouch.dataset import force_thresholds, load_group       # noqa: E402
 
 
@@ -86,29 +87,6 @@ def gather(cfg, preds_dir, k, seed):
     return merged, models
 
 
-def hausdorff_curves(pred, true, H):
-    """Symmetric Hausdorff distance between two H-step curves, per forecast. -> (N,)
-
-    Each forecast is treated as a SET of points in (time, value), time carried as h/H so the
-    one-second horizon spans [0,1], and value divided by the standard deviation of the TRUE
-    horizon so the two axes are commensurate and the result is dimensionless. Both choices
-    are arbitrary in the way any two-axis metric's are; what matters is that they are the
-    same for every model, so the ratio between models is meaningful even if the absolute
-    number is not.
-
-    WHY IT IS WORTH HAVING BESIDE MSE. MSE is pointwise, so a flat forecast through the
-    middle of an oscillation scores far better than its shape deserves -- which is exactly
-    what every arm here does (2026-08-20). Hausdorff asks how far the WORST point of one
-    curve is from the whole of the other, so a flat line through a swinging signal is
-    penalised by roughly the amplitude, and a model that tracks the swing is not.
-    """
-    t = np.arange(H) / H
-    dt = (t[:, None] - t[None, :]) ** 2
-    dv = (pred[:, :, None] - true[:, None, :]) ** 2
-    d = np.sqrt(dt[None, :, :] + dv)
-    return np.maximum(d.min(axis=2).max(axis=1), d.min(axis=1).max(axis=1))
-
-
 def hausdorff_table(cfg, preds_dir):
     """({model: {channel: (mean Hausdorff, ratio to persistence)}}, n_clips) -- clip-equal."""
     H, C = cfg.horizon, len(cfg.channels)
@@ -125,15 +103,11 @@ def hausdorff_table(cfg, preds_dir):
         true = np.stack([y[t + 1:t + 1 + H] for t in ors])          # (N,H,C)
         names = sorted(k[3:] for k in z.files if k.startswith("mu_"))
         for c in range(C):
-            sd = true[:, :, c].std(axis=1)
-            ok = sd > 0                    # a constant truth has no shape to compare against
-            if not ok.any():
-                continue
             for m in names:
                 mu = np.asarray(z[f"mu_{m}"], dtype=np.float64)[keep]
-                h = hausdorff_curves(mu[ok, :, c] / sd[ok, None],
-                                     true[ok, :, c] / sd[ok, None], H)
-                per[m][cfg.channels[c]].append(float(np.mean(h)))
+                h = hausdorff_scaled(mu[:, :, c], true[:, :, c])
+                if np.isfinite(h).any():
+                    per[m][cfg.channels[c]].append(float(np.nanmean(h)))
     out = {}
     n = max((len(v) for d in per.values() for v in d.values()), default=0)
     ref = {ch: float(np.mean(v)) for ch, v in per.get("persistence", {}).items()}
