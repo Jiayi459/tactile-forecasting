@@ -7074,3 +7074,46 @@ horizon 1 s = **6 帧**,与 OpenTouch(1 s=30 帧@30Hz)、ActionSense(1 s=10 帧@
 
 #### 仍未决:OQ-D2(基线扣除)、OQ-D4(输入流)、OQ-D5(action embedding)
 用户问 20 类内容即为决 OQ-D5 做准备 —— 类名见 `docs/d256.md` §5(ActionSense 厨房活动原文)。
+
+### 2026-08-24续2 — 【裁定齐】【data 步落地:`scripts/extract_d256_states.py`】【发现 cell ≠ 录制】
+
+#### 裁定汇总
+- **OQ-D1 fps = 6 Hz**(实测,见上)。**OQ-D3 = LOSO 5 折**。
+- **OQ-D2 = 不做基线扣除**,与 OpenTouch 最终口径一致。
+- **OQ-D5 = 两臂消融**:arm A `action_id ≡ 0`(信号自预测,可与另两个数据集横比),
+  arm B `action_id = label_idx`(label-conditioned)。**差值即"知道活动标签值多少 skill"。**
+- **OQ-D4(未单独问,取推荐值)= 与 ActionSense/OpenTouch 逐字一致的 `[F, CoPx, CoPy, vx, vy]`**,
+  仅 tactile 派生。EMG/pose/gaze 作为后续第三臂;`--aux` 已把这些流一并落盘,**避免日后再扫一遍语料**。
+
+#### 新增 `scripts/extract_d256_states.py`
+cell → 滑窗折回 → `frame_state` → `(T,2,6)` = `[F,xbar,ybar,sxx,syy,sxy]`/手,
+输出与 `data/actionsense_states/` **同布局**(frozen harness 可直接吃),**并多一个 `subject` 字段**
+—— ActionSense manifest 恰恰缺这个(见其 config 注释 "the manifest has no subject field"),
+**这正是 d256 能做 LOSO 而 ActionSense 做不了的原因**。
+
+#### 【重要修正】cell **不是**一段录制,而是多段拼接
+写完第一版后本地实跑,**验证器立刻在 `signals1/train/S04/13` 的 clip 15 处报错**。
+诊断:逐对求位移,`c→c+1` 的位移**全是 −1,唯独 14→15 断开**。
+⇒ 段 A = clip 0–14(30 帧)、段 B = clip 15–20(21 帧),**30+21 = 51,恰等于该 cell 实测的
+51 个不同帧**。
+
+**成因**:ActionSense 每个受试者对同一活动录了**多次**(如 "Clean a pan with a towel" 有 15 段,
+而 d256 只有 5 个 cell)⇒ **d256 把多段的窗口并进了同一个连续编号的目录**。
+
+**⇒ 录制的单位是 SEGMENT,不是 cell。判据 `clip_c[j+1] == clip_{c+1}[j]`。**
+**这个如果搞错,不是少拿数据,而是把不相干的时刻拼成一条时间序列,之后所有 forecast 都在拟合假象。**
+已改为按段切分;段内仍做**全流、全帧**的窗口核验(`_continues` 只看一路一帧的重叠,不足以排除部分失步)。
+
+**⇒ 先前"94 段录制"作废**:那是 cell 数。真实段数更多、单段更短。
+**真值须等 CRC 全量抽取后才知道**,而 `min_history`/`horizon` 预算依赖它,
+**故 `configs/d256/eval_harness.yaml` 现在不写** —— 先拿到长度分布再冻结,顺序不能倒。
+
+**本地实跑**(2 个 cell,均为最小的那几个,不代表全局):3 段、90 帧;
+预算表已由脚本自动打印(16/24/30/40/64 帧各保留多少段与 origins)。
+
+#### 下一步(待用户在 CRC 执行)
+```
+python scripts/extract_d256_states.py --root ~/forcevision --out data/d256_states --aux
+```
+产出真实的段数与长度分布 → 据此冻结 harness config → splits(LOSO)→ 基线 → probGRU。
+**基线不先跑完,probGRU 的 skill 没有分母。**
