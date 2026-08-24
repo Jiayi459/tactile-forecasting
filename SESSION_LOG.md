@@ -6914,3 +6914,36 @@ OpenTouch 侧的 `opentouch_report.py` 改为 import 共享实现。
   (`seq2seq` | `probgru`),复用其数据管线与 CV;**不新建平行模块**,避免第三份实现。
 - **Q13.4 通道数**:harness 是 **6 通道(双手)**,而 `action_dynamics.ProbGRU` 硬编码 3(单手)。
   OpenTouch 的分叉已参数化 `n_out`,**沿用参数化版本即可**。
+
+### 2026-08-24续3 — 两处需更正的前提;ActionSense 的 smooth/abrupt **尚未分过**
+
+**更正 1(好消息,解除 Q13.1 的阻塞)**:ActionSense 的 harness manifest **每条录制带一个 `label`**
+(`eval_harness/dataset.py:38`),`parse_label("Slice a cucumber") -> ("slice","cucumber")`。
+即**一条录制 = 一个活动**,与 OpenTouch"一个 clip 一个 action"结构相同。
+→ **Q13.1 选 (b) 可行且直接**:动作 id 逐窗口可得,`action_vocab` 可照 OpenTouch 的做法从 TRAIN 建。
+**此前"一段录制含多个活动、每录制一个标签是错的"的判断有误,予以更正。**
+
+**更正 2**:**ActionSense 从未做过 smooth/abrupt 分类。**
+`src/opentouch/trait.py` 的**rubric 明确写为 sensor-agnostic**,但其 `TRAIT_CLASS` 表
+**只覆盖 OpenTouch 的词表**(holding / sliding / wiping / cleaning / scraping / pouring …)。
+仓库中 smooth/abrupt 仅出现在 opentouch 前缀的脚本里。
+用户记忆中的"之前分过"应指 **OpenTouch 的 G2**,或 `docs/ACTION_CATEGORIES.md` 中的
+**另一套分类**(`temporal_pattern` B1–B5 / `action_category` 23 类)——**那不是 smooth/abrupt**。
+
+### 待办与顺序
+
+**A. 动作清单(先跑,零成本)**:新增 `scripts/actionsense_action_inventory.py`,
+从 manifest 导出真实词表(动词 × 物体 × 录制数 × 帧数)→ `docs/actionsense/action_inventory.md`。
+**理由**:凭文档表格的记忆做审定,正是漏项或臆造词条的来源。
+
+**B. trait 审定(须在任何打分之前提交)**:按 `trait.py` Layer 1 的 rubric 逐个动词判定。
+**须记录的诚实限定**:这些动作上**已存在一份免训练可预测性探针结果**
+(`docs/actionsense/predictability_by_category*.csv`),
+故审定**必须完全立足于物理 rubric**,并且要能被看过那份结果的人认可其独立性。
+
+**C. probGRU 移植(Q13.1=b 已解除阻塞;Q13.2/13.3 仍待确认)**
+- **Q13.2 残差 vs 绝对值** → Claude 建议**绝对值**,与 OpenTouch 的 `pg_all` 一致;
+  否则两侧同名而不同物,对照表又会出现"同名不可比"的行。
+- **Q13.3 代码位置** → 建议在 `src/actionsense/tactile_map/` 内加 `backbone` 选项
+  (`seq2seq` | `probgru`),复用其数据管线与 CV,**不建第三份实现**。
+- **Q13.4 通道数** → 6(双手),沿用 OpenTouch 已参数化的 `n_out`。
