@@ -7190,3 +7190,31 @@ EgoTouch(第四个数据集,5 个)、真正跨数据集(`build_skill_comparison.
 **测试**(`tests/test_actionsense_trait.py`,6 项,本地可跑、已通过):覆盖完整性、未知动词报错而非默认、
 两侧共用同一对类名常量、跨传感器分歧被 CONTENTIOUS 覆盖、`partition` 的丢弃可计数、
 剔除争议后两类仍非空。
+
+### 2026-08-24续5 — ActionSense 的 probGRU 臂:实现(Q13.2/13.3 已定)
+
+**用户裁定**:Q13.2 = **绝对值**;Q13.3 = **放进 `src/actionsense/tactile_map/`,加 `backbone` 选项**。
+
+**实现要点(骨干与 OpenTouch 逐条一致,见 `docs/model_comparability.md` §1)**
+- `models.py` 新增 **`ProbGRU`**:8 维动作嵌入 → 编码 GRU → **自回归解码**(以最后观测值播种、均值喂回)
+  → mu/logvar(截断 [-6,4])→ 高斯 NLL。`n_out` **参数化**(6 通道),`frame_encoder` 可插。
+  `build_model(..., backbone=)` 二选一;非法值抛错。**未新建第四份实现。**
+- `data.py` 新增 `verbs_of` / `action_vocab` / `aid_of`:动词取自 manifest label 的首词
+  (`parse_label`),**词表仅由该折的 TRAIN 建**,TRAIN 中过稀或测试期未见者折入 `other`(id 0)
+  ——与 `src/opentouch/prob_gru.py` 同一纪律。
+- 两个 Dataset **恒定返回四元组**(window, action id, last observed, target)。
+  **元素个数随参数变化正是 2026-08-19 崩掉整个作业的形状**;Seq2Seq 直接忽略中间两个。
+  新增 `residual` 开关:Seq2Seq 保持残差目标,probGRU 用**绝对值**。
+- `train.py` 的两骨干差异**收敛到一个函数 `_call`**,训练循环/验证/预测各保持单份。
+- **`_predict` 现在返回 persistence 参照,而不是假定为 0**:残差空间下它是 0,绝对空间下是
+  最后观测值沿 horizon 重复。**硬编码 0 会让 probGRU 臂被拿错参照打分**——这是本次最易犯且最隐蔽的错。
+- `evaluate` 的 skill、覆盖率、Hausdorff 全部改用该参照,故对两种骨干都成立。
+- 驱动 `scripts/actionsense/train_tactile_map.py` 新增 `--backbone`。
+
+**测试**:更新既有 4 个按 2 元组解包的用例;新增
+`test_probgru_backbone_matches_the_opentouch_one`(三编码器 × 形状/clamp/嵌入维度/解码器种子维度)、
+`test_action_vocab_is_built_from_train_only`、以及残差与绝对值目标相差恰为最后观测值的断言。
+**本地全部 skip(需 torch),按 D-TEST 须先在 CRC 跑 pytest。**
+
+**尚未做**:该臂的 Hausdorff/skill 已可算,但**尚未跑**;按用户指示**先只跑 aggregate(probGRU),
+再加 cnn 与 flatten**。

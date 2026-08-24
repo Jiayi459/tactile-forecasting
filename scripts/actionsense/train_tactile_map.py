@@ -29,6 +29,10 @@ def main():
     ap.add_argument("--histories", default=None)
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--epochs", type=int, default=None)
+    ap.add_argument("--backbone", default="seq2seq", choices=["seq2seq", "probgru"],
+                    help="seq2seq = the one-shot residual head this family has always used; "
+                         "probgru = the autoregressive, action-conditioned, absolute-target "
+                         "backbone OpenTouch's arm uses, so the two are one model")
     ap.add_argument("--csv", default="docs/actionsense/tactile_map_cv_results.csv")
     args = ap.parse_args()
 
@@ -58,7 +62,8 @@ def main():
     for enc in encoders:
         for hist in histories:
             t_in = int(round(hist * fps))
-            cv = T.cross_validate(cfg, tm, enc, t_in, recs, folds=args.folds)
+            cv = T.cross_validate(cfg, {**tm, "backbone": args.backbone}, enc, t_in, recs,
+                                  folds=args.folds)
             skc, sks = cv["skill_ch"], cv["skill_step"]
             cr, cc = cv["coverage_raw"], cv["coverage_cal"]
             hd_m = np.nanmean(cv["hausdorff_ch"], axis=0)          # (6,)

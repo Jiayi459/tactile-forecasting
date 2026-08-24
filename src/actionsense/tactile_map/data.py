@@ -25,8 +25,39 @@ from torch.utils.data import Dataset
 from ..eval_harness.config import Config
 from ..eval_harness.dataset import Norm, load_target
 from ..eval_harness.baselines.base import origins
+from ..eval_harness.splits import parse_label
 
 H_MOMENTS = 3          # F, CoP-x, CoP-y per hand (target has 6 = 2 hands x 3)
+OTHER = 0              # reserved embedding id: rare-in-TRAIN or unseen-at-TEST verbs
+
+
+def verbs_of(cfg: Config, idxs) -> dict[int, str]:
+    """recording idx -> verb, from the manifest label ("Slice a cucumber" -> "slice")."""
+    import json
+    root = cfg.abspath("states_root")
+    want = set(idxs)
+    with open(os.path.join(root, "manifest.jsonl")) as f:
+        rows = [json.loads(l) for l in f if l.strip()]
+    return {r["idx"]: parse_label(r["label"])[0] for r in rows if r["idx"] in want}
+
+
+def action_vocab(verbs: dict[int, str], train_idxs, min_count: int = 3):
+    """-> (vocab, by_idx), built from TRAIN ONLY.
+
+    A verb too rare in TRAIN, and any verb unseen there at test time, collapses into `other`
+    (id 0). Building the vocabulary on anything but TRAIN would leak the test set's label
+    distribution into the embedding table, which is the same discipline
+    src/opentouch/prob_gru.py applies.
+    """
+    import collections
+    n = collections.Counter(verbs[i] for i in train_idxs if i in verbs)
+    keep = sorted(v for v, c in n.items() if c >= min_count)
+    vocab = {"other": OTHER, **{v: k + 1 for k, v in enumerate(keep)}}
+    return vocab, {i: verbs.get(i, "other") for i in verbs}
+
+
+def aid_of(vocab: dict[str, int], by_idx: dict[int, str], i: int) -> int:
+    return vocab.get(by_idx.get(i, "other"), OTHER)
 
 
 def clip_path(cfg: Config, idx: int) -> str:
@@ -91,8 +122,10 @@ class MapWindows(Dataset):
     "no contact") -> a prediction exists at EVERY harness origin (score_external alignment)."""
 
     def __init__(self, maps_n: dict[int, np.ndarray], tgts_n: dict[int, np.ndarray],
-                 cfg: Config, t_in: int):
+                 cfg: Config, t_in: int, aids: dict[int, int] | None = None,
+                 residual: bool = True):
         self.maps, self.tgts, self.t_in, self.H = maps_n, tgts_n, t_in, cfg.horizon
+        self.aids, self.residual = aids or {}, residual
         self.index = [(i, int(t)) for i in sorted(maps_n) for t in origins(len(maps_n[i]), cfg)]
 
     def __len__(self):
@@ -109,10 +142,19 @@ class MapWindows(Dataset):
     def __getitem__(self, k: int):
         i, t = self.index[k]
         x = self._window(i, t)
-        # RESIDUAL-over-persistence target: the CHANGE from the last observed value Y[t]. At worst
-        # the model predicts 0 and matches persistence; its real job is to predict the delta.
-        y = self.tgts[i][t + 1: t + 1 + self.H] - self.tgts[i][t]     # (H,6)
-        return torch.from_numpy(x), torch.from_numpy(y.astype(np.float32))
+        last = self.tgts[i][t]
+        # residual=True: the CHANGE from the last observed value. At worst the model predicts
+        # 0 and matches persistence; its job is the delta. residual=False: the absolute
+        # target, which is what the probGRU backbone predicts on both sensors.
+        fut = self.tgts[i][t + 1: t + 1 + self.H]
+        y = fut - last if self.residual else fut
+        # FOUR items always, whichever backbone consumes them. An item whose length depends
+        # on a flag is the shape that crashed an OpenTouch job after it had finished training
+        # (SESSION_LOG 2026-08-19); Seq2Seq simply ignores the middle two.
+        return (torch.from_numpy(x),
+                torch.tensor(self.aids.get(i, OTHER), dtype=torch.long),
+                torch.from_numpy(last.astype(np.float32)),
+                torch.from_numpy(y.astype(np.float32)))
 
 
 class AggWindows(Dataset):
@@ -120,8 +162,10 @@ class AggWindows(Dataset):
     -- the neural AR). `sig_n` maps idx -> (T,6) already-normalized F/CoP. Left-pads early origins with
     zeros; residual-over-persistence target, identical convention to MapWindows."""
 
-    def __init__(self, sig_n: dict[int, np.ndarray], cfg: Config, t_in: int):
+    def __init__(self, sig_n: dict[int, np.ndarray], cfg: Config, t_in: int,
+                 aids: dict[int, int] | None = None, residual: bool = True):
         self.sig, self.t_in, self.H = sig_n, t_in, cfg.horizon
+        self.aids, self.residual = aids or {}, residual
         self.index = [(i, int(t)) for i in sorted(sig_n) for t in origins(len(sig_n[i]), cfg)]
 
     def __len__(self):
@@ -137,8 +181,13 @@ class AggWindows(Dataset):
     def __getitem__(self, k: int):
         i, t = self.index[k]
         x = self._window(i, t)
-        y = self.sig[i][t + 1: t + 1 + self.H] - self.sig[i][t]      # residual over persistence
-        return torch.from_numpy(x.astype(np.float32)), torch.from_numpy(y.astype(np.float32))
+        last = self.sig[i][t]
+        fut = self.sig[i][t + 1: t + 1 + self.H]
+        y = fut - last if self.residual else fut
+        return (torch.from_numpy(x.astype(np.float32)),
+                torch.tensor(self.aids.get(i, OTHER), dtype=torch.long),
+                torch.from_numpy(last.astype(np.float32)),
+                torch.from_numpy(y.astype(np.float32)))
 
 
 def recording_windows(map_n: np.ndarray, cfg: Config, t_in: int) -> tuple[np.ndarray, np.ndarray]:

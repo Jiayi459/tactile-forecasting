@@ -107,8 +107,11 @@ def test_aggregate_model_and_windows():
     cfg = make_cfg(horizon=3, min_history=5); t_in = 4
     S = np.cumsum(np.random.default_rng(0).standard_normal((40, 6)), 0).astype(np.float32)
     ds = D.AggWindows({0: S}, cfg, t_in)
-    x, y = ds[3]; i, t = ds.index[3]
+    # items are always FOUR -- window, action id, last observed, target -- whichever backbone
+    # reads them; Seq2Seq ignores the middle two (SESSION_LOG 2026-08-24)
+    x, aid, last, y = ds[3]; i, t = ds.index[3]
     assert x.shape == (t_in, 6) and y.shape == (3, 6)
+    assert int(aid) == D.OTHER and np.allclose(last.numpy(), S[t], atol=1e-5)
     assert np.allclose(y.numpy(), S[t + 1:t + 4] - S[t], atol=1e-5)   # residual-over-persistence
 
 
@@ -119,11 +122,44 @@ def test_residual_target():
     Y = np.cumsum(np.random.default_rng(0).standard_normal((40, 6)), 0).astype(np.float32)
     ds = D.MapWindows({0: M}, {0: Y}, cfg, t_in)
     k = 3; i, t = ds.index[k]
-    _, y = ds[k]
+    _, _, last, y = ds[k]
     assert np.allclose(y.numpy(), Y[t + 1:t + 1 + cfg.horizon] - Y[t], atol=1e-5)
+
+    # residual=False gives the ABSOLUTE future, which is what the probGRU backbone predicts;
+    # the two differ by exactly the last observed value it is also handed
+    da = D.MapWindows({0: M}, {0: Y}, cfg, t_in, residual=False)
+    _, _, last_a, ya = da[k]
+    assert np.allclose(ya.numpy(), Y[t + 1:t + 1 + cfg.horizon], atol=1e-5)
+    assert np.allclose(ya.numpy() - last_a.numpy(), y.numpy(), atol=1e-5)
 
 
 # --- (vii) integration on a real cached map, if any exist locally ---
+@pytest.mark.parametrize("enc", ["flatten", "cnn", "aggregate"])
+def test_probgru_backbone_matches_the_opentouch_one(enc):
+    """Same backbone as src/opentouch/prob_gru.py, so the two sensors' arms are one model."""
+    m = build_model(enc, horizon=10, d=32, hidden=32, backbone="probgru", n_act=5, n_out=6)
+    x = torch.randn(2, 7, 6) if enc == "aggregate" else torch.randn(2, 7, 2, 32, 32)
+    mu, lv = m(x, torch.tensor([0, 3]), torch.randn(2, 6), 10)
+    assert mu.shape == lv.shape == (2, 10, 6)
+    assert lv.min() >= -6 - 1e-4 and lv.max() <= 4 + 1e-4      # same clamp
+    assert m.emb.num_embeddings == 5 and m.emb.embedding_dim == 8   # 8-dim action embedding
+    assert m.dec.input_size == 6                               # decoder seeded with the target
+
+    with pytest.raises(ValueError, match="backbone"):
+        build_model(enc, horizon=10, backbone="transformer")
+
+
+def test_action_vocab_is_built_from_train_only():
+    """A verb rare in TRAIN, or unseen there, must land in `other` rather than get its own id."""
+    verbs = {0: "slice", 1: "slice", 2: "slice", 3: "peel", 4: "pour", 5: "pour", 6: "pour"}
+    vocab, by_idx = D.action_vocab(verbs, train_idxs=[0, 1, 2, 3], min_count=3)
+    assert vocab["slice"] != D.OTHER          # 3 in TRAIN -> its own id
+    assert "peel" not in vocab                # 1 in TRAIN -> folded into other
+    assert "pour" not in vocab                # 0 in TRAIN, though it exists at test time
+    assert D.aid_of(vocab, by_idx, 3) == D.OTHER and D.aid_of(vocab, by_idx, 4) == D.OTHER
+    assert D.aid_of(vocab, by_idx, 0) == vocab["slice"]
+
+
 def test_real_map_loads_if_available():
     files = glob.glob("data/actionsense_states/clip_*.npy")
     if not files:
