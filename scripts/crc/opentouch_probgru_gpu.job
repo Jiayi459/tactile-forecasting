@@ -37,6 +37,15 @@
 set -euo pipefail
 conda activate tactile
 
+# torch.use_deterministic_algorithms needs this to make cuBLAS reproducible on CUDA >= 10.2;
+# without it the GEMMs behind every Linear and GRU pick workspaces run to run. It was unset
+# until 2026-08-23, and the cost was measured rather than guessed: rerunning the map arms
+# with identical seed, data and scope moved cnn by up to 4.9e-3 and flatten by 4.2e-3, while
+# map_aggregate held to 1.5e-4 and the classical baselines were bitwise identical. Note that
+# configure_determinism passes warn_only=True, so an op with no deterministic kernel still
+# falls back silently -- this narrows the gap, it does not close it.
+export CUBLAS_WORKSPACE_CONFIG=:4096:8
+
 echo "Host: $(hostname)  JOB_ID: ${JOB_ID:-NA}  started $(date)"
 python -c "import torch; print('torch', torch.__version__, '| cuda', torch.cuda.is_available(),
       '|', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU only')"
