@@ -7037,3 +7037,40 @@ d256 tactile 有明显 DC 台座(实测 floor 0.13 / 0.40,远高于 0)。
 4. persistence / seasonal / AR 基线 → 拿到 skill 的分母。
 5. probGRU 臂,复用 `src/opentouch/prob_gru.py` 的结构。
 **第 4 步不先做完,probGRU 的 skill 无意义 —— 这是 OpenTouch 那条链已经踩实的顺序。**
+
+### 2026-08-24续 — 【OQ-D1 实测结案:fps = 6 Hz】【OQ-D3 裁定:LOSO】
+
+**用户反馈**:(i) 没看懂 fps 那个问题;(ii) 问 20 个 class 分别是什么;(iii) **切分选 LOSO(5 折)**。
+
+#### OQ-D1 —— 我没有让用户选,而是把它测出来了(走的是选项 (a))
+**方法**:`data/actionsense_states/manifest.jsonl` 里每段真实 ActionSense 录制带
+`label`(与 d256 的 `label_text` 逐字相同)、`fps: 30`、长度 `T`。d256 每段录制长度
+`L = N_clips + 15`(由滑窗重建式给出)。若 d256 是 ActionSense 的时间抽取,则 `T/L = k` 应为常数。
+
+**第一轮按类求和,比值 4.89~26.08,看似否定假设。诊断出这是我的配对错误**:
+多数类 ActionSense 有 15 段而 d256 只有 5 段,"降序取前 k 段"配错了对象。
+
+**只取录制条数 1:1 无歧义的三类**(Load / Stack / Unload dishwasher,共 **15 段独立录制**):
+```
+ratios 4.92 4.81 4.83 4.98 4.95 | 4.95 5.13 4.97 4.88 4.94 | 5.07 4.89 5.02 4.86 5.00
+median 4.948   mean 4.948 ± 0.085   range [4.81, 5.13]
+```
+**⇒ k = 5,`fps(signals1) = 30/5 = 6 Hz`。** 派生:`signals2` = 3 Hz,`signals` = 2 Hz。
+自洽性:16 帧 @6 Hz = **2.67 s**,与配对的 16 帧视频同跨度,对一个动作识别数据集是合理的 clip 长度。
+
+**这条把量纲问题全部解开**:`causal_velocity(sig, fps=6)` 量纲正确;
+horizon 1 s = **6 帧**,与 OpenTouch(1 s=30 帧@30Hz)、ActionSense(1 s=10 帧@10Hz)
+**是同一物理口径,三个数据集的 skill 可直接对比**。
+
+**重新表述的数据规模(6 Hz 口径)**:94 段录制,median **34 s**,p10 10 s,max 178 s,
+合计 **83 分钟**。预算 `min_history 24(=4 s,与 ActionSense 同秒数)+ horizon 6(=1 s)= 30 帧`
+⇒ **94/94 段录制全部存活**。16 帧的表观限制至此完全消失。
+
+**证据强度声明**:这是**由长度比值反推**,不是逐帧对齐的直接测量。15 段独立录制、±1.7% 一致,
+已足以据此冻结配置;若日后需要更硬的证据,可用 d256 的 F(t) 与 ActionSense state 的 F(t)
+做互相关(数值被重缩放过,须按形状/相位而非幅度对齐)。**配置里会记下这是推断值及其依据。**
+
+#### OQ-D3 裁定:**LOSO 留一受试者,5 折**。每折 held out ~19 段录制,每类每折约 4 段训练录制。
+
+#### 仍未决:OQ-D2(基线扣除)、OQ-D4(输入流)、OQ-D5(action embedding)
+用户问 20 类内容即为决 OQ-D5 做准备 —— 类名见 `docs/d256.md` §5(ActionSense 厨房活动原文)。
