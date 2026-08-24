@@ -1,6 +1,6 @@
 """D1: the per-taxel baseline and the explicit noise threshold, as one implementation.
 
-The estimator was developed and validated inside scripts/opentouch_baseline_report.py; it
+The estimator was developed and validated inside scripts/opentouch/opentouch_baseline_report.py; it
 lives here now because a second caller (the script that writes the corrected cache) must
 not be allowed to drift from the one whose behaviour was measured. Both import this.
 
@@ -65,7 +65,7 @@ def duty_cycle(frames: np.ndarray, base: np.ndarray, sigma: np.ndarray, k: float
 def moments(p: np.ndarray) -> np.ndarray:
     """(T,16,16) pressure -> (T,6) [F, CoPx, CoPy, sxx, syy, sxy], coords in [-1,1].
 
-    Byte-identical maths to scripts/extract_opentouch.py::moments, so a corrected cache is
+    Byte-identical maths to scripts/opentouch/extract_opentouch.py::moments, so a corrected cache is
     comparable with the raw one channel for channel."""
     T, H, W = p.shape
     ys = np.linspace(-1.0, 1.0, H)[:, None]

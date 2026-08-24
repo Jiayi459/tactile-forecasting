@@ -1,6 +1,6 @@
 # OpenTouch predictability ceiling — full results
 
-Produced by `scripts/opentouch_predictability_ceiling.py` on 2026-08-20; raw
+Produced by `scripts/opentouch/opentouch_predictability_ceiling.py` on 2026-08-20; raw
 output in [opentouch_ceiling_d1.txt](opentouch_ceiling_d1.txt). 600 clips, lags
 0-30 frames at 30 fps, median across clips. `D1` is the baseline-corrected cache,
 `raw` the uncorrected one.

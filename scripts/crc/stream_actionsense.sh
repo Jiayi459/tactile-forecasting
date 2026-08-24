@@ -7,7 +7,7 @@
 set -uo pipefail
 
 REPO="$HOME/TouchAnything"
-PROBE="$REPO/scripts/probe_actionsense.py"
+PROBE="$REPO/scripts/actionsense/probe_actionsense.py"
 DEST="${1:-$HOME/actionsense}"
 ACC="$DEST/acc.jsonl"
 

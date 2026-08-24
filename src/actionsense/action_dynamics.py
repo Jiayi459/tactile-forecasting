@@ -1,7 +1,7 @@
 """v2 physical-state action-dynamics forecaster — the LIBRARY (import, don't run).
 
 Single source of truth for the model + data + training + forecasting used by the thin CLIs
-scripts/train_action_dynamics.py and scripts/plot_action_forecast.py. See docs/TACTILE_FORECAST_PLAN.md.
+scripts/actionsense/train_action_dynamics.py and scripts/actionsense/plot_action_forecast.py. See docs/TACTILE_FORECAST_PLAN.md.
 
 Idea: split each physical-state signal (force, center-of-pressure) into a slow (grip/postural)
 and a fast (stroke/pour) component; forecast the FAST component with a probabilistic GRU

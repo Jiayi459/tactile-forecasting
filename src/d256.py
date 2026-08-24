@@ -13,7 +13,7 @@ wearable suite for 16 frames -- see `SIGNAL_SHAPES`. Values arrive **pre-scaled 
 this reader does not rescale them.
 
 Two properties of the release that callers keep needing, both measured rather than assumed
-(`scripts/probe_d256.py` re-checks them against the data):
+(`scripts/d256/probe_d256.py` re-checks them against the data):
 
 * **The session directory name equals `label_idx`.** `<...>/S05/3/0.p` is class 3. So the class
   of a clip is readable from its path, and a mismatch means the tree was reorganised.
@@ -125,7 +125,7 @@ def load_clip(path: str, check: bool = True) -> Clip:
         raise ValueError(
             f"{path}: session dir {meta['session']} != label_idx {obj['label_idx']}; "
             "the path-encodes-class invariant no longer holds, so any code deriving labels "
-            "from paths is now wrong. Re-run scripts/probe_d256.py.")
+            "from paths is now wrong. Re-run scripts/d256/probe_d256.py.")
     return Clip(path=path, label_idx=obj["label_idx"], label_text=obj["label_text"],
                 signal=obj["signal"], **meta)
 

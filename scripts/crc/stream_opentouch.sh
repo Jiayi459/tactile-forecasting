@@ -97,7 +97,7 @@ for ID in "${IDS[@]}"; do
     # --taxel-stats only on the first shard: it answers the dead-taxel and DC-offset
     # questions once, and is pure overhead thereafter.
     EXTRA=""; [ "$n" -eq 1 ] && EXTRA="--taxel-stats"
-    if $PY "$REPO/scripts/extract_opentouch.py" --shard "$SHARD" \
+    if $PY "$REPO/scripts/opentouch/extract_opentouch.py" --shard "$SHARD" \
             --labels "$LABELS" --out "$CACHE" $EXTRA; then
         echo "$ID" >> "$DONE"
     else

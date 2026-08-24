@@ -36,10 +36,10 @@ echo "linked $n clip_*.npy into data/actionsense_states/"
 
 python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
 
-python scripts/train_tactile_map.py --epochs "${EPOCHS:-80}" --folds "${FOLDS:-5}"
+python scripts/actionsense/train_tactile_map.py --epochs "${EPOCHS:-80}" --folds "${FOLDS:-5}"
 
 echo ""
 echo "[done] 5-fold CV skill + coverage -> docs/actionsense/tactile_map_cv_results.csv"
 echo "Pull to local + plot:"
 echo "  scp -J jhao3@bastion.crc.nd.edu jhao3@crcfe01.crc.nd.edu:~/TouchAnything/docs/actionsense/tactile_map_cv_results.csv docs/"
-echo "  python scripts/plot_tactile_map.py"
+echo "  python scripts/actionsense/plot_tactile_map.py"

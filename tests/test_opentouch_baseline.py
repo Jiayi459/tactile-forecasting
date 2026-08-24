@@ -70,7 +70,7 @@ def test_moments_match_the_extractor_bit_for_bit():
     """A corrected cache is only comparable with the raw one if F/CoP are computed the same
     way, so this asserts against the extractor's own implementation rather than a copy."""
     import importlib.util
-    spec = importlib.util.spec_from_file_location("ex", "scripts/extract_opentouch.py")
+    spec = importlib.util.spec_from_file_location("ex", "scripts/opentouch/extract_opentouch.py")
     ex = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(ex)
     p = np.abs(np.random.default_rng(1).normal(5, 2, (30, 16, 16)))

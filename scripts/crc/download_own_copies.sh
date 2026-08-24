@@ -101,7 +101,7 @@ for RAW in "${RAW_IDS[@]}"; do
     fi
     echo "  extracting $(basename "$SHARD") ($(du -h "$SHARD" | cut -f1))"
 
-    if $PY "$REPO/scripts/extract_opentouch.py" --shard "$SHARD" --labels "$LABELS" --out "$CACHE"; then
+    if $PY "$REPO/scripts/opentouch/extract_opentouch.py" --shard "$SHARD" --labels "$LABELS" --out "$CACHE"; then
         echo "$ID" >> "$DONE"; ok=$((ok + 1))
     else
         echo "  WARN extraction failed -> logged, continuing"

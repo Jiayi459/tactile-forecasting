@@ -56,10 +56,10 @@ ActionSense: **monotonic ramp (pour) > rhythmic cycle (slice) > sustained hold >
 cycle has force-reversal turning points a forecaster must anticipate; a ramp does not.
 
 ## 6. Artifacts
-- Probes: `scripts/probe_egotouch.py`, `scripts/probe_opentouch.py`, `scripts/probe_actionsense.py`
+- Probes: `scripts/probe_egotouch.py`, `scripts/opentouch/probe_opentouch.py`, `scripts/actionsense/probe_actionsense.py`
   (+ `scripts/crc/stream_actionsense.sh` streaming driver).
 - Forecaster: library `src/actionsense/action_dynamics.py` (model+train+forecast); CLIs
-  `scripts/train_action_dynamics.py` (train->checkpoint) and `scripts/plot_action_forecast.py` (plot).
+  `scripts/actionsense/train_action_dynamics.py` (train->checkpoint) and `scripts/actionsense/plot_action_forecast.py` (plot).
 - Shared metrics: `src/tactile_pixel/predictability.py`; taxonomy `src/tactile_pixel/categories.py`.
 - Result CSVs: `docs/predictability_{by_category_full,opentouch,actionsense}.csv`.
 - Forecaster + CRC jobs: `src/tactile_pixel/`, `scripts/crc/{percategory_gpu.job,run_percategory.sh}`.

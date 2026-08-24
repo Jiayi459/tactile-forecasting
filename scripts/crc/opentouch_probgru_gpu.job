@@ -67,7 +67,7 @@ python -c "import pytest" 2>/dev/null || pip install pytest --quiet
 # through the whole map run. A gate that skips files is a gate with holes in it.
 python -m pytest tests/ -q
 
-python -u scripts/run_opentouch_exploratory.py \
+python -u scripts/opentouch/run_opentouch_exploratory.py \
     --model "${MODEL:-prob_gru}" \
     --split-mode "${SPLIT_MODE:-location}" \
     ${CONFIG:+--config "$CONFIG"} \

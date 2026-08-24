@@ -72,7 +72,7 @@ Data: `data/actionsense_states/` (state_N.npy + manifest.jsonl + splits.json).
   `dataset.py`, `masking.py`, `metrics.py`, `evaluate.py`, `baselines/{persistence,seasonal,ar,base}.py`,
   `README.md`. Scores the raw 6-dim both-hands target; persistence/seasonal/AR baselines.
 
-### scripts/
+### scripts/actionsense/
 - `probe_actionsense.py` — stream ActionSense HDF5, segment by Start/Stop, extract states + manifest.
 - `train_state_forecaster.py` — v1 CLI (pour/slice).
 - `train_action_dynamics.py` — v2 CLI (sweep input×hand×history, CV, calibration).
@@ -105,8 +105,9 @@ Data: `datasets/EgoTouch/`, `datasets/grasp_hold_lift_tactile/` (both gitignored
 - `categories.py` — action-category taxonomy (verb→category, category→temporal pattern). Cross-dataset.
 - `predictability.py` — training-free predictability metrics (persistence nMSE, periodicity, ...). Cross-dataset.
 
-### scripts/
-- `probe_egotouch.py`, `probe_opentouch.py` — per-dataset predictability probes.
+### scripts/ (top level = not one of the three arms, or shared)
+- `probe_egotouch.py` — EgoTouch predictability probe (`probe_opentouch.py` now lives in
+  `scripts/opentouch/`).
 - `categorize_actions.py` — EgoTouch task→category classification.
 - `prepare_grasp_tactile.py` — build the Grasp/Hold/Lift subset (EgoTouch).
 - `tactile_predictability_probe.py` — feasibility probe on grasp subset.
@@ -145,9 +146,16 @@ src/touchanything/  # A: data/, models/, losses/, utils/, datasets/, resources/
 
 **DONE — `configs/` grouped:** `configs/{actionsense,tactile_pixel,touchanything}/`. Harness re-verified.
 
+**DONE — `scripts/` grouped by dataset (2026-08-24):** `scripts/{actionsense,opentouch,d256}/`.
+Both hazards flagged below were real and were handled: 23 scripts had their
+`sys.path.insert(...)` depth corrected for the extra level, and 101 invocation references were
+rewritten across 50 files (docs, configs, CRC `.job`s, `src/`, `tests/`). Two cross-script
+imports (`scripts.train_action_dynamics`, `scripts.plot_opentouch_fcop`) also needed
+repointing. Verified by running `--help` on all 35 moved scripts: 35/35 import cleanly.
+`SESSION_LOG.md` was deliberately NOT rewritten — it is a dated record of what was run at the
+time, so its paths stay as they were; see the mapping table in `scripts/README.md`.
+
 **NOT moved (intentional):**
-- `scripts/` — grouping needs per-script `sys.path` depth fixes + updating every invocation ref in
-  docs/CRC jobs; only the ActionSense scripts are runtime-testable locally. Logical map stands (see §B/§C/§A above).
 - `docs/`, `data/` — referenced by path from the FROZEN harness config (`out_csv: docs/...`,
   `states_root: data/actionsense_states`) and many doc links; moving them breaks outputs for no benefit.
 - `scripts/crc/`, root files — shared/infra, stay at their locations.
@@ -167,8 +175,5 @@ Mitigation: move in verified stages (one bucket at a time), fix imports, run `py
 - Q1 → **3 groups + shared** (A/B/C). Q2 → **move, staged + tested**. Q3 → **single `src/` root**.
 
 ## Remaining (optional, awaiting go-ahead)
-- **scripts/ grouping** into `scripts/{actionsense,tactile_pixel,touchanything}/` — requires fixing
-  each moved script's `sys.path.insert(...)` depth and every `python scripts/X.py` reference in
-  docs + CRC `.job` files. ActionSense scripts are testable; A/C script invocations are not (CRC).
 - **docs/ + data/ grouping** — deferred: they are referenced by path from the frozen harness config
   and would break output/data paths. Would require editing the (frozen) config + hash.

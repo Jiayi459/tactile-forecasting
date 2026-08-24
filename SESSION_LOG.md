@@ -7117,3 +7117,39 @@ python scripts/extract_d256_states.py --root ~/forcevision --out data/d256_state
 ```
 产出真实的段数与长度分布 → 据此冻结 harness config → splits(LOSO)→ 基线 → probGRU。
 **基线不先跑完,probGRU 的 skill 没有分母。**
+
+### 2026-08-24续3 — scripts/ 按数据集分组(落地了 REPO_ORGANIZATION.md 里搁置已久的那一项)
+
+**请求**:把 scripts/ 按 actionsense / opentouch / d256 三个数据集整理;不属于这三个的、或多数据集
+共用的,留在外面并问用户。
+
+**结果**:`scripts/{actionsense(18), opentouch(15), d256(2)}/`,顶层留 15 个待裁定。
+
+**注意**:`docs/REPO_ORGANIZATION.md` 149–153 与 170–172 行**早就把这次重构列为 "NOT moved
+(intentional)"**,并精确点名了两个障碍。两个都确实存在,都已处理:
+1. **`sys.path` 深度**:23 个脚本用 `dirname(dirname(abspath(__file__)))` 取仓库根,下沉一层后
+   会指到 `scripts/`。已全部补一层。**验证方式不是 grep**(3 层写法包含 2 层子串,grep 会给假阳性),
+   而是**逐个跑 `--help`:35/35 全部 import 通过**。
+2. **调用引用**:重写 **101 处 / 50 个文件**(docs、CRC `.job`、`src/`、`tests/`)。
+   另有两处**跨脚本 import**(`scripts.train_action_dynamics`、`scripts.plot_opentouch_fcop`)
+   也必须改,这类 grep 路径字符串是抓不到的。
+
+**两处刻意不动:**
+- **`SESSION_LOG.md` 不改写。** 它记录的是"当时实际跑了什么命令",改路径等于伪造记录。
+  译码规则与完整清单写进新建的 `scripts/README.md`。
+- **`configs/opentouch/eval_harness_d1.yaml` 已回滚。** 批量重写把它第一行注释里的脚本路径改了
+  —— 而 `config_hash = sha256(整个文件字节)` 会被**盖进结果表用于溯源**,改注释就等于换了协议实例、
+  让既有结果行对不上配置。**改完才意识到,已 `git checkout` 撤回并复核三个 harness config 的哈希未变**
+  (`001dcee8e81efda3` / `916820c096c7666a` / `947e650076742574`)。
+  **教训:批量文本重写必须先排除按字节哈希的冻结文件。**
+
+**核验**:`pytest` **66 passed / 4 skipped**;35/35 脚本 import 通过;
+移动**未产生任何新的悬空引用**(残留的全在 SESSION_LOG,外加 4 个本就不存在的旧引用:
+`download_data.sh`、`predictability_by_category.py`、`run_inference_mano.sh`、`scripts/X.py` 占位符)。
+
+**不属于我的改动**:`docs/actionsense/forecaster_comparison.png` 在工作区有修改(有效 PNG,
+1080×660),非本次重写所致(重写只碰 .md/.yaml/.job/.sh/.py),**未 stage、未提交**。
+
+**顶层剩下的 15 个,分三类,待用户裁定**(见 `scripts/README.md`):
+EgoTouch(第四个数据集,5 个)、真正跨数据集(`build_skill_comparison.py`、`aggregate_results.py`、
+`check_leakage.py`)、上游 TouchAnything 仓库继承的(7 个)。
