@@ -158,16 +158,16 @@ def main():
             ax.plot(ep[m], tr[m], "o--", ms=3, lw=0.8, alpha=0.55, color=col)
         if crit == "nll":
             b = int(np.nanargmin(va))
-            ax.plot(ep[b], va[b], "*", ms=12, color=line.get_color())
+            ax.plot(ep[b], va[b], "*", ms=12, color=col)
         # VAL MSE on a twin axis: if it stays flat while NLL climbs, the mean is fine and
         # only the variance head is degrading -- and early stopping on NLL is then picking
         # weights by a criterion the harness never scores.
         vm = np.asarray(h.get("val_mse", []), dtype=float)
         if vm.size == va.size and np.isfinite(vm).any():
-            ax2.plot(ep, vm, lw=1.0, ls=":", color=line.get_color(), alpha=0.8)
+            ax2.plot(ep, vm, lw=1.0, ls=":", color=col, alpha=0.8)
             j = int(np.nanargmin(vm))
             ax2.plot(ep[j], vm[j], "*" if crit == "mse" else "P",
-                     ms=12 if crit == "mse" else 7, color=line.get_color())
+                     ms=12 if crit == "mse" else 7, color=col)
 
         sw = ck.get("sweep") or {}
         if sw:
