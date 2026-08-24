@@ -461,7 +461,6 @@ def select_history(cfg: Config, train_ids: list[int], val_ids: list[int],
 
 
 # -------------------------------------------------------------------------- prediction --
-@torch.no_grad()
 def _test_maps(model, cfg: Config, hp: dict, ids: list[int], norm: Norm,
                base_ids: list[int] | None):
     """Maps for TEST clips, scaled by the MapNorm the model was trained with.
@@ -478,6 +477,7 @@ def _test_maps(model, cfg: Config, hp: dict, ids: list[int], norm: Norm,
                             norm, mn.alpha, mn)[0]
 
 
+@torch.no_grad()
 def predict_clip(model, cfg: Config, norm: Norm, fnorm: FeatNorm, vocab, by_idx,
                  i: int, t_in: int, maps: dict | None = None) -> np.ndarray:
     """One clip's RAW-unit mean forecasts (n_origins, H, C), ordered like origins() -- the
