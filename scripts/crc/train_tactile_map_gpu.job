@@ -36,7 +36,22 @@ echo "linked $n clip_*.npy into data/actionsense_states/"
 
 python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
 
-python scripts/actionsense/train_tactile_map.py --epochs "${EPOCHS:-80}" --folds "${FOLDS:-5}"
+# torch.use_deterministic_algorithms needs this before cuBLAS is reproducible on CUDA >= 10.2.
+# Measured cost of omitting it, on the OpenTouch map arms: up to 4.9e-3 of skill between two
+# runs with identical seed and data (SESSION_LOG 2026-08-23).
+export CUBLAS_WORKSPACE_CONFIG=:4096:8
+
+# tests/ in full before anything trains, so a broken fork fails in seconds rather than after
+# hours. The hand-listed subset this replaced on the OpenTouch job had let a wrong assertion
+# sit unexecuted through an entire run.
+python -m pytest tests/ -q
+
+python -u scripts/actionsense/train_tactile_map.py \
+    --epochs "${EPOCHS:-80}" --folds "${FOLDS:-5}" \
+    ${BACKBONE:+--backbone "$BACKBONE"} \
+    ${ENCODERS:+--encoders "$ENCODERS"} \
+    ${HISTORIES:+--histories "$HISTORIES"} \
+    ${CSV:+--csv "$CSV"}
 
 echo ""
 echo "[done] 5-fold CV skill + coverage -> docs/actionsense/tactile_map_cv_results.csv"
