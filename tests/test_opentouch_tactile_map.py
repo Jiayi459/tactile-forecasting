@@ -203,3 +203,68 @@ def test_a_clip_with_origins_and_no_input_raises_instead_of_predicting_zeros(cfg
     assert set(mus) == set(train + held)
     assert all(np.isfinite(v).all() for v in mus.values())
     assert any(v.size and float(np.ptp(v)) > 0 for v in sds.values())   # not an array of zeros
+
+
+# --- probGRU with the map encoders: same backbone, input is the only variable -------------
+# These live here rather than beside the other prob_gru tests because this file's fixture is
+# the one that writes clip_*.npy; the raw arm never needs a map.
+
+def test_frame_encoder_is_chosen_by_the_input_setting(cfg):
+    from src.opentouch import prob_gru as P
+    assert P.frame_encoder_for({"input": "raw", "d": 8}) is None
+    assert type(P.frame_encoder_for({"input": "flatten", "d": 8})) is TM.FlattenEncoder
+    assert type(P.frame_encoder_for({"input": "cnn", "d": 8})) is TM.CNNEncoder
+    with pytest.raises(ValueError, match="raw/flatten/cnn"):
+        P.frame_encoder_for({"input": "resnet", "d": 8})
+
+
+def test_map_input_changes_only_the_input(cfg, tmp_path):
+    """The whole point of the family: targets, origins and action ids must be untouched.
+
+    The tactile_map arms vary the encoder behind their OWN backbone -- one-shot head,
+    residual target, no action embedding -- so comparing one of them against probGRU moves
+    the input and the architecture at once. Here everything but the input is held fixed, and
+    this asserts that literally: same Y, same action id, same count of windows.
+    """
+    from src.opentouch import prob_gru as P
+    ids = [r["idx"] for r in (json.loads(l) for l in open(tmp_path / "manifest.jsonl"))]
+    norm = Norm.from_train({i: load_target(cfg, i) for i in ids})
+    fnorm = P.FeatNorm.from_train(cfg, ids, False)
+    vocab, by_idx = P.action_vocab(cfg, ids)
+
+    hp = dict(P.DEFAULT_HP, input="flatten", d=8)
+    maps, mnorm = P.map_inputs(cfg, hp, ids, ids, norm)
+    assert mnorm is not None and set(maps) == set(ids)
+
+    Xr, Ar, Lr, Yr = P.window_set(cfg, ids, 15, norm, fnorm, vocab, by_idx)
+    Xm, Am, Lm, Ym = P.window_set(cfg, ids, 15, norm, fnorm, vocab, by_idx, maps)
+
+    assert Xr.shape == (len(Yr), 15, 5)
+    assert Xm.shape == (len(Ym), 15, 1, TM.GRID, TM.GRID)   # the input, and only it, changed
+    assert torch.equal(Ar, Am) and torch.equal(Lr, Lm) and torch.equal(Yr, Ym)
+
+
+def test_probgru_trains_and_predicts_on_maps(cfg, tmp_path):
+    from src.opentouch import prob_gru as P
+    ids = [r["idx"] for r in (json.loads(l) for l in open(tmp_path / "manifest.jsonl"))]
+    hp = dict(P.DEFAULT_HP, input="cnn", d=8, hidden=8, epochs=1, batch=8,
+              log_train_every=1)
+    model, norm, fnorm, vocab, by_idx, hist = P.train(
+        cfg, ids[:8], ids[8:10], 15, hp, device="cpu", verbose=False, base_scope="shard")
+
+    assert hist["input"] == "cnn"
+    assert hist["n_features"] == TM.GRID          # window's last axis, not the encoder width
+    assert getattr(model, "input_norm", None) is not None    # needed to replay it
+    assert model.frame_encoder is not None
+    assert model.emb.num_embeddings == len(vocab)            # action embedding still there
+
+    base = P.scope_ids(cfg, ids[:8], ids[8:10], "shard")
+    pr = P.predict(model, cfg, norm, fnorm, vocab, by_idx, ids[10:], 15, hp=hp,
+                   base_ids=base)
+    assert set(pr) == set(ids[10:])
+    for v in pr.values():
+        assert v.shape[1:] == (cfg.horizon, 3) and np.isfinite(v).all()
+
+    # a model trained on maps cannot be asked to predict without them
+    with pytest.raises(RuntimeError, match="input_norm"):
+        P._test_maps(P.ProbGRU(5, 2, 4), cfg, hp, ids[10:], norm, base)

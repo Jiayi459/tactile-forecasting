@@ -6800,3 +6800,51 @@ loss 脚本打印的 `σ/median|err|` **全部高于高斯的 1.48**(F 1.85–1.
 (当前唯一一例:CoPy 上的 cnn vs flatten)。跑 `SEED=1` 的一轮 map_all 即可定案。
 
 **N11(记录用)——`docs/skill_comparison.md` 已填全**,ActionSense 与 OpenTouch 六模型三通道齐备。
+
+## 2026-08-24续 — 【新臂族 pg_all】probGRU 骨干固定,输入表示为唯一变量 + Hausdorff 指标
+
+### 一、用户指出的问题(成立)
+
+map 三臂的目的是"**只换输入表示、不换模型架构**",但 `tactile_map` 家族用的是**它自己的骨干**:
+一次性解码、预测残差、无动作嵌入。故:
+- `map_aggregate` vs `cnn` / `flatten`:**只变输入** ✓(家族内比较干净,8/23 结论不受影响)
+- `map_aggregate` vs `prob_gru`:**输入与架构同时变** ✗
+
+且这影响实质:**probGRU 在 F 上比 GRU-aggregate 高 0.025**(0.386 vs 0.360,为噪声底的百倍)。
+即我们是在一个**比手头最好模型更弱的骨干**上问"map 有没有用"。
+**成因是历史的**:ActionSense 本身就把 `tactile_map/` 与 `action_dynamics.py` 分成两套,我们逐字 fork。
+
+### 二、实现:`pg_all` = `prob_gru` + `pg_flatten` + `pg_cnn`
+
+**`ProbGRU` 新增可选 `frame_encoder`**,逐帧作用于输入后再进编码 GRU。
+`FlattenEncoder`/`CNNEncoder` 的输出恰为 `(B,t_in,d)`,与编码 GRU 的输入契约一致,**直接对接**。
+**自回归解码、动作嵌入、logvar 头、高斯 NLL、早停准则全部不变。**
+- `hp["input"] ∈ {raw, flatten, cnn}`;`raw` 即 ActionSense 原样五通道 → **现有 `prob_gru` 就是
+  该族的 aggregate 臂**,无需新增。
+- `window_set(..., maps=)` 用 map 窗口替换五维特征窗口;**目标、origins、左填充、动作 id 完全不变**。
+- map 的基线扣除/log1p 压缩/尺度**复用 `tactile_map` 的实现**(不重写 D1 的逐格中位数);
+  MapNorm 由 TRAIN 拟合、TEST 复用,存于 `model.input_norm` 并写入 checkpoint。
+- `--baseline-scope` 一并接入该族(默认 `shard`)。
+
+**测试**(置于 `test_opentouch_tactile_map.py`,因**只有该 fixture 生成 `clip_*.npy`**):
+编码器选择与非法值报错;**raw 与 map 两路的 `A`/`Ylast`/`Y` 逐位相同、仅 `X` 形状不同**
+(这条正是"只有输入不同"的字面断言);cnn 臂可训练可预测;缺 `input_norm` 时拒绝预测。
+**本地为 skip(torch 不可用),按 D-TEST 须先在 CRC 跑 pytest。**
+
+### 三、新指标:Hausdorff 距离(用户要求)
+
+`opentouch_report.py` 新增。每个预测视为 (时间, 值) 的**点集**:时间按 h/H 归一到 [0,1],
+值除以**该段真值自身的标准差**,故无量纲且逐模型同尺度。报告绝对值与**相对 persistence 的比值**。
+
+**为何值得与 MSE 并列**:MSE 是逐点的,**一条穿过振荡中部的平直预测得分远高于其形状应得**
+——而这正是本项目每个臂的行为(8/20)。Hausdorff 问的是"一条曲线最差的点离另一条整体有多远",
+**平直预测会被罚到约等于振幅**。
+
+合成验证(振幅 1 的正弦):**完美 0.0000 / 相位偏移 0.3005 / 平直 0.9945**。语义符合设计。
+
+**局限(须与数字同时引用)**:两轴的相对权重是**约定**——时间归一到 [0,1]、值按真值标准差。
+绝对数值因此不具独立意义,**可比的是模型之间的比值**。
+
+### 四、下一步
+
+跑 `MODEL=pg_all`,与 `d1_map2/3` 对照即可分离"输入表示"与"骨干"两个因素。

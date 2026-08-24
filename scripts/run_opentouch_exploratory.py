@@ -123,7 +123,8 @@ def main():
     ap.add_argument("--max-clips", type=int, help="subsample the corpus (smoke runs)")
     ap.add_argument("--model", default="prob_gru",
                     choices=["prob_gru", "gru_aggregate", "both", "none",
-                             "flatten", "cnn", "map_aggregate", "map_all"],
+                             "flatten", "cnn", "map_aggregate", "map_all",
+                             "pg_flatten", "pg_cnn", "pg_all"],
                     help="prob_gru = the ActionSense probabilistic GRU (architecture and "
                          "Gaussian NLL verbatim); gru_aggregate = the deterministic arm")
     ap.add_argument("--skip-gru", action="store_true", help="alias for --model none")
@@ -280,7 +281,11 @@ def run_split(cfg, splits, args, tag):
     ext, sig, kept = {}, {}, {}
     want = [] if (args.skip_gru or args.model == "none") else (
         ["prob_gru", "gru_aggregate"] if args.model == "both"
-        else (["map_aggregate", "flatten", "cnn"] if args.model == "map_all"
+        # pg_all holds the probGRU backbone fixed -- same loss, same autoregressive decoder,
+        # same action embedding -- and varies ONLY the input representation. "prob_gru" is
+        # the aggregate arm of that family, since its verbatim input IS the aggregate signal.
+        else (["prob_gru", "pg_flatten", "pg_cnn"] if args.model == "pg_all"
+              else ["map_aggregate", "flatten", "cnn"] if args.model == "map_all"
               else [args.model]))
     for which in want:
         import torch  # noqa: F401  (imported late so --model none works without it)
@@ -354,24 +359,29 @@ def run_split(cfg, splits, args, tag):
             # gru_aggregate.yaml's -- those belong to the deterministic aggregate model.
             from src.opentouch import prob_gru as P
             hp = dict(P.DEFAULT_HP)
+            hp["input"] = {"pg_flatten": "flatten", "pg_cnn": "cnn"}.get(which, "raw")
             hp["features"] = args.features
             hp["weight_decay"] = args.weight_decay
             hp["dropout"] = args.dropout
             hp["select_on"] = args.select_on
             if args.epochs:
                 hp["epochs"] = args.epochs
-            print(f"prob_gru: history sweep {hs} s on VAL by {args.select_on.upper()} "
+            print(f"{which}: history sweep {hs} s on VAL by {args.select_on.upper()} "
                   f"(epochs={hp['epochs']}) ...")
             t_in, scores, kept = P.select_history(cfg, splits["train"], splits["val"], hs,
                                                   hp, device=args.device,
                                                   keep=bool(args.save_preds))
             print(f"  t_in={t_in} ({t_in / cfg.fps:.1f} s); val NLL {scores}")
             model, _, fnorm, vocab, by_idx, hist = P.train(
-                cfg, splits["train"], splits["val"], t_in, hp, norm=norm, device=args.device)
-            preds = P.predict(model, cfg, norm, fnorm, vocab, by_idx, splits["test"], t_in)
+                cfg, splits["train"], splits["val"], t_in, hp, norm=norm, device=args.device,
+                base_scope=args.baseline_scope)
+            base_ids = P.scope_ids(cfg, splits["train"], splits["val"], args.baseline_scope)
+            preds = P.predict(model, cfg, norm, fnorm, vocab, by_idx, splits["test"], t_in,
+                              hp=hp, base_ids=base_ids)
             print(f"  best val NLL {hist['best_val_nll']:.6f} | "
                   f"action vocab {hist['n_actions']} (incl. 'other') | "
-                  f"features {hist['features']} ({hist['n_features']} dims) | "
+                  f"input {hist['input']} / features {hist['features']} "
+                  f"({hist['n_features']} dims) | "
                   f"wd {hist['weight_decay']:g} drop {hist['dropout']:g} | "
                   f"weights chosen on VAL {hist['selected_on_metric'].upper()} "
                   f"(min NLL @ epoch {hist.get('best_val_nll_epoch', '?')}, "
@@ -381,28 +391,36 @@ def run_split(cfg, splits, args, tag):
         rows += emit_rows(cfg, which, R, results, tag)
         results[which] = R
         ext[which] = preds
-        if which == "prob_gru" and args.save_model:
+        if which in ("prob_gru", "pg_flatten", "pg_cnn") and args.save_model:
             import torch
             os.makedirs(args.save_model, exist_ok=True)
-            ck = os.path.join(args.save_model, f"prob_gru_{tag}.pt")
+            ck = os.path.join(args.save_model, f"{which}_{tag}.pt")
             torch.save({"state_dict": model.state_dict(), "hp": hp, "t_in": t_in,
                         "arm": which, "vocab": vocab, "by_idx": by_idx,
                         "norm": {"mean": norm.mean, "std": norm.std},
                         "fnorm": {"mean": fnorm.mean, "std": fnorm.std},
+                        # None for the raw arm; a map arm cannot be replayed without it.
+                        "input_norm": (lambda mn: mn and {"mean": mn.mean, "std": mn.std,
+                                                          "alpha": mn.alpha}
+                                       )(getattr(model, "input_norm", None)),
                         "channels": list(cfg.channels), "config_hash": cfg.config_hash,
                         "split": tag, "history": hist, "sweep": scores}, ck)
             print(f"  saved model -> {ck}")
-        if which == "prob_gru" and args.save_preds:
+        if which in ("prob_gru", "pg_flatten", "pg_cnn") and args.save_preds:
             from src.opentouch import prob_gru as P
-            sig[which] = {i: P.predict_with_sigma(model, cfg, norm, fnorm, vocab,
-                                                  by_idx, i, t_in)[1]
+            tmaps = P._test_maps(model, cfg, hp, splits["test"], norm, base_ids)
+            sig[which] = {i: P.predict_with_sigma(
+                              model, cfg, norm, fnorm, vocab, by_idx, i, t_in,
+                              None if tmaps is None else ({i: tmaps[i]} if i in tmaps else {})
+                          )[1]
                           for i in splits["test"]}
             # Every swept history, not only the one VAL chose: these models are already
             # trained, so their forecasts cost a prediction pass and make the
             # rows-are-history figure drawable without training anything twice.
             for th, (mh, nh, fh, vh, bh, _) in (kept or {}).items():
-                save_history_preds(cfg, splits, nh, P.predict(mh, cfg, nh, fh, vh, bh,
-                                                              splits["test"], th),
+                save_history_preds(cfg, splits, nh,
+                                   P.predict(mh, cfg, nh, fh, vh, bh, splits["test"], th,
+                                             hp=hp, base_ids=base_ids),
                                    os.path.join(args.save_preds, f"hist_{th}"), th)
 
     if args.save_preds:

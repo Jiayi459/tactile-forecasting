@@ -53,6 +53,9 @@ import torch.nn as nn
 from src.actionsense.eval_harness.config import Config
 from .baselines import origins
 from .dataset import Norm, eligible_clips, load_target
+from .tactile_map import GRID, CNNEncoder, FlattenEncoder
+from .tactile_map import build_inputs as build_map_inputs
+from .tactile_map import scope_ids
 from .gru_aggregate import configure_determinism
 
 DEFAULT_HP = {"hidden": 48, "epochs": 80, "lr": 0.003, "batch": 64, "seed": 0,
@@ -86,7 +89,19 @@ DEFAULT_HP = {"hidden": 48, "epochs": 80, "lr": 0.003, "batch": 64, "seed": 0,
               # state dicts are kept either way (a 48-unit GRU is a few hundred KB, so
               # keeping the loser costs nothing) and both epochs are recorded, which is what
               # makes the disagreement visible instead of merely possible.
-              "select_on": "nll"}
+              "select_on": "nll",
+              # WHICH INPUT REPRESENTATION FEEDS THE SAME BACKBONE. "raw" is ActionSense's
+              # five aggregate channels, verbatim; "flatten" and "cnn" hand the 16x16 map to
+              # the per-frame encoders from tactile_map.py and feed their embeddings to this
+              # file's encoder GRU instead.
+              #
+              # The tactile_map family already varies the encoder, but behind ITS OWN
+              # backbone -- one-shot head, residual target, no action embedding -- so
+              # comparing one of its arms against probGRU moves the input and the
+              # architecture together. Here the architecture, the loss, the autoregressive
+              # decoder and the action embedding are all held fixed and the input is the only
+              # thing that changes, which is the comparison the map runs were for.
+              "input": "raw", "d": 64, "alpha": 10.0}
 OTHER = 0          # reserved embedding id: rare-in-TRAIN or unseen-at-TEST actions
 
 
@@ -172,9 +187,36 @@ def _aid(vocab, by_idx, i: int) -> int:
     return vocab.get(by_idx.get(i, ""), OTHER)
 
 
+def map_inputs(cfg: Config, hp: dict, ids: list[int], base_ids: list[int], norm: Norm,
+               mnorm=None):
+    """Normalized maps for `ids`, or (None, None) for the raw-aggregate arm.
+
+    Delegates to tactile_map so the baseline subtraction, the log1p compression and the map
+    scaling are the SAME code the map family uses -- a second implementation of D1's
+    per-taxel median is the last thing this needs."""
+    if str(hp.get("input", "raw")) == "raw":
+        return None, None
+    return build_map_inputs(cfg, "flatten", ids, base_ids, norm, float(hp["alpha"]), mnorm)
+
+
+def frame_encoder_for(hp: dict) -> "nn.Module | None":
+    """The per-frame encoder named by hp["input"], or None for the verbatim raw path."""
+    kind = str(hp.get("input", "raw"))
+    if kind == "raw":
+        return None
+    if kind not in ("flatten", "cnn"):
+        raise ValueError(f"input must be raw/flatten/cnn, got {kind!r}")
+    return (FlattenEncoder if kind == "flatten" else CNNEncoder)(int(hp["d"]))
+
+
 def window_set(cfg: Config, ids: list[int], t_in: int, norm: Norm, fnorm: FeatNorm,
-               vocab: dict[str, int], by_idx: dict[int, str]):
-    """Harness-aligned windows -> (X (N,t_in,5), A (N,), Ylast (N,3), Y (N,H,3)) normalized.
+               vocab: dict[str, int], by_idx: dict[int, str],
+               maps: dict[int, np.ndarray] | None = None):
+    """Harness-aligned windows -> (X, A (N,), Ylast (N,3), Y (N,H,3)) normalized.
+
+    X is (N,t_in,5) from the aggregate features, or (N,t_in,1,16,16) when `maps` supplies
+    already-normalized tactile maps -- the target, the origins, the padding and the action id
+    are identical either way, so the input is the only thing that differs.
 
     One item per rolling origin, exactly the origins score_external() will ask about. Early
     origins are LEFT-zero-padded rather than dropped, matching gru_aggregate."""
@@ -182,16 +224,23 @@ def window_set(cfg: Config, ids: list[int], t_in: int, norm: Norm, fnorm: FeatNo
     Xs, As, YL, Ys = [], [], [], []
     for i in ids:
         Y = load_target(cfg, i)
-        f = fnorm.z(features(Y, cfg.fps, fnorm.with_df)).astype(np.float32)
+        if maps is None:
+            f = fnorm.z(features(Y, cfg.fps, fnorm.with_df)).astype(np.float32)
+        else:
+            if i not in maps:
+                continue
+            f = np.asarray(maps[i], dtype=np.float32)
         z = norm.z(np.asarray(Y, dtype=np.float64)).astype(np.float32)
         a = _aid(vocab, by_idx, i)
         for t in origins(len(z), cfg):
             w = f[max(t - t_in + 1, 0): t + 1]
             if w.shape[0] < t_in:
-                w = np.concatenate([np.zeros((t_in - w.shape[0], f.shape[1]), np.float32), w], 0)
+                pad = np.zeros((t_in - w.shape[0],) + f.shape[1:], np.float32)
+                w = np.concatenate([pad, w], 0)
             Xs.append(w); As.append(a); YL.append(z[t]); Ys.append(z[t + 1: t + 1 + H])
     if not Xs:
-        return (torch.zeros(0, t_in, 5), torch.zeros(0, dtype=torch.long),
+        shape = (0, t_in) + ((5,) if maps is None else (1, GRID, GRID))
+        return (torch.zeros(*shape), torch.zeros(0, dtype=torch.long),
                 torch.zeros(0, 3), torch.zeros(0, H, 3))
     return (torch.from_numpy(np.stack(Xs)), torch.tensor(As, dtype=torch.long),
             torch.from_numpy(np.stack(YL)), torch.from_numpy(np.stack(Ys)))
@@ -202,8 +251,12 @@ class ProbGRU(nn.Module):
     """Verbatim from src/actionsense/action_dynamics.py (only `n_out` is read from the data
     instead of hardcoded 3 -- the same channel-count fix the other OpenTouch forks made)."""
 
-    def __init__(self, din: int, n_act: int, hid: int, n_out: int = 3, dropout: float = 0.0):
+    def __init__(self, din: int, n_act: int, hid: int, n_out: int = 3, dropout: float = 0.0,
+                 frame_encoder: nn.Module | None = None):
         super().__init__()
+        # Applied per frame before the encoder GRU, so a map arm differs from the raw arm in
+        # this module ALONE. None keeps the verbatim ActionSense path.
+        self.frame_encoder = frame_encoder
         self.emb = nn.Embedding(n_act, 8)
         self.enc = nn.GRU(din, hid, batch_first=True)
         self.dec = nn.GRU(n_out, hid, batch_first=True)
@@ -213,6 +266,8 @@ class ProbGRU(nn.Module):
         self.drop = nn.Dropout(dropout)
 
     def forward(self, x, aid, y_last, t_out):
+        if self.frame_encoder is not None:
+            x = self.frame_encoder(x)            # (B,t_in,1,16,16) -> (B,t_in,d)
         _, h = self.enc(x)
         e = self.emb(aid)
         inp = y_last.unsqueeze(1)
@@ -256,7 +311,7 @@ def _val_scores(m, X, A, YL, Y, H, batch, dev) -> tuple[float, float]:
 # ---------------------------------------------------------------------------- training --
 def train(cfg: Config, train_ids: list[int], val_ids: list[int], t_in: int,
           hp: dict | None = None, norm: Norm | None = None, verbose: bool = True,
-          device: str | None = None):
+          device: str | None = None, base_scope: str = "shard"):
     """Fit on TRAIN, keep the weights that minimise the VAL curve named by hp["select_on"]
     (NLL by default, MSE when the harness metric is what matters). TEST is never touched.
 
@@ -271,9 +326,14 @@ def train(cfg: Config, train_ids: list[int], val_ids: list[int], t_in: int,
         norm = Norm.from_train({i: load_target(cfg, i) for i in train_ids})
     fnorm = FeatNorm.from_train(cfg, train_ids, "df" in str(hp.get("features", "raw")))
     vocab, by_idx = action_vocab(cfg, train_ids)
+    # The map scale is fitted on TRAIN and reused for VAL, exactly as FeatNorm is; the taxel
+    # baseline may see the whole shard, an input property (see tactile_map.scope_ids).
+    base_ids = scope_ids(cfg, train_ids, val_ids, base_scope)
+    mtr, mnorm = map_inputs(cfg, hp, train_ids, base_ids, norm)
+    mva, _ = map_inputs(cfg, hp, val_ids, base_ids, norm, mnorm)
 
-    Xtr, Atr, Ltr, Ytr = window_set(cfg, train_ids, t_in, norm, fnorm, vocab, by_idx)
-    Xva, Ava, Lva, Yva = window_set(cfg, val_ids, t_in, norm, fnorm, vocab, by_idx)
+    Xtr, Atr, Ltr, Ytr = window_set(cfg, train_ids, t_in, norm, fnorm, vocab, by_idx, mtr)
+    Xva, Ava, Lva, Yva = window_set(cfg, val_ids, t_in, norm, fnorm, vocab, by_idx, mva)
     if len(Xtr) == 0:
         raise ValueError("no TRAIN origins: clips too short for this history/horizon")
 
@@ -281,11 +341,18 @@ def train(cfg: Config, train_ids: list[int], val_ids: list[int], t_in: int,
     n_ep = int(hp["epochs"])
     dev = pick_device(device)
     if verbose:
-        print(f"    [t_in={t_in}] windows: train {len(Xtr)} val {len(Xva)} | "
+        print(f"    [{hp.get('input', 'raw')} t_in={t_in}] windows: "
+              f"train {len(Xtr)} val {len(Xva)} | "
               f"batches/epoch {-(-len(Xtr) // bs)} | vocab {len(vocab)} | device {dev}",
               flush=True)
-    m = ProbGRU(Xtr.shape[-1], len(vocab), int(hp["hidden"]), n_out=len(cfg.channels),
-                dropout=float(hp["dropout"])).to(dev)
+    fe = frame_encoder_for(hp)
+    din = int(hp["d"]) if fe is not None else int(Xtr.shape[-1])
+    m = ProbGRU(din, len(vocab), int(hp["hidden"]), n_out=len(cfg.channels),
+                dropout=float(hp["dropout"]), frame_encoder=fe).to(dev)
+    # The map scaling is part of what the model needs to be replayed, and there is nowhere
+    # else to put it without changing this function's return arity -- which is the shape that
+    # cost a whole job on 2026-08-19.
+    m.input_norm = mnorm
     opt = torch.optim.Adam(m.parameters(), lr=hp["lr"],
                            weight_decay=float(hp["weight_decay"]))
     sel = str(hp.get("select_on", "nll")).lower()
@@ -352,6 +419,8 @@ def train(cfg: Config, train_ids: list[int], val_ids: list[int], t_in: int,
     history["device"] = str(dev)
     history["features"] = str(hp.get("features", "raw"))
     history["n_features"] = int(Xtr.shape[-1])
+    history["input"] = str(hp.get("input", "raw"))
+    history["baseline_scope"] = base_scope
     history["weight_decay"] = float(hp["weight_decay"])
     history["dropout"] = float(hp["dropout"])
     return m, norm, fnorm, vocab, by_idx, history
@@ -393,13 +462,29 @@ def select_history(cfg: Config, train_ids: list[int], val_ids: list[int],
 
 # -------------------------------------------------------------------------- prediction --
 @torch.no_grad()
+def _test_maps(model, cfg: Config, hp: dict, ids: list[int], norm: Norm,
+               base_ids: list[int] | None):
+    """Maps for TEST clips, scaled by the MapNorm the model was trained with.
+
+    Refitting the scale on TEST would be a leak; `model.input_norm` carries the TRAIN-fitted
+    one, which is why train() attaches it."""
+    if str(hp.get("input", "raw")) == "raw":
+        return None
+    mn = getattr(model, "input_norm", None)
+    if mn is None:
+        raise RuntimeError("model has no input_norm: it was not trained on maps")
+    return build_map_inputs(cfg, "flatten", ids,
+                            base_ids if base_ids is not None else ids,
+                            norm, mn.alpha, mn)[0]
+
+
 def predict_clip(model, cfg: Config, norm: Norm, fnorm: FeatNorm, vocab, by_idx,
-                 i: int, t_in: int) -> np.ndarray:
+                 i: int, t_in: int, maps: dict | None = None) -> np.ndarray:
     """One clip's RAW-unit mean forecasts (n_origins, H, C), ordered like origins() -- the
     format evaluate.score_external() requires. The variance head is trained (it is in the
     loss) but not returned here: the frozen harness scores point error only."""
     model.eval()
-    X, A, L, _ = window_set(cfg, [i], t_in, norm, fnorm, vocab, by_idx)
+    X, A, L, _ = window_set(cfg, [i], t_in, norm, fnorm, vocab, by_idx, maps)
     if len(X) == 0:
         return np.zeros((0, cfg.horizon, len(cfg.channels)), dtype=np.float64)
     dev = next(model.parameters()).device
@@ -408,14 +493,18 @@ def predict_clip(model, cfg: Config, norm: Norm, fnorm: FeatNorm, vocab, by_idx,
 
 
 def predict(model, cfg: Config, norm: Norm, fnorm: FeatNorm, vocab, by_idx,
-            test_ids: list[int], t_in: int) -> dict[int, np.ndarray]:
-    return {i: predict_clip(model, cfg, norm, fnorm, vocab, by_idx, i, t_in)
+            test_ids: list[int], t_in: int, hp: dict | None = None,
+            base_ids: list[int] | None = None) -> dict[int, np.ndarray]:
+    maps = _test_maps(model, cfg, hp or {}, test_ids, norm, base_ids)
+    return {i: predict_clip(model, cfg, norm, fnorm, vocab, by_idx, i, t_in,
+                            None if maps is None else {i: maps[i]} if i in maps else {})
             for i in test_ids}
 
 
 @torch.no_grad()
 def predict_with_sigma(model, cfg: Config, norm: Norm, fnorm: FeatNorm, vocab, by_idx,
-                       i: int, t_in: int) -> tuple[np.ndarray, np.ndarray]:
+                       i: int, t_in: int,
+                       maps: dict | None = None) -> tuple[np.ndarray, np.ndarray]:
     """(mu, sigma) in RAW units, both (n_origins, H, C).
 
     The harness scores the mean only, so predict() drops the variance head; a forecast
@@ -424,7 +513,7 @@ def predict_with_sigma(model, cfg: Config, norm: Norm, fnorm: FeatNorm, vocab, b
     linear, so sigma_raw = exp(lv/2) * norm.std -- the mean shift cancels.
     """
     model.eval()
-    X, A, L, _ = window_set(cfg, [i], t_in, norm, fnorm, vocab, by_idx)
+    X, A, L, _ = window_set(cfg, [i], t_in, norm, fnorm, vocab, by_idx, maps)
     C = len(cfg.channels)
     if len(X) == 0:
         z = np.zeros((0, cfg.horizon, C))

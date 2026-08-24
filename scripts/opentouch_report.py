@@ -86,6 +86,64 @@ def gather(cfg, preds_dir, k, seed):
     return merged, models
 
 
+def hausdorff_curves(pred, true, H):
+    """Symmetric Hausdorff distance between two H-step curves, per forecast. -> (N,)
+
+    Each forecast is treated as a SET of points in (time, value), time carried as h/H so the
+    one-second horizon spans [0,1], and value divided by the standard deviation of the TRUE
+    horizon so the two axes are commensurate and the result is dimensionless. Both choices
+    are arbitrary in the way any two-axis metric's are; what matters is that they are the
+    same for every model, so the ratio between models is meaningful even if the absolute
+    number is not.
+
+    WHY IT IS WORTH HAVING BESIDE MSE. MSE is pointwise, so a flat forecast through the
+    middle of an oscillation scores far better than its shape deserves -- which is exactly
+    what every arm here does (2026-08-20). Hausdorff asks how far the WORST point of one
+    curve is from the whole of the other, so a flat line through a swinging signal is
+    penalised by roughly the amplitude, and a model that tracks the swing is not.
+    """
+    t = np.arange(H) / H
+    dt = (t[:, None] - t[None, :]) ** 2
+    dv = (pred[:, :, None] - true[:, None, :]) ** 2
+    d = np.sqrt(dt[None, :, :] + dv)
+    return np.maximum(d.min(axis=2).max(axis=1), d.min(axis=1).max(axis=1))
+
+
+def hausdorff_table(cfg, preds_dir):
+    """({model: {channel: (mean Hausdorff, ratio to persistence)}}, n_clips) -- clip-equal."""
+    H, C = cfg.horizon, len(cfg.channels)
+    per = collections.defaultdict(lambda: collections.defaultdict(list))
+    for path in sorted(glob.glob(os.path.join(preds_dir, "clip_*.npz"))):
+        z = np.load(path, allow_pickle=True)
+        y, ors = np.asarray(z["y"], dtype=np.float64), np.asarray(z["origins"])
+        if len(ors) == 0:
+            continue
+        keep = ors + H < len(y)
+        ors = ors[keep]
+        if not len(ors):
+            continue
+        true = np.stack([y[t + 1:t + 1 + H] for t in ors])          # (N,H,C)
+        names = sorted(k[3:] for k in z.files if k.startswith("mu_"))
+        for c in range(C):
+            sd = true[:, :, c].std(axis=1)
+            ok = sd > 0                    # a constant truth has no shape to compare against
+            if not ok.any():
+                continue
+            for m in names:
+                mu = np.asarray(z[f"mu_{m}"], dtype=np.float64)[keep]
+                h = hausdorff_curves(mu[ok, :, c] / sd[ok, None],
+                                     true[ok, :, c] / sd[ok, None], H)
+                per[m][cfg.channels[c]].append(float(np.mean(h)))
+    out = {}
+    n = max((len(v) for d in per.values() for v in d.values()), default=0)
+    ref = {ch: float(np.mean(v)) for ch, v in per.get("persistence", {}).items()}
+    for m, d in per.items():
+        out[m] = {ch: (float(np.mean(v)),
+                       float(np.mean(v)) / ref[ch] if ref.get(ch) else float("nan"))
+                  for ch, v in d.items()}
+    return out, n
+
+
 def action_of(cfg, ids):
     from src.opentouch.dataset import eligible_clips
     m = {r["idx"]: trait.normalize_action(r.get("action", "")) for r in eligible_clips(cfg, ())}
@@ -136,6 +194,26 @@ def main():
     cls = np.array([trait.trait_class(x) if x else "" for x in acts])
     rows_by = {c: np.flatnonzero(cls == c) for c in (trait.SMOOTH, trait.ABRUPT)}
     cont = np.array([trait.is_contentious(x) if x else False for x in acts])
+    hd, n_hd = hausdorff_table(cfg, a.preds)
+    if hd:
+        print("\n=== Hausdorff distance between forecast and truth curves "
+              "(lower better; x = ratio to persistence) ===")
+        print(f"{'model':16s} " + " ".join(f"{ch:>18s}" for ch in cfg.channels))
+        for m in sorted(hd):
+            print(f"{m:16s} " + " ".join(
+                f"{hd[m][ch][0]:9.4f} ({hd[m][ch][1]:5.2f}x)" if ch in hd[m]
+                else " " * 18 for ch in cfg.channels))
+        print("Scaled per forecast: time spans [0,1] over the horizon, value is divided by "
+              "the truth's own standard deviation there. Unlike MSE this is not pointwise, "
+              "so a flat forecast through an oscillation is charged roughly its amplitude.")
+        for m in sorted(hd):
+            for ch, (v, r) in hd[m].items():
+                rows.append(dict(scope="overall", subset="all", model=m, channel=ch,
+                                 metric="hausdorff", value=v, n_clips=n_hd))
+                rows.append(dict(scope="overall", subset="all", model=m, channel=ch,
+                                 metric="hausdorff_ratio_vs_persistence", value=r,
+                                 n_clips=n_hd))
+
     print(f"\n=== G2: smooth ({len(rows_by[trait.SMOOTH])} clips) vs "
           f"abrupt ({len(rows_by[trait.ABRUPT])}) ===")
     print(f"{'model':16s} {'class':8s} " + " ".join(f"{c:>12s}" for c in chans))
