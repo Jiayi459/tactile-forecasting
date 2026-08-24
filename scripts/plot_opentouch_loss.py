@@ -113,13 +113,17 @@ def main():
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4.2))
+    # Room on the right for the legend: with three arms over four folds the in-axes legend
+    # was 24 entries and covered most of the curves it was labelling.
+    fig, axes = plt.subplots(1, 2, figsize=(14.5, 4.4))
     ax, axs = axes
     ax2 = ax.twinx()
     ax2.set_ylabel("VAL MSE (dotted, + = its own best)", fontsize=8)
 
     arms_present = {ck.get("arm") or os.path.basename(n).split("_location")[0]
                     for n, ck in cks}
+    colours: dict[str, str] = {}
+    labelled: set[str] = set()
     crits = set()
     for name, ck in cks:
         h = ck.get("history", {})
@@ -139,13 +143,19 @@ def main():
         # twelve indistinguishable curves. Older checkpoints predate the field and fall back
         # to the filename, which already begins with the arm.
         arm = ck.get("arm") or os.path.basename(name).split("_location")[0]
-        tag = fold if len(arms_present) < 2 else f"{arm} {fold}"
+        # With more than one arm, COLOUR CARRIES THE ARM and folds repeat it. Giving all
+        # twelve series their own colour made the legend longer than the plot was tall and
+        # left the arms indistinguishable anyway, which is the comparison the figure is for.
+        # With one arm, colour goes back to the fold, as every earlier figure has it.
+        multi = len(arms_present) >= 2
+        key = arm if multi else fold
+        col = colours.setdefault(key, f"C{len(colours) % 10}")
+        labelled.add(key)
         ep = np.arange(1, va.size + 1)
-        line, = ax.plot(ep, va, lw=1.4, label=f"{tag} val")
+        ax.plot(ep, va, lw=1.4, color=col)
         m = np.isfinite(tr)
         if m.any():
-            ax.plot(ep[m], tr[m], "o--", ms=3, lw=0.8, alpha=0.55,
-                    color=line.get_color(), label=f"{tag} train")
+            ax.plot(ep[m], tr[m], "o--", ms=3, lw=0.8, alpha=0.55, color=col)
         if crit == "nll":
             b = int(np.nanargmin(va))
             ax.plot(ep[b], va[b], "*", ms=12, color=line.get_color())
@@ -163,22 +173,36 @@ def main():
         if sw:
             xs = sorted(int(x) for x in sw)
             axs.plot([x / 30.0 for x in xs], [sw[x] if x in sw else sw[str(x)] for x in xs],
-                     "o-", lw=1.4, label=tag)
-            axs.plot(ck["t_in"] / 30.0, min(sw.values()), "*", ms=12,
-                     color=axs.lines[-1].get_color())
+                     "o-", lw=1.4, color=col)
+            axs.plot(ck["t_in"] / 30.0, min(sw.values()), "*", ms=12, color=col)
 
     kept = "/".join(sorted(c.upper() for c in crits)) or "NLL"
     other = "MSE" if kept == "NLL" else "NLL"
+    who = ", ".join(sorted(arms_present))
     ax.set_xlabel("epoch"); ax.set_ylabel("Gaussian NLL")
-    ax.set_title("probGRU training curves — solid/dashed = NLL, dotted = VAL MSE\n"
+    ax.set_title(f"{who} training curves — solid/dashed = NLL, dotted = VAL MSE\n"
                  f"star = weights kept (min VAL {kept});  + = min VAL {other}",
                  fontsize=10)
-    ax.legend(fontsize=7, ncol=2); ax.grid(alpha=0.25)
+    ax.grid(alpha=0.25)
     axs.set_xlabel("input history (s)"); axs.set_ylabel(f"best VAL {kept}")
     axs.set_title(f"history sweep, chosen on VAL {kept}\n"
                   "(≥2 s is mostly zero-padding: <50% of clips are long enough)",
                   fontsize=10)
-    axs.legend(fontsize=7); axs.grid(alpha=0.25)
+    axs.grid(alpha=0.25)
+
+    # One legend for the figure, outside both axes. Colour keys the arm when several are
+    # present and the fold when only one is, and the line styles are spelled out here rather
+    # than multiplied through every series.
+    from matplotlib.lines import Line2D
+    per = "one line per fold" if len(arms_present) >= 2 else "VAL"
+    ents = [Line2D([], [], color=c, lw=1.6, label=k) for k, c in sorted(colours.items())]
+    ents += [Line2D([], [], color="none", label=" "),
+             Line2D([], [], color="0.35", lw=1.6, label=f"VAL NLL ({per})"),
+             Line2D([], [], color="0.35", lw=0.9, ls="--", marker="o", ms=3,
+                    label="TRAIN NLL"),
+             Line2D([], [], color="0.35", lw=1.0, ls=":", label="VAL MSE (right axis)")]
+    fig.legend(handles=ents, loc="center left", bbox_to_anchor=(0.845, 0.5),
+               fontsize=8, frameon=False)
 
     cov = coverage(a.preds)
     if cov:
@@ -194,7 +218,9 @@ def main():
         first = sorted(cov)[0]
         line = "  ".join(f"{c} {v[0]:.1%}" for c, v in cov[first].items())
         fig.suptitle(f"±2σ coverage (nominal 95.4%) — {first}: {line}", fontsize=10)
-    fig.tight_layout(rect=(0, 0, 1, 0.93 if cov else 1.0))
+    # The right bound leaves the legend its column; tight_layout would otherwise expand the
+    # axes back over it.
+    fig.tight_layout(rect=(0, 0, 0.84, 0.93 if cov else 1.0))
     os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
     fig.savefig(a.out, dpi=140)
     print(f"wrote {a.out} ({len(cks)} checkpoints)")
