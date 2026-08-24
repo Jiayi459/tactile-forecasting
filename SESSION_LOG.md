@@ -6947,3 +6947,93 @@ OpenTouch 侧的 `opentouch_report.py` 改为 import 共享实现。
 - **Q13.3 代码位置** → 建议在 `src/actionsense/tactile_map/` 内加 `backbone` 选项
   (`seq2seq` | `probgru`),复用其数据管线与 CV,**不建第三份实现**。
 - **Q13.4 通道数** → 6(双手),沿用 OpenTouch 已参数化的 `n_out`。
+
+## 2026-08-24 — d256 训练方案设计(PLANNING;按 CLAUDE.md 指令 5,**未实现,等裁定**)
+
+### 请求
+在 d256 上做和 OpenTouch / ActionSense 一样的事;一起设计 training 细节;**先从 data 开始,
+跑通 probGRU**。
+
+### 一、读 SESSION_LOG + 代码得到的"既有范式"(d256 要对齐的模板)
+一个数据集臂 = ①`configs/<ds>/eval_harness.yaml`(冻结协议,sha256 进结果表)
+②`data/<ds>_states/` 的物理态缓存 `(T,C,6)` = `[F,xbar,ybar,sxx,syy,sxy]`
+(`src/actionsense/physical_state.py::frame_state`,纯解析无学习)
+③`src/<ds>/{dataset,splits,baselines,evaluate}.py` ④probGRU 臂。
+probGRU 本身(`src/opentouch/prob_gru.py`)= ActionSense `action_dynamics.ProbGRU` **逐字复制**:
+action embedding(8)→encoder GRU→**自回归** decoder GRU(用最后一个观测目标做种子)→
+mean/logvar 头(logvar clamp [-6,4])、Gaussian NLL、**早停看 VAL NLL**、hidden 48 / epochs 80 /
+lr 3e-3 / batch 64。评分 = **skill vs persistence**,须 > 0。
+
+### 二、本轮为设计而做的四项测量(**均为实测,非推断**)
+
+**(1) clip 是步长 1 的滑窗,相邻 clip 共享 15/16 帧。**
+判据 `clip c 的第 j 帧 == clip c' 的第 j' 帧 ⟺ c+j == c'+j'`:
+**856 个预测相等全部成立,0 失败;1948 个"应当不等"里 0 个假阳性**(signals1/train/S01/0,clip 0–7)。
+**⇒ 我在 docs 里先前写的"组内窗口不重叠"是错的**(已改正)。`signals` 看起来不重叠只是因为
+它按 mod 3 的另一个余数类抽样,时间跨度其实几乎相同。
+
+**(2) 底层连续录制可精确重建。** 275 个 cell 的 clip 编号**全部**是连续的 `0..N-1`(0 例缺号),
+故 `base = clip_0 的 16 帧 + 各 clip_c 的第 15 帧`,长度 `N+15`。
+**十路信号全部逐帧验证通过。**
+
+**(3) 于是"真实数据量"是:94 段录制、约 29,836 帧。**
+长度 min 36 / p10 58 / **median 201** / p90 787 / max 1068。
+**"80,819 clips" 在帧口径上是 2.7× 高估**,在"独立窗口"口径上高估得多得多。
+预算表:need 32 帧 → 94/94 录制、26,922 origins;**need 48 → 87/94、25,447 origins**;
+need 64 → 81/94、24,080;need 128 → 60/94、19,754。
+
+**(4) `gaze` 是第十路,且按组区分:`signals1`/`signals2` 有,`signals` 没有。**
+18 个跨 cell 抽样:14/14(signals1/2)有,0/4(signals)无 —— 干净的组级差异。
+**docs §3 的"schema 全同"已改正。**
+
+### 三、由上述测量**被迫确定**(不构成 OQ)的设计
+- **语料 = `signals1` 重建出的 94 段录制。** `signals`/`signals2` 不是额外数据,是同一录制的
+  3 倍/2 倍抽取;用 harness 既有的 `downsample` 旋钮复现即可(与 ActionSense 的
+  `fps_raw 30 / downsample 3` 同一机制)。**这同时彻底消除跨组泄漏。**
+- **切分单位 = 录制(subject × class),94 个。** clip 级随机切分会因 15/16 重叠而灾难性泄漏。
+  **随附的 train/val 一律弃用**(只覆盖 3/20 类、三组各不同、且 S05 同时在 train)。
+- **目标 = 6 维 `[F_L,CoPx_L,CoPy_L,F_R,CoPx_R,CoPy_R]`**:d256 双手套俱全,与 ActionSense
+  harness 的 target 定义完全一致,`physical_state.frame_state` 可直接吃 (T,2,32,32)。
+- **16 帧不再是约束**:重建后 median 201 帧,rolling-origin 有真实历史可用。
+
+### 四、OPEN QUESTIONS(**阻塞实现,等裁定**)
+
+**OQ-D1 fps 未知,直接卡住 `horizon_s` 与 `causal_velocity`。**
+数据无时间戳,只知相对步长 1:2:3。三条路:
+ (a) **与真实 ActionSense 对齐反推**——仓库已有 `data/actionsense_states`(30 Hz,401 clip)。
+     d256 源自同一录制,可用互相关把某段 d256 tactile 对到 ActionSense 的对应段,**直接测出 fps**。
+     代价:数值被重缩放过,需用形状/相位而非幅度对齐。**我推荐先试这条:它是唯一能给出真值的。**
+ (b) 假定 = ActionSense 原生 30 Hz,horizon 按 1 s = 30 帧(与 OpenTouch 口径一致)。
+ (c) 放弃物理秒,**horizon 直接用帧**(如 16 帧),配置里明写 fps 未知。
+**这个不定下来,`prob_gru` 的 `causal_velocity(sig, fps)` 就是错的量纲。**
+
+**OQ-D2 是否做基线扣除(OpenTouch D1 的同题)。**
+d256 tactile 有明显 DC 台座(实测 floor 0.13 / 0.40,远高于 0)。
+`physical_state.baseline_correct(pct=5)` 现成。但 OpenTouch 那轮的结论是"D1 放弃"(2026-08-16续5),
+理由与该传感器工作在满量程 95% 有关 —— **d256 是另一个传感器(32×32 手套,已被重缩放到 [0,1]),
+不能照搬结论**。选项:(a) 不扣,先跑通(与 OpenTouch 最终口径一致);(b) 扣,并同时跑两臂对比。
+
+**OQ-D3 切分协议。**
+ (a) **留一受试者(LOSO,5 折)**:最干净,直接回答跨人泛化;每折 held out ~19 段录制。
+ (b) 按录制分层切 6/2/2:样本更多但不测跨人。
+ 5 受试者 × 20 类 = 100,实有 94 段 ⇒ 每类每受试者约 1 段,**(a) 下每类训练只剩 ~4 段录制**。
+ 我倾向 **(a)**:与"和 OpenTouch/ActionSense 做一样的事"最贴合,且 d256 唯一充裕的轴就是受试者。
+
+**OQ-D4 probGRU 的输入用哪些流。**
+ (a) **与 ActionSense/OpenTouch 逐字一致**:`[F, CoPx, CoPy, vx, vy]`(仅 tactile 派生),
+     **这样三个数据集的数字可直接对比**——我推荐先做这个,作为"跑通"的定义。
+ (b) 扩展用上 d256 独有的 EMG/pose/gaze。这是新科学问题,**建议作为第二臂**,不要混进第一次跑通。
+
+**OQ-D5 action embedding 的 id 用什么。**
+ OpenTouch 用 action 字段(长尾,<min_group_size 并入 "other")。d256 的天然候选是 **20 个 class**,
+ 但 **class 同时是 LOSO 里唯一的类别轴**,把它喂进 embedding 等于把标签给模型。
+ 选项:(a) 全部同一 id(等于关掉 embedding);(b) 用 20 类 id,并明确这是 "label-conditioned forecasting"。
+ **这个必须先想清楚,否则 skill 数字的含义会被悄悄改变。**
+
+### 五、拟定执行顺序(裁定后)
+1. `scripts/extract_d256_states.py`:94 段重建 → `frame_state` → `data/d256_states/state_*.npy` + manifest。
+2. `configs/d256/eval_harness.yaml`(冻结,含 OQ-D1/D2/D3 的裁定值)。
+3. `src/d256/splits.py`(按录制/LOSO)+ `dataset.py`(Norm、origins、eligible)。
+4. persistence / seasonal / AR 基线 → 拿到 skill 的分母。
+5. probGRU 臂,复用 `src/opentouch/prob_gru.py` 的结构。
+**第 4 步不先做完,probGRU 的 skill 无意义 —— 这是 OpenTouch 那条链已经踩实的顺序。**
