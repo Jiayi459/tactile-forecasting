@@ -7153,3 +7153,40 @@ python scripts/extract_d256_states.py --root ~/forcevision --out data/d256_state
 **顶层剩下的 15 个,分三类,待用户裁定**(见 `scripts/README.md`):
 EgoTouch(第四个数据集,5 个)、真正跨数据集(`build_skill_comparison.py`、`aggregate_results.py`、
 `check_leakage.py`)、上游 TouchAnything 仓库继承的(7 个)。
+
+### 2026-08-24续4 — ActionSense 的 trait 表(预注册,提交于任何按类打分之前)
+
+**词表实测**(`scripts/actionsense/actionsense_action_inventory.py`):**299 条录制、14 个动词**,
+**无长尾**(对照 OpenTouch 的 66 个动作串)。全部 14 个已审定,`unaudited()` 为空。
+
+**新建 `src/actionsense/trait.py`**,**不重述 rubric**——rubric 只有一份,在
+`src/opentouch/trait.py`(Layer 1 + R1/R2),那里已写明其为 sensor-agnostic;
+本文件只承载 ActionSense 的**词表**。**重述一遍 rubric 等于制造第二份定义,而跨传感器比较恰恰经不起两份定义。**
+从 opentouch 侧只引入 `SMOOTH`/`ABRUPT`/`UnauditedAction`/`normalize_action`。
+
+**判定结果**:
+- **SMOOTH(218 条)**:clean 60、slice 45、peel 30、spread 30、clear 28、pour 25
+- **ABRUPT(81 条)**:get 30、get/replace 15、open/close 9、open 6、set 6、stack 5、load 5、unload 5
+
+**用户裁定 [U](2026-08-24)**:`peel` / `slice` / `clear` 判为 **SMOOTH**。
+其余 11 项为 [R](由 rubric 推出)。
+
+**【必须与任何 G2 结果同时引用的跨传感器分歧】**
+`slice` 与 `clear` 在此为 SMOOTH,而 OpenTouch 表中结构对应的 `cutting` 与 `scooping` 为 **ABRUPT**。
+**rubric 的 R1 恰以切菜为示例**:"a knife striking the cutting board … **is what forces `cutting`
+-> abrupt**"。故该分歧**真实存在,且不是 R1 的字面应用**;它成立是因为它是用户的明确裁定,
+本文件按惯例**逐字记录用户裁定而不再推导**。
+**处置**:二者均置入 **CONTENTIOUS**,由 Layer 3 的敏感性分析覆盖——
+主结果照裁定报告,同时报告剔除后重算的结果;**方向不变则结论不依赖二者如何归类**。
+**在此分歧存续期间,smooth/abrupt 对比在两个传感器上含义不同,任何跨传感器引用都必须声明这一点。**
+
+**CONTENTIOUS 集(5 项,118 条录制)**:`slice`、`clear`、`peel`、`open`、`open/close`。
+- `peel`:每刀的"接触面突变"与连续力调制两可,且部分被试用离散刀法;
+- `open` / `open/close`:旋开可为持续旋转(rubric 已将 `twisting`/`unscrewing` 列为争议)。
+
+**剔除 CONTENTIOUS 后仍为 smooth 115 / abrupt 66**,两类均非空,**敏感性分析可算**。
+(对照 OpenTouch:299 vs 2544,极不平衡;ActionSense 这边**统计功效好得多**。)
+
+**测试**(`tests/test_actionsense_trait.py`,6 项,本地可跑、已通过):覆盖完整性、未知动词报错而非默认、
+两侧共用同一对类名常量、跨传感器分歧被 CONTENTIOUS 覆盖、`partition` 的丢弃可计数、
+剔除争议后两类仍非空。
