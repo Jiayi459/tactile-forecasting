@@ -11,8 +11,10 @@ each fold's TRAIN set -- and therefore its CoP force threshold and its Norm -- c
 reconstructed exactly. The threshold has to be per fold: it is fitted on TRAIN, and pooling
 the corpus to compute one would leak every fold's test data into every other fold's mask.
 
-WHAT THE NUMBERS MEAN, AND WHAT THEY DO NOT. F carries a ~99.3% DC component (D1 declined,
-2026-08-16) and the grid sits at 95% of full scale, so a forecaster is largely being asked
+WHAT THE NUMBERS MEAN, AND WHAT THEY DO NOT. The DC share of F is MEASURED from the scored
+predictions and reported at the end of the run, because it decides how every number above
+should be read and it is not a constant: on the uncorrected target it was ~99.3% (D1
+declined, 2026-08-16), so a forecaster was largely being asked
 to reproduce a constant and skill reads high for reasons unrelated to dynamics. The
 smooth/abrupt contrast additionally rests on two classes each dominated by one action --
 picking up is 37% of abrupt, holding is 38% of smooth -- which is why per-action and
@@ -85,6 +87,28 @@ def gather(cfg, preds_dir, k, seed):
         sse={m: np.concatenate([p.sse[m] for p in parts]) for m in parts[0].sse},
         channels=parts[0].channels)
     return merged, models
+
+
+def dc_share(preds_dir, force_idx: int = 0, limit: int = 400) -> float:
+    """Fraction of the force channel's mean square that is its MEAN. -> 0..1, NaN if unknown.
+
+    MEASURED from the predictions actually being scored, rather than asserted. This line used
+    to be a hardcoded "F is ~99.3% DC (D1 declined)", which was true when it was written and
+    false from 2026-08-20 on: every D1 report printed it while scoring a target whose baseline
+    had been removed, telling the reader to interpret the numbers as reproducing a constant
+    that was no longer there.
+    """
+    tot_m2 = tot_ms = 0.0
+    n = 0
+    for path in sorted(glob.glob(os.path.join(preds_dir, "clip_*.npz")))[:limit]:
+        y = np.asarray(np.load(path, allow_pickle=True)["y"], dtype=np.float64)
+        if y.ndim != 2 or y.shape[1] <= force_idx or not len(y):
+            continue
+        f = y[:, force_idx]
+        tot_m2 += float(f.mean()) ** 2 * len(f)
+        tot_ms += float((f ** 2).mean()) * len(f)
+        n += len(f)
+    return tot_m2 / tot_ms if n and tot_ms > 0 else float("nan")
 
 
 def hausdorff_table(cfg, preds_dir):
@@ -279,8 +303,19 @@ def main():
         w = csv.DictWriter(fh, fieldnames=cols, extrasaction="ignore")
         w.writeheader(); w.writerows(rows)
     print(f"\nwrote {a.out} ({len(rows)} rows)")
-    print("F is ~99.3% DC and the grid sits at 95% of full scale (D1 declined), so read "
-          "every number above as 'how well the constant plus its drift was reproduced'.")
+    dc = dc_share(a.preds)
+    if np.isfinite(dc) and dc > 0.9:
+        print(f"F is {dc:.1%} DC in the scored target, so read every number above as 'how "
+              f"well the constant plus its drift was reproduced'.")
+    elif np.isfinite(dc):
+        print(f"F is {dc:.1%} DC in the scored target -- the baseline has been removed, so "
+              f"these numbers are about the dynamics, not about reproducing a constant. "
+              f"They are NOT comparable in absolute terms with runs on the uncorrected "
+              f"target; skill against persistence is.")
+    else:
+        print("Could not measure the DC share of F from these predictions, so the usual "
+              "caveat cannot be stated either way -- check the cache before reading the "
+              "numbers as being about dynamics.")
 
 
 if __name__ == "__main__":
