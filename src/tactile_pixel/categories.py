@@ -6,7 +6,7 @@ temporal-pattern class (Axis B) used by the predictability study.
 
 Imported by:
   - src/tactile_pixel/train.py   (--category filter for per-category forecasting)
-  - scripts/categorize_actions.py   (re-exports; classification CLI)
+  - scripts/egotouch/categorize_actions.py   (re-exports; classification CLI)
   - scripts/predictability_by_category.py (via categorize_actions)
 
 See docs/ACTION_CATEGORIES.md for the study and results.

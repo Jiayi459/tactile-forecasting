@@ -44,7 +44,7 @@ ActionSense conductive-thread gloves.
 - **Method**: rule-based verb taxonomy — each task is named `verb_object`, so the first known verb
   token assigns the category. Single source of truth is `VERB_CATEGORY` / `categorize()` in
   [src/tactile_pixel/categories.py](../src/tactile_pixel/categories.py); driver is
-  [scripts/categorize_actions.py](../scripts/categorize_actions.py).
+  [scripts/egotouch/categorize_actions.py](../scripts/egotouch/categorize_actions.py).
 - **Result**: **212 real tasks, 1,930 trajectories, 23 categories.** Core grasp-suitable set =
   `Grasp/Hold/Lift` (8 tasks, 82 traj) + `Pick-up` (64 tasks, 635 traj) ≈ 37 % of all trajectories.
 - **Critical negative finding**: **the dataset contains no grasp success/failure label.**
@@ -424,9 +424,9 @@ harness AR replaces the proposed AR(1) baseline, and the probGRU predicts the ol
 - [src/tactile_pixel/](../src/tactile_pixel/) — `categories.py` (taxonomy), `predictability.py` (probe metrics), `train.py`/`eval.py`/`engine.py`/`baselines.py`, `models/` (SimVP, ConvGRU, ConvLSTM).
 
 ### Scripts
-- Probes: [probe_egotouch.py](../scripts/probe_egotouch.py), [probe_opentouch.py](../scripts/opentouch/probe_opentouch.py), [probe_actionsense.py](../scripts/actionsense/probe_actionsense.py).
+- Probes: [probe_egotouch.py](../scripts/egotouch/probe_egotouch.py), [probe_opentouch.py](../scripts/opentouch/probe_opentouch.py), [probe_actionsense.py](../scripts/actionsense/probe_actionsense.py).
 - Training CLIs: [train_action_dynamics.py](../scripts/actionsense/train_action_dynamics.py), [train_tactile_map.py](../scripts/actionsense/train_tactile_map.py), [train_state_forecaster.py](../scripts/actionsense/train_state_forecaster.py).
-- Integrity: [check_leakage.py](../scripts/check_leakage.py), [tmp_diag_predictability.py](../scripts/actionsense/tmp_diag_predictability.py).
+- Integrity: [check_leakage.py](../scripts/actionsense/check_leakage.py), [tmp_diag_predictability.py](../scripts/actionsense/tmp_diag_predictability.py).
 - Plots: [plot_forecaster_comparison.py](../scripts/actionsense/plot_forecaster_comparison.py), [plot_tactile_map.py](../scripts/actionsense/plot_tactile_map.py), [plot_tactile_map_loss_curve.py](../scripts/actionsense/plot_tactile_map_loss_curve.py), [plot_fcop_loss_curve.py](../scripts/actionsense/plot_fcop_loss_curve.py), [plot_horizon.py](../scripts/actionsense/plot_horizon.py), [plot_forecast_overlay.py](../scripts/actionsense/plot_forecast_overlay.py), [plot_harness.py](../scripts/actionsense/plot_harness.py).
 - CRC: [scripts/crc/](../scripts/crc/) — `README.md`, `stream_actionsense.sh`, `train_state_gpu.job`, `train_tactile_map_gpu.job`.
 

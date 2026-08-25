@@ -7,9 +7,9 @@
 import os, json, shutil, csv
 import numpy as np
 
-ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                     "datasets", "EgoTouch")
-OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                    "datasets", "grasp_hold_lift_tactile")
 
 GRASP_TASKS = [  # category: Grasp/Hold/Lift (core grasp verbs)

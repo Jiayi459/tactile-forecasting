@@ -7218,3 +7218,31 @@ EgoTouch(第四个数据集,5 个)、真正跨数据集(`build_skill_comparison.
 
 **尚未做**:该臂的 Hausdorff/skill 已可算,但**尚未跑**;按用户指示**先只跑 aggregate(probGRU),
 再加 cnn 与 flatten**。
+
+### 2026-08-25 — scripts/ 分组第二轮:egotouch / shared 落地,顶层清空至 8 项
+
+**裁定**:(1) 建 `scripts/egotouch/`(5 个);(2) 建 `scripts/shared/`,但
+**`check_leakage.py` 按实现归 `actionsense/`**;(3) 上游 TouchAnything 的 7 个留顶层不动。
+
+**执行**:`egotouch 5` / `shared 2`(`build_skill_comparison.py`、`aggregate_results.py`)/
+`actionsense 20`。5 个脚本补 `sys.path` 深度;重写 **23 处引用 / 16 个文件**。
+校验:**42/43 脚本 import 通过**,唯一失败是 `download_egotouch.py` 缺 `huggingface_hub`
+——**该脚本不 import `src`,故是纯环境缺依赖,与移动无关**。`pytest 72 passed / 4 skipped`。
+
+**`check_leakage.py` 归属的理由记录在案**:它意图通用,但断言跑的是 `src.actionsense` 与
+`data/actionsense_states`,**只能对一个臂运行**。放进 `shared/` 会对外宣称一种它并不具备的通用性。
+日后若真做成数据集无关的,再移。
+
+**并发情况**:本轮开始前树里已有他处推入的 4 个 commit(`0c837df`/`3559577`/`9f4ff7d`/`5c623e1`,
+ActionSense probGRU backbone 与 trait 表),测试数 66→72 即由此而来。
+本地与 `origin/main` 同步无分叉;**引用重写在这些 commit 之后执行,故已覆盖它们**。
+
+**【必须保持"错误"的一条路径】**
+`configs/opentouch/eval_harness_d1.yaml` 第 1 行注释仍写着
+`scripts/opentouch_apply_baseline.py`(现已移动)。**刻意不改**:该文件的 `config_hash`
+= sha256(全文件字节),会盖进结果表做溯源,**改注释即让既有结果行与其配置脱钩**。
+本轮的批量重写脚本已把三个 frozen config **写进硬编码排除集**,不再依赖"我记得别碰"。
+理由与三个哈希值已写入 `scripts/README.md`,防止后人"顺手修好"而静默破坏溯源。
+
+**最终布局**:`scripts/{actionsense 20, opentouch 15, d256 2, egotouch 5, shared 2}`
++ `crc/`(按集群而非数据集组织,不动)+ 上游的 `core/ data_processing/ tools/ utils/` 与顶层 8 项。

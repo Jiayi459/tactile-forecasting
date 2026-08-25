@@ -10,11 +10,11 @@ from collections import defaultdict
 
 # Single source of truth for the taxonomy lives in the tactile_pixel package so
 # train.py and this script agree. Add repo root to path for the local (torch-free) import.
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from src.tactile_pixel.categories import (  # noqa: E402
     VERB_CATEGORY, CORE_GRASP, categorize)
 
-ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                     "datasets", "EgoTouch")
 SCENES = ["Home", "Office", "Outdoor", "Retail", "Workbench"]
 

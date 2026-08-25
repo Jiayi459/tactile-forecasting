@@ -26,4 +26,4 @@ for c in $CATS; do
     n=$((n + 1))
   done
 done
-echo "submitted $n jobs. monitor: qstat -u \$USER   |   collect: python scripts/aggregate_results.py"
+echo "submitted $n jobs. monitor: qstat -u \$USER   |   collect: python scripts/shared/aggregate_results.py"

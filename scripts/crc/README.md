@@ -140,7 +140,7 @@ qstat -u $USER            # qw=queued, r=running ;  qdel JOBID to cancel
 # --- (E) collect: pull runs back + ranked per-category table ---
 # from LOCAL:
 rsync -avz NETID@crcfe01.crc.nd.edu:~/TouchAnything/runs/ ./runs/
-python scripts/aggregate_results.py        # prints "PER-CATEGORY RANKING" (headline)
+python scripts/shared/aggregate_results.py        # prints "PER-CATEGORY RANKING" (headline)
 ```
 
 Run dirs: `runs/simvp_full_<slug>_lto_f<fold>/summary.json`. `aggregate_results.py` parses the

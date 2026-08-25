@@ -2,7 +2,7 @@
 
 Run **before every training experiment**:
 ```
-python scripts/check_leakage.py     # PASS/FAIL for each; non-zero exit if any fail
+python scripts/actionsense/check_leakage.py     # PASS/FAIL for each; non-zero exit if any fail
 ```
 Each check guards against a way that information about the future or the test set could leak into
 training/evaluation and inflate the reported skill. What each verifies and why:

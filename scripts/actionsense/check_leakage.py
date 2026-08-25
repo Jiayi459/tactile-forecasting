@@ -2,7 +2,7 @@
 
 Programmatic PASS/FAIL assertions on the action_dynamics pipeline. Exits non-zero if any fail.
 
-    python scripts/check_leakage.py
+    python scripts/actionsense/check_leakage.py
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from src.actionsense import action_dynamics as AD  # noqa: E402
 
 ROOT = "data/actionsense_states"

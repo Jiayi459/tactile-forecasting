@@ -3,7 +3,7 @@
 Sweeps input representation x hand x past-context; forecasts the next --future-sec of the FAST
 target. For each (input_mode, hand): a history x channel skill table + a history x forecast-step
 table, and a checkpoint per past. All breakdowns (input_mode, hand, history, forecast-step, channel)
-are written to a CSV. Run scripts/check_leakage.py first.
+are written to a CSV. Run scripts/actionsense/check_leakage.py first.
 
     python scripts/actionsense/train_action_dynamics.py --actions Slice,Peel
     python scripts/actionsense/train_action_dynamics.py --actions Slice,Peel --input-modes highpass --hands left

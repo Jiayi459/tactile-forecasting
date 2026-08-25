@@ -1,7 +1,7 @@
 """Aggregate CV results across runs/. Groups summary.json files by (model, scope,
 protocol) and reports mean +/- std test skill vs persistence, plus per-horizon means.
 
-    python scripts/aggregate_results.py [--runs runs]
+    python scripts/shared/aggregate_results.py [--runs runs]
 """
 import argparse
 import glob

@@ -1,7 +1,7 @@
 """Per-CATEGORY tactile predictability probe (training-free) over EgoTouch.
 
-Merges scripts/categorize_actions.py (verb -> action category) with
-scripts/tactile_predictability_probe.py (persistence / dynamics metrics) to answer:
+Merges scripts/egotouch/categorize_actions.py (verb -> action category) with
+scripts/egotouch/tactile_predictability_probe.py (persistence / dynamics metrics) to answer:
 "which category of action is easiest to predict from its own past tactile signal?"
 
 No training / no torch required. For every EgoTouch trajectory it loads the 21x21
@@ -39,13 +39,13 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from src.tactile_pixel.categories import categorize  # verb -> action category
 
-ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                     "datasets", "EgoTouch")
 SCENES = ["Home", "Office", "Outdoor", "Retail", "Workbench"]
-DOCS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs")
+DOCS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "docs")
 
 FPS = 30
 HORIZONS = [1, 5, 15, 30]          # frames (33 / 167 / 500 / 1000 ms)

@@ -18,6 +18,6 @@ dependencies:
       - scikit-image      # SSIM / image metrics
       - einops
       - pyyaml
-      - huggingface_hub   # for scripts/download_egotouch.py (pretraining data)
+      - huggingface_hub   # for scripts/egotouch/download_egotouch.py (pretraining data)
       - hf_xet
       - pytest            # tests/ needs it, and the torch-dependent ones only run here

@@ -28,7 +28,7 @@ echo "Host: $(hostname)  JOB_ID: ${JOB_ID:-NA}"
 python -c "import scipy" 2>/dev/null || pip install scipy --quiet
 
 # always verify no leakage before training (aborts the job if any check fails, via set -e)
-python scripts/check_leakage.py
+python scripts/actionsense/check_leakage.py
 
 python scripts/actionsense/train_action_dynamics.py \
     --actions "${ACTIONS:-Slice,Peel}" \

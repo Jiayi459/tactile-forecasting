@@ -9,7 +9,7 @@ This sets the bar any learned model must beat. Analysis only (no training).
 import os, glob
 import numpy as np
 
-OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                    "datasets", "grasp_hold_lift_tactile")
 
 

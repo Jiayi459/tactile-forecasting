@@ -51,5 +51,5 @@ is positive and roughly flat (~0.10); LOTO-scratch hovers at zero / dips negativ
 # CV from scratch (LTO/LOTO):   python -m src.tactile_pixel.train --config configs/tactile_pixel/simvp.yaml --protocol {lto,loto} --fold N --scope grasp
 # Pretrain (GPU batch):         qsub scripts/crc/pretrain_gpu.job        # -> runs/simvp_pretrain/best.pt
 # Fine-tune from pretrain:      python -m src.tactile_pixel.train ... --protocol loto --fold N --pretrained runs/simvp_pretrain/best.pt --out runs/simvp_ft_grasp_loto_fN
-# Aggregate:                    python scripts/aggregate_results.py
+# Aggregate:                    python scripts/shared/aggregate_results.py
 ```

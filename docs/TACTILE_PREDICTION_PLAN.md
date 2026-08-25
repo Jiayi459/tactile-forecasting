@@ -12,11 +12,11 @@ probe done. Decisions needing sign-off are in §10.
 ## 1. Data (prepared) and what the signal actually looks like
 
 Subset: `datasets/grasp_hold_lift_tactile/` (+ `manifest.csv`), built by
-`scripts/prepare_grasp_tactile.py` from the 8 core-grasp tasks:
+`scripts/egotouch/prepare_grasp_tactile.py` from the 8 core-grasp tasks:
 `grasp_body_lotion, grasp_cola, grasp_floral_water, grasp_power_adapter, grasp_sunscreen,
 grip_hand_dynamometer, hold_teapot, lift_towel`.
 
-Measured facts (from EDA, `scripts/prepare_grasp_tactile.py`):
+Measured facts (from EDA, `scripts/egotouch/prepare_grasp_tactile.py`):
 - **82 trajectories, 31,577 frames @30 fps.** Lengths very skewed: min 71, **median 125
   (~4.2 s), mean 385**, max 2206. → windowing is mandatory; can't treat as fixed-length.
 - Per hand: 21×21 grid, but **~50.8% of cells are structurally NaN** — a *fixed sensor-layout
@@ -27,7 +27,7 @@ Measured facts (from EDA, `scripts/prepare_grasp_tactile.py`):
 - Both hands always present in the array; grasp tasks are often one-hand-dominant (manifest
   has per-hand `active_frac` to pick the working hand if needed).
 
-**Predictability probe** (`scripts/tactile_predictability_probe.py`) — persistence baseline
+**Predictability probe** (`scripts/egotouch/tactile_predictability_probe.py`) — persistence baseline
 (ŷ[t+h]=y[t]), normalized MSE, and total-force autocorrelation vs horizon:
 
 | Horizon | nMSE (persistence) | force autocorr r |
