@@ -1,0 +1,90 @@
+clips scored: 2843 | models: ar, persistence, pg_cnn, pg_flatten, prob_gru, seasonal
+
+=== overall: R2 vs the class mean, per channel ===
+model                     F_R       CoPx_R       CoPy_R
+ar                     0.6530       0.2654       0.1152
+persistence            0.5032      -0.3458      -0.7105
+pg_cnn                 0.6363       0.2473       0.0384
+pg_flatten             0.6145       0.2226       0.0577
+prob_gru               0.6475       0.2621       0.1071
+seasonal               0.4599      -0.3694      -0.7214
+
+=== overall: skill vs persistence (>0 better) ===
+model                     F_R       CoPx_R       CoPy_R
+ar                     0.3016       0.4541       0.4827
+pg_cnn                 0.2679       0.4407       0.4378
+pg_flatten             0.2240       0.4223       0.4491
+prob_gru               0.2905       0.4517       0.4780
+seasonal              -0.0871      -0.0175      -0.0064
+
+=== Hausdorff distance between forecast and truth curves (lower better; x = ratio to persistence) ===
+model                           F_R             CoPx_R             CoPy_R
+ar                  2.7659 ( 0.84x)    2.5583 ( 0.81x)    2.4185 ( 0.79x)
+persistence         3.3009 ( 1.00x)    3.1512 ( 1.00x)    3.0704 ( 1.00x)
+pg_cnn              2.9750 ( 0.90x)    2.7048 ( 0.86x)    2.6633 ( 0.87x)
+pg_flatten          3.0132 ( 0.91x)    2.7639 ( 0.88x)    2.6367 ( 0.86x)
+prob_gru            2.8825 ( 0.87x)    2.6686 ( 0.85x)    2.5655 ( 0.84x)
+seasonal            2.6985 ( 0.82x)    2.3955 ( 0.76x)    2.2261 ( 0.73x)
+Scaled per forecast: time spans [0,1] over the horizon, value is divided by the truth's own standard deviation there. Unlike MSE this is not pointwise, so a flat forecast through an oscillation is charged roughly its amplitude.
+
+=== G2: smooth (299 clips) vs abrupt (2544) ===
+model            class             F_R       CoPx_R       CoPy_R
+ar               smooth         0.6302       0.2344       0.1449
+ar               abrupt         0.6551       0.2678       0.1106
+persistence      smooth         0.4628      -0.3833      -0.6040
+persistence      abrupt         0.5070      -0.3435      -0.7252
+pg_cnn           smooth         0.6395       0.2249       0.0410
+pg_cnn           abrupt         0.6354       0.2488       0.0368
+pg_flatten       smooth         0.6318       0.1933       0.0863
+pg_flatten       abrupt         0.6120       0.2247       0.0532
+prob_gru         smooth         0.6504       0.2185       0.1330
+prob_gru         abrupt         0.6467       0.2658       0.1030
+seasonal         smooth         0.3461      -0.4344      -0.6293
+seasonal         abrupt         0.4718      -0.3641      -0.7344
+
+=== G2: dR2 = R2(smooth) - R2(abrupt), with 2000x bootstrap CI ===
+Two independent resamples, one per class: the classes are disjoint sets of clips, so there is nothing to pair.
+model                               F_R                 CoPx_R                 CoPy_R
+ar               -0.0249 [-0.102, 0.048] -0.0334 [-0.109, 0.031]  0.0343 [-0.009, 0.075]
+persistence      -0.0441 [-0.173, 0.073] -0.0398 [-0.240, 0.139]  0.1211 [-0.015, 0.253]
+pg_cnn            0.0041 [-0.069, 0.066] -0.0239 [-0.102, 0.046]  0.0042 [-0.035, 0.039]
+pg_flatten        0.0197 [-0.062, 0.092] -0.0314 [-0.092, 0.023]  0.0331 [-0.013, 0.075]
+prob_gru          0.0037 [-0.075, 0.073] -0.0473 [-0.126, 0.020]  0.0300 [-0.019, 0.076]
+seasonal         -0.1257 [-0.330, 0.047] -0.0703 [-0.276, 0.105]  0.1051 [-0.035, 0.240]
+
+=== G2 sensitivity: dropping the contentious subset (816 clips) ===
+smooth 271 | abrupt 1756 | 97% of the dropped clips are abrupt -- the two arms are NOT trimmed equally, so this pair of tables is not a symmetric robustness check and the difference between them is mostly a change in what abrupt contains
+ar                    -0.0261      -0.0482       0.0417
+persistence           -0.0491      -0.0331       0.1495
+pg_cnn                 0.0192      -0.0398       0.0097
+pg_flatten             0.0477      -0.0340       0.0489
+prob_gru               0.0179      -0.0629       0.0366
+seasonal              -0.1310      -0.0667       0.1332
+
+=== per action (>=30 clips), R2 of each model ===
+action                 n class             ar persistence      pg_cnn  pg_flatten    prob_gru    seasonal
+picking up           931 abrupt        0.3357     -0.2360      0.3021      0.2894      0.3388     -0.2579
+placing              246 abrupt        0.3606     -0.1028      0.3326      0.3096      0.3712     -0.1314
+pulling              240 abrupt        0.3336     -0.1701      0.2996      0.3242      0.3478     -0.1865
+pressing             227 abrupt        0.3363     -0.1993      0.2787      0.2460      0.2822     -0.2272
+pushing              150 abrupt        0.3254     -0.1766      0.2942      0.2908      0.3183     -0.1967
+holding              112 smooth        0.2762     -0.2605      0.2675      0.2655      0.2708     -0.3829
+grasping             106 abrupt        0.3445     -0.1560      0.3187      0.2974      0.3289     -0.1298
+adjusting             83 abrupt        0.3020     -0.2434      0.2914      0.2840      0.3089     -0.2722
+turning               83 abrupt        0.3705     -0.0965      0.3466      0.3409      0.3781     -0.1088
+touching              78 abrupt        0.3333     -0.2480      0.2877      0.2876      0.3436     -0.2206
+moving                77 abrupt        0.3379     -0.1310      0.2937      0.2995      0.3345     -0.2516
+removing              53 abrupt        0.3721     -0.1022      0.3467      0.3299      0.3690     -0.1595
+sliding               52 smooth        0.2933     -0.2880      0.2457      0.2908      0.3236     -0.3127
+
+=== leave-one-action-out: dR2 with that action removed from its class ===
+If dropping one action flips or erases the contrast, the contrast was that action, not the trait.
+  ar               full -0.0080 | without picking up: -0.0113 | without holding:  0.0166
+  persistence      full  0.0124 | without picking up: -0.0126 | without holding:  0.0407
+  pg_cnn           full -0.0052 | without picking up: -0.0070 | without holding:  0.0054
+  pg_flatten       full  0.0071 | without picking up:  0.0040 | without holding:  0.0199
+  prob_gru         full -0.0045 | without picking up: -0.0035 | without holding:  0.0204
+  seasonal         full -0.0303 | without picking up: -0.0548 | without holding:  0.0210
+
+wrote docs/opentouch/d1_pg/opentouch_report_d1_pg.csv (231 rows)
+F is 94.9% DC in the scored target, so read every number above as 'how well the constant plus its drift was reproduced'.

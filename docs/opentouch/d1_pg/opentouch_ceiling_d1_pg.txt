@@ -1,0 +1,39 @@
+
+=== D1: /users/jhao3/opentouch/cache_d1 ===
+channel      r(1)    r(2)    r(3)   r(10)  noise share  first r<0.2
+F_R         0.318   0.270   0.192   0.076        68.2%            3
+CoPx_R      0.403   0.329   0.239   0.060        59.7%            5
+CoPy_R      0.228   0.146   0.082   0.013        77.2%            2
+
+channel     h   MSE_persist    noise var  skill ceiling   observed
+F_R         1     2.655e+05     1.49e+05          0.439   ar 0.342  prob_gru 0.324
+F_R         5     3.578e+05     1.49e+05          0.584   ar 0.402  prob_gru 0.414
+F_R        10     3.769e+05     1.49e+05          0.605   ar 0.367  prob_gru 0.385
+F_R        20     4.428e+05     1.49e+05          0.663   ar 0.368  prob_gru 0.389
+F_R        30     4.486e+05     1.49e+05          0.668   ar 0.344  prob_gru 0.373
+CoPx_R      1      0.007736      0.00435          0.438   ar 0.391  prob_gru 0.387
+CoPx_R      5       0.01112      0.00435          0.609   ar 0.436  prob_gru 0.434
+CoPx_R     10       0.01294      0.00435          0.664   ar 0.410  prob_gru 0.405
+CoPx_R     20       0.01598      0.00435          0.728   ar 0.440  prob_gru 0.435
+CoPx_R     30       0.01541      0.00435          0.718   ar 0.454  prob_gru 0.450
+CoPy_R      1       0.01693     0.008718          0.485   ar 0.420  prob_gru 0.409
+CoPy_R      5       0.01975     0.008718          0.559   ar 0.484  prob_gru 0.478
+CoPy_R     10       0.02147     0.008718          0.594   ar 0.458  prob_gru 0.456
+CoPy_R     20       0.02378     0.008718          0.633   ar 0.486  prob_gru 0.482
+CoPy_R     30       0.02319     0.008718          0.624   ar 0.478  prob_gru 0.475
+
+=== sharpness: predicted sigma vs the noise floor (runs/preds_d1_pg) ===
+sigma, then (sigma/floor) and [sigma/own RMSE]. The first is how far above an ORACLE's irreducible error the model sits -- ignorance about the envelope, not a defect. The second is calibration: ~1.0 means the band matches the errors the model actually makes.
+model      channel        floor                    h=1                    h=5                   h=10                   h=20                   h=30
+pg_cnn     F_R              386   496.5 (1.29x)[0.89]   512.6 (1.33x)[0.87]     529 (1.37x)[0.88]   553.4 (1.43x)[0.85]   571.8 (1.48x)[0.85]
+pg_cnn     CoPx_R       0.06595  0.1354 (2.05x)[0.86]  0.1457 (2.21x)[0.88]  0.1508 (2.29x)[0.88]  0.1546 (2.34x)[0.88]  0.1558 (2.36x)[0.88]
+pg_cnn     CoPy_R       0.09337  0.1594 (1.71x)[0.91]  0.1617 (1.73x)[0.90]  0.1629 (1.74x)[0.90]  0.1641 (1.76x)[0.90]   0.165 (1.77x)[0.90]
+pg_flatten F_R              386   474.6 (1.23x)[0.83]   484.8 (1.26x)[0.81]   498.4 (1.29x)[0.81]   521.6 (1.35x)[0.78]   542.2 (1.40x)[0.78]
+pg_flatten CoPx_R       0.06595  0.1275 (1.93x)[0.80]  0.1313 (1.99x)[0.78]  0.1336 (2.03x)[0.77]  0.1363 (2.07x)[0.76]  0.1378 (2.09x)[0.76]
+pg_flatten CoPy_R       0.09337  0.1522 (1.63x)[0.88]  0.1532 (1.64x)[0.86]  0.1537 (1.65x)[0.86]  0.1543 (1.65x)[0.86]  0.1551 (1.66x)[0.86]
+prob_gru   F_R              386   508.5 (1.32x)[0.92]     525 (1.36x)[0.91]   549.8 (1.42x)[0.93]   585.3 (1.52x)[0.92]   612.4 (1.59x)[0.93]
+prob_gru   CoPx_R       0.06595  0.1269 (1.92x)[0.83]   0.137 (2.08x)[0.84]  0.1422 (2.16x)[0.84]  0.1468 (2.23x)[0.84]  0.1492 (2.26x)[0.84]
+prob_gru   CoPy_R       0.09337  0.1507 (1.61x)[0.90]   0.154 (1.65x)[0.89]  0.1558 (1.67x)[0.89]  0.1578 (1.69x)[0.89]  0.1594 (1.71x)[0.89]
+(x) near 1.0 would mean the band is as narrow as ANY model could be; above 1.0 is how much the model does not know about where the smooth component is heading, and that gap is the same one the skill table shows at long horizons. [.] near 1.0 means honest: the band matches the errors actually made. Well above 1.0 is over-dispersion that training can attack; below 1.0 is overconfidence and should show as coverage under nominal.
+
+HOW TO READ IT. Pure white noise has r(1) ~ 0 and a ceiling of exactly 0.500: no forecaster can beat persistence by more than that on noise. An observed skill close to the ceiling means the models are near the data's limit and the finding to report is the limit; an observed skill far below it means there is structure left to capture. The ceiling is conservative -- it assumes the smooth part is perfectly correlated frame to frame, which overstates the noise.
