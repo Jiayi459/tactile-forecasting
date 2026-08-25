@@ -1,0 +1,91 @@
+clips scored: 2843 | models: ar, cnn, flatten, map_aggregate, persistence, seasonal
+
+=== overall: R2 vs the class mean, per channel ===
+model                     F_R       CoPx_R       CoPy_R
+ar                     0.6530       0.2654       0.1152
+cnn                    0.6490       0.1587       0.0107
+flatten                0.6217       0.1093      -0.0120
+map_aggregate          0.6611       0.2476       0.1013
+persistence            0.5032      -0.3458      -0.7105
+seasonal               0.4599      -0.3694      -0.7214
+
+=== overall: skill vs persistence (>0 better) ===
+model                     F_R       CoPx_R       CoPy_R
+ar                     0.3016       0.4541       0.4827
+cnn                    0.2935       0.3749       0.4216
+flatten                0.2386       0.3382       0.4083
+map_aggregate          0.3179       0.4409       0.4746
+seasonal              -0.0871      -0.0175      -0.0064
+
+=== Hausdorff distance between forecast and truth curves (lower better; x = ratio to persistence) ===
+model                           F_R             CoPx_R             CoPy_R
+ar                  2.7659 ( 0.84x)    2.5583 ( 0.81x)    2.4185 ( 0.79x)
+cnn                 2.7479 ( 0.83x)    2.5942 ( 0.82x)    2.4845 ( 0.81x)
+flatten             2.8203 ( 0.85x)    2.6490 ( 0.84x)    2.5111 ( 0.82x)
+map_aggregate       2.7385 ( 0.83x)    2.5518 ( 0.81x)    2.4251 ( 0.79x)
+persistence         3.3009 ( 1.00x)    3.1512 ( 1.00x)    3.0704 ( 1.00x)
+seasonal            2.6985 ( 0.82x)    2.3955 ( 0.76x)    2.2261 ( 0.73x)
+Scaled per forecast: time spans [0,1] over the horizon, value is divided by the truth's own standard deviation there. Unlike MSE this is not pointwise, so a flat forecast through an oscillation is charged roughly its amplitude.
+
+=== G2: smooth (299 clips) vs abrupt (2544) ===
+model            class             F_R       CoPx_R       CoPy_R
+ar               smooth         0.6302       0.2344       0.1449
+ar               abrupt         0.6551       0.2678       0.1106
+cnn              smooth         0.6185       0.1297       0.0466
+cnn              abrupt         0.6519       0.1608       0.0052
+flatten          smooth         0.5935       0.0720       0.0094
+flatten          abrupt         0.6243       0.1122      -0.0158
+map_aggregate    smooth         0.6433       0.2210       0.1326
+map_aggregate    abrupt         0.6626       0.2495       0.0965
+persistence      smooth         0.4628      -0.3833      -0.6040
+persistence      abrupt         0.5070      -0.3435      -0.7252
+seasonal         smooth         0.3461      -0.4344      -0.6293
+seasonal         abrupt         0.4718      -0.3641      -0.7344
+
+=== G2: dR2 = R2(smooth) - R2(abrupt), with 2000x bootstrap CI ===
+Two independent resamples, one per class: the classes are disjoint sets of clips, so there is nothing to pair.
+model                               F_R                 CoPx_R                 CoPy_R
+ar               -0.0249 [-0.102, 0.048] -0.0334 [-0.109, 0.031]  0.0343 [-0.009, 0.075]
+cnn              -0.0334 [-0.117, 0.045] -0.0311 [-0.140, 0.066]  0.0413 [-0.022, 0.101]
+flatten          -0.0308 [-0.125, 0.054] -0.0402 [-0.153, 0.065]  0.0252 [-0.038, 0.085]
+map_aggregate    -0.0193 [-0.104, 0.058] -0.0285 [-0.113, 0.045]  0.0361 [-0.013, 0.084]
+persistence      -0.0441 [-0.173, 0.073] -0.0398 [-0.240, 0.139]  0.1211 [-0.015, 0.253]
+seasonal         -0.1257 [-0.330, 0.047] -0.0703 [-0.276, 0.105]  0.1051 [-0.035, 0.240]
+
+=== G2 sensitivity: dropping the contentious subset (816 clips) ===
+smooth 271 | abrupt 1756 | 97% of the dropped clips are abrupt -- the two arms are NOT trimmed equally, so this pair of tables is not a symmetric robustness check and the difference between them is mostly a change in what abrupt contains
+ar                    -0.0261      -0.0482       0.0417
+cnn                   -0.0325      -0.0387       0.0534
+flatten               -0.0291      -0.0513       0.0380
+map_aggregate         -0.0153      -0.0466       0.0425
+persistence           -0.0491      -0.0331       0.1495
+seasonal              -0.1310      -0.0667       0.1332
+
+=== per action (>=30 clips), R2 of each model ===
+action                 n class             ar         cnn     flatten map_aggrega persistence    seasonal
+picking up           931 abrupt        0.3357      0.2495      0.2145      0.3263     -0.2360     -0.2579
+placing              246 abrupt        0.3606      0.3207      0.2815      0.3611     -0.1028     -0.1314
+pulling              240 abrupt        0.3336      0.2812      0.2391      0.3303     -0.1701     -0.1865
+pressing             227 abrupt        0.3363      0.2452      0.2350      0.3281     -0.1993     -0.2272
+pushing              150 abrupt        0.3254      0.2717      0.2315      0.3084     -0.1766     -0.1967
+holding              112 smooth        0.2762      0.2183      0.1844      0.2803     -0.2605     -0.3829
+grasping             106 abrupt        0.3445      0.2926      0.2514      0.3399     -0.1560     -0.1298
+adjusting             83 abrupt        0.3020      0.2366      0.2196      0.2948     -0.2434     -0.2722
+turning               83 abrupt        0.3705      0.3259      0.2932      0.3633     -0.0965     -0.1088
+touching              78 abrupt        0.3333      0.2230      0.2041      0.3052     -0.2480     -0.2206
+moving                77 abrupt        0.3379      0.2984      0.2452      0.3364     -0.1310     -0.2516
+removing              53 abrupt        0.3721      0.3059      0.2774      0.3582     -0.1022     -0.1595
+sliding               52 smooth        0.2933      0.2214      0.1628      0.2922     -0.2880     -0.3127
+
+=== leave-one-action-out: dR2 with that action removed from its class ===
+If dropping one action flips or erases the contrast, the contrast was that action, not the trait.
+  ar               full -0.0080 | without picking up: -0.0113 | without holding:  0.0166
+  cnn              full -0.0077 | without picking up: -0.0193 | without holding:  0.0072
+  flatten          full -0.0153 | without picking up: -0.0280 | without holding: -0.0051
+  map_aggregate    full -0.0039 | without picking up: -0.0075 | without holding:  0.0147
+  persistence      full  0.0124 | without picking up: -0.0126 | without holding:  0.0407
+  seasonal         full -0.0303 | without picking up: -0.0548 | without holding:  0.0210
+
+wrote docs/opentouch/d1_map2/opentouch_report_d1_map2_hd.csv (231 rows)
+
+F is 94.9% DC in the scored target (5.1% of its mean square is variation). Absolute errors are therefore still dominated by reproducing the level, so MSE and R2 are NOT comparable across runs whose targets differ. Skill against persistence is, because persistence carries the same level and it divides out. For reference: the uncorrected target measured ~99.3% (D1 declined, 2026-08-16), so the correction multiplied the variation share by roughly 7x rather than removing the level outright.
