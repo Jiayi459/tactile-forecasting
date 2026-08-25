@@ -304,17 +304,19 @@ def main():
         w.writeheader(); w.writerows(rows)
     print(f"\nwrote {a.out} ({len(rows)} rows)")
     dc = dc_share(a.preds)
-    if np.isfinite(dc) and dc > 0.9:
-        print(f"F is {dc:.1%} DC in the scored target, so read every number above as 'how "
-              f"well the constant plus its drift was reproduced'.")
-    elif np.isfinite(dc):
-        print(f"F is {dc:.1%} DC in the scored target -- the baseline has been removed, so "
-              f"these numbers are about the dynamics, not about reproducing a constant. "
-              f"They are NOT comparable in absolute terms with runs on the uncorrected "
-              f"target; skill against persistence is.")
+    if np.isfinite(dc):
+        # No threshold flips the wording, because at 94.9% -- the D1-corrected target -- both
+        # things are true at once and a binary message has to misrepresent one of them.
+        print(f"\nF is {dc:.1%} DC in the scored target ({1 - dc:.1%} of its mean square is "
+              f"variation). Absolute errors are therefore still dominated by reproducing the "
+              f"level, so MSE and R2 are NOT comparable across runs whose targets differ. "
+              f"Skill against persistence is, because persistence carries the same level and "
+              f"it divides out. For reference: the uncorrected target measured ~99.3% "
+              f"(D1 declined, 2026-08-16), so the correction multiplied the variation share "
+              f"by roughly {(1 - dc) / 0.007:.0f}x rather than removing the level outright.")
     else:
-        print("Could not measure the DC share of F from these predictions, so the usual "
-              "caveat cannot be stated either way -- check the cache before reading the "
+        print("\nCould not measure the DC share of F from these predictions, so the usual "
+              "caveat cannot be stated either way -- check the cache before reading these "
               "numbers as being about dynamics.")
 
 

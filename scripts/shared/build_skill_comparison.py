@@ -31,7 +31,11 @@ ROWS = [("AR", "ar", "ar"),
         ("probGRU", None, "prob_gru"),
         ("GRU-aggregate", "aggregate", "map_aggregate"),
         ("CNN (map)", "cnn", "cnn"),
-        ("flatten (map)", "flatten", "flatten")]
+        ("flatten (map)", "flatten", "flatten"),
+        # the probGRU backbone reading the map: same architecture as the probGRU row above,
+        # only the input differs, which is what the d1_pg run exists to isolate
+        ("probGRU + CNN", None, "pg_cnn"),
+        ("probGRU + flatten", None, "pg_flatten")]
 
 # d1_map (08-22) is absent on purpose: flatten and cnn predicted arrays of zeros in it.
 RUNS = [("raw", "08-17", "4-fold, location held out, uncorrected target",
@@ -45,7 +49,30 @@ RUNS = [("raw", "08-17", "4-fold, location held out, uncorrected target",
         ("d1_map2", "08-23", "the three map encoders, `--baseline-scope shard`",
          "docs/opentouch/d1_map2/opentouch_cv4_d1_map2.csv"),
         ("d1_map3", "08-24", "`d1_map2` repeated to save checkpoints",
-         "docs/opentouch/d1_map3/opentouch_cv4_d1_map3.csv")]
+         "docs/opentouch/d1_map3/opentouch_cv4_d1_map3.csv"),
+        ("d1_pg", "08-25", "**probGRU backbone**, three input representations",
+         "docs/opentouch/d1_pg/opentouch_cv4_d1_pg.csv")]
+
+# Per-clip-equal-weight skill and Hausdorff, from the report script rather than the driver.
+# Kept separate from RUNS because the two skill conventions are different estimators, and
+# mixing them in one table is the mistake this file exists to prevent.
+REPORTS = [("d1", "docs/opentouch/d1/opentouch_report_d1.csv"),
+           ("d1_mse", "docs/opentouch/d1_mse/opentouch_report_d1_mse.csv"),
+           ("d1_map2", "docs/opentouch/d1_map2/opentouch_report_d1_map2.csv"),
+           ("d1_pg", "docs/opentouch/d1_pg/opentouch_report_d1_pg.csv")]
+
+
+def report_metrics(path):
+    """-> {(metric, model, channel): value} from a report CSV."""
+    out = {}
+    if not os.path.exists(path):
+        return out
+    for r in csv.DictReader(open(path)):
+        if r.get("scope") == "overall" and r.get("subset") == "all":
+            m = r["metric"]
+            out[("skill" if m.startswith("skill_vs") else m, r["model"], r["channel"])] = \
+                float(r["value"])
+    return out
 
 
 def opentouch(path):
@@ -117,6 +144,53 @@ def main():
             cells = [cell(AS, asn, ch)] + [cell(OT.get(n, {}), otn, ch) for n, *_ in RUNS]
             L.append(f"| {label} | " + " | ".join(cells) + " |")
         L.append("")
+
+    RM = {n: report_metrics(p) for n, p in REPORTS}
+    have = [n for n in RM if any(k[0] == "hausdorff" for k in RM[n])]
+    if have:
+        L += ["## Hausdorff distance between forecast and truth curves", "",
+              "Lower is better; `x` is the ratio to persistence. Scaled per forecast so the",
+              "axes are commensurate: time spans [0,1] over the horizon, value is divided by",
+              "the truth's own standard deviation there. Unlike MSE this is not pointwise, so",
+              "a flat forecast through an oscillation is charged roughly its amplitude.", ""]
+        for n in have:
+            L += [f"### `{n}`", "",
+                  "| model | " + " | ".join(CH) + " |", "|---" * (len(CH) + 1) + "|"]
+            for m in sorted({k[1] for k in RM[n] if k[0] == "hausdorff"}):
+                cells = []
+                for c in CH:
+                    v = RM[n].get(("hausdorff", m, c))
+                    r = RM[n].get(("hausdorff_ratio_vs_persistence", m, c))
+                    cells.append(f"{v:.3f} ({r:.2f}x)" if v is not None and r is not None
+                                 else "—")
+                L.append(f"| {m} | " + " | ".join(cells) + " |")
+            L.append("")
+
+    paths = {n: p for n, _, _, p in RUNS}
+    if "d1_pg" in RM and "d1_map2" in RM:
+        pg, m2 = opentouch(paths["d1_pg"]), opentouch(paths["d1_map2"])
+        L += ["## The two skill conventions disagree on F", "",
+              "Same input, same data, same folds; only the backbone differs. probGRU minus",
+              "Seq2Seq under each convention:", "",
+              "| input | channel | frame-pooled | per-clip | agree? |",
+              "|---|---|---|---|---|"]
+        # not `a`: that is the argparse namespace in this scope, and shadowing it here
+        # crashed the writer at the last line with a message about a str having no .out
+        for pgn, s2n, lab in (("prob_gru", "map_aggregate", "aggregate"),
+                              ("pg_cnn", "cnn", "cnn"),
+                              ("pg_flatten", "flatten", "flatten")):
+            for c in CH:
+                d1 = pg.get((pgn, c), float("nan")) - m2.get((s2n, c), float("nan"))
+                d2 = (RM["d1_pg"].get(("skill", pgn, c), float("nan"))
+                      - RM["d1_map2"].get(("skill", s2n, c), float("nan")))
+                ok = "yes" if (d1 > 0) == (d2 > 0) else "**NO**"
+                L.append(f"| {lab} | {c} | {d1:+.4f} | {d2:+.4f} | {ok} |")
+        L += ["",
+              "**On F the sign flips in all three arms.** The driver pools frames, so long and",
+              "high-variance clips dominate it; the report weights every clip equally. probGRU",
+              "is ahead where the frames are and behind on the typical clip. Any claim about",
+              "which backbone is better on F must name its convention; one that does not is",
+              "not supported here.", ""]
 
     L += open("docs/_skill_comparison_notes.md").read().rstrip().split("\n") + [""]
     os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)

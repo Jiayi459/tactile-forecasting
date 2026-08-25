@@ -17,42 +17,90 @@ run's own CSV, never transcribed. Rerun it after any new run.
 | `d1_mse` | 08-21 | weights on val MSE instead | ar, prob_gru, seasonal |
 | `d1_map2` | 08-23 | the three map encoders, `--baseline-scope shard` | ar, cnn, flatten, map_aggregate, seasonal |
 | `d1_map3` | 08-24 | `d1_map2` repeated to save checkpoints | ar, cnn, flatten, map_aggregate, seasonal |
+| `d1_pg` | 08-25 | **probGRU backbone**, three input representations | ar, pg_cnn, pg_flatten, prob_gru, seasonal |
 
 `d1_map` (08-22) is **excluded**: flatten and cnn predicted arrays of zeros there.
 See SESSION_LOG 2026-08-22.
 
 ## F_R
 
-| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` |
-|---|---|---|---|---|---|---|---|
-| AR | 0.200 | 0.148 | 0.148 | 0.367 | 0.367 | 0.367 | 0.367 |
-| seasonal | 0.000 | −0.019 | −0.019 | −0.038 | −0.038 | −0.038 | −0.038 |
-| probGRU | — | 0.203 | 0.207 | 0.386 | 0.383 | — | — |
-| GRU-aggregate | 0.181 | — | — | — | — | 0.360 | 0.360 |
-| CNN (map) | 0.138 | — | — | — | — | 0.333 | 0.330 |
-| flatten (map) | −0.042 | — | — | — | — | 0.273 | 0.269 |
+| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
+|---|---|---|---|---|---|---|---|---|
+| AR | 0.200 | 0.148 | 0.148 | 0.367 | 0.367 | 0.367 | 0.367 | 0.367 |
+| seasonal | 0.000 | −0.019 | −0.019 | −0.038 | −0.038 | −0.038 | −0.038 | −0.038 |
+| probGRU | — | 0.203 | 0.207 | 0.386 | 0.383 | — | — | 0.386 |
+| GRU-aggregate | 0.181 | — | — | — | — | 0.360 | 0.360 | — |
+| CNN (map) | 0.138 | — | — | — | — | 0.333 | 0.330 | — |
+| flatten (map) | −0.042 | — | — | — | — | 0.273 | 0.269 | — |
+| probGRU + CNN | — | — | — | — | — | — | — | 0.356 |
+| probGRU + flatten | — | — | — | — | — | — | — | 0.322 |
 
 ## CoPx_R
 
-| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` |
-|---|---|---|---|---|---|---|---|
-| AR | 0.254 | 0.214 | 0.214 | 0.431 | 0.431 | 0.431 | 0.431 |
-| seasonal | 0.000 | −0.015 | −0.015 | −0.033 | −0.033 | −0.033 | −0.033 |
-| probGRU | — | 0.288 | 0.278 | 0.427 | 0.431 | — | — |
-| GRU-aggregate | 0.233 | — | — | — | — | 0.422 | 0.422 |
-| CNN (map) | 0.011 | — | — | — | — | 0.374 | 0.370 |
-| flatten (map) | −0.002 | — | — | — | — | 0.331 | 0.328 |
+| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
+|---|---|---|---|---|---|---|---|---|
+| AR | 0.254 | 0.214 | 0.214 | 0.431 | 0.431 | 0.431 | 0.431 | 0.431 |
+| seasonal | 0.000 | −0.015 | −0.015 | −0.033 | −0.033 | −0.033 | −0.033 | −0.033 |
+| probGRU | — | 0.288 | 0.278 | 0.427 | 0.431 | — | — | 0.427 |
+| GRU-aggregate | 0.233 | — | — | — | — | 0.422 | 0.422 | — |
+| CNN (map) | 0.011 | — | — | — | — | 0.374 | 0.370 | — |
+| flatten (map) | −0.002 | — | — | — | — | 0.331 | 0.328 | — |
+| probGRU + CNN | — | — | — | — | — | — | — | 0.414 |
+| probGRU + flatten | — | — | — | — | — | — | — | 0.393 |
 
 ## CoPy_R
 
-| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` |
-|---|---|---|---|---|---|---|---|
-| AR | 0.194 | 0.171 | 0.171 | 0.476 | 0.476 | 0.476 | 0.476 |
-| seasonal | 0.000 | −0.016 | −0.016 | −0.009 | −0.009 | −0.009 | −0.009 |
-| probGRU | — | 0.221 | 0.227 | 0.472 | 0.472 | — | — |
-| GRU-aggregate | 0.175 | — | — | — | — | 0.469 | 0.469 |
-| CNN (map) | 0.045 | — | — | — | — | 0.424 | 0.419 |
-| flatten (map) | −0.051 | — | — | — | — | 0.407 | 0.408 |
+| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
+|---|---|---|---|---|---|---|---|---|
+| AR | 0.194 | 0.171 | 0.171 | 0.476 | 0.476 | 0.476 | 0.476 | 0.476 |
+| seasonal | 0.000 | −0.016 | −0.016 | −0.009 | −0.009 | −0.009 | −0.009 | −0.009 |
+| probGRU | — | 0.221 | 0.227 | 0.472 | 0.472 | — | — | 0.472 |
+| GRU-aggregate | 0.175 | — | — | — | — | 0.469 | 0.469 | — |
+| CNN (map) | 0.045 | — | — | — | — | 0.424 | 0.419 | — |
+| flatten (map) | −0.051 | — | — | — | — | 0.407 | 0.408 | — |
+| probGRU + CNN | — | — | — | — | — | — | — | 0.430 |
+| probGRU + flatten | — | — | — | — | — | — | — | 0.446 |
+
+## Hausdorff distance between forecast and truth curves
+
+Lower is better; `x` is the ratio to persistence. Scaled per forecast so the
+axes are commensurate: time spans [0,1] over the horizon, value is divided by
+the truth's own standard deviation there. Unlike MSE this is not pointwise, so
+a flat forecast through an oscillation is charged roughly its amplitude.
+
+### `d1_pg`
+
+| model | F_R | CoPx_R | CoPy_R |
+|---|---|---|---|
+| ar | 2.766 (0.84x) | 2.558 (0.81x) | 2.418 (0.79x) |
+| persistence | 3.301 (1.00x) | 3.151 (1.00x) | 3.070 (1.00x) |
+| pg_cnn | 2.975 (0.90x) | 2.705 (0.86x) | 2.663 (0.87x) |
+| pg_flatten | 3.013 (0.91x) | 2.764 (0.88x) | 2.637 (0.86x) |
+| prob_gru | 2.883 (0.87x) | 2.669 (0.85x) | 2.566 (0.84x) |
+| seasonal | 2.699 (0.82x) | 2.396 (0.76x) | 2.226 (0.73x) |
+
+## The two skill conventions disagree on F
+
+Same input, same data, same folds; only the backbone differs. probGRU minus
+Seq2Seq under each convention:
+
+| input | channel | frame-pooled | per-clip | agree? |
+|---|---|---|---|---|
+| aggregate | F_R | +0.0266 | -0.0274 | **NO** |
+| aggregate | CoPx_R | +0.0048 | +0.0108 | yes |
+| aggregate | CoPy_R | +0.0036 | +0.0034 | yes |
+| cnn | F_R | +0.0227 | -0.0256 | **NO** |
+| cnn | CoPx_R | +0.0399 | +0.0658 | yes |
+| cnn | CoPy_R | +0.0062 | +0.0162 | yes |
+| flatten | F_R | +0.0492 | -0.0146 | **NO** |
+| flatten | CoPx_R | +0.0617 | +0.0842 | yes |
+| flatten | CoPy_R | +0.0398 | +0.0408 | yes |
+
+**On F the sign flips in all three arms.** The driver pools frames, so long and
+high-variance clips dominate it; the report weights every clip equally. probGRU
+is ahead where the frames are and behind on the typical clip. Any claim about
+which backbone is better on F must name its convention; one that does not is
+not supported here.
 
 ## How to read it
 
