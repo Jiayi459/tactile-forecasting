@@ -136,3 +136,63 @@ would invite the comparison.
 **seasonal is at or below zero everywhere**, on both sensors and in every run: it falls back
 to persistence when it finds no cycle, which is nearly always.
 
+## probGRU and GRU-aggregate are two backbones, and they fail differently
+
+Both read the same inputs and emit a Gaussian per (step, channel) trained by the same NLL.
+Everything below differs, and each difference has a visible consequence.
+
+| | **GRU-aggregate** (`Seq2Seq`) | **probGRU** |
+|---|---|---|
+| decoding | **one-shot**: all H steps from one linear read of the encoder state | **autoregressive**: H sequential decoder steps, each fed the previous MEAN |
+| predicts | **residual** over the last observed value | **absolute** value |
+| action label | none | **8-dim embedding**, vocabulary from TRAIN only |
+| hyperparameters | d 64 / hidden 64 | hidden 48 |
+| origin | ActionSense `tactile_map/` | ActionSense `action_dynamics.py` |
+
+### Why one looks jagged and the other looks flat
+
+**probGRU smooths itself.** Each decoder step is fed the previous step's mean, and a mean is
+by construction the noise-free part, so every step removes a little more variation. By step
+30 the decoder is running entirely on its own smooth output. The trajectory is a contraction
+toward a smooth path — it cannot stay rough even if the data is.
+
+**Seq2Seq has nothing coupling its steps.** The H outputs are H independent linear functions
+of one hidden vector. Nothing smooths them, so they can move freely step to step.
+
+**Part of what looks like detail is the anchor, not the model.** Seq2Seq predicts a residual
+and adds it to the last observed value, which jumps at every forecast origin the way
+persistence does. Some of the visible structure is that staircase, not a predicted
+fluctuation.
+
+### The two metrics disagree, and consistently
+
+Frame-pooled MSE skill prefers probGRU; Hausdorff prefers Seq2Seq, by +0.11 to +0.23 on every
+one of the three inputs and three channels — a backbone effect at least as large as the
+difference between input representations within a backbone (0.08 within Seq2Seq, 0.13 within
+probGRU).
+
+Ranked by shape, **every Seq2Seq arm beats every probGRU arm**, and `seasonal` — the only
+model that loses to persistence on MSE — beats them all. The common cause is the same one the
+forecast figures have shown since 2026-08-20: MSE is pointwise and rewards a flat line
+through the middle of an oscillation, while Hausdorff charges it roughly the amplitude. A
+model that emits a wrongly-phased waveform is penalised heavily by the first and lightly by
+the second.
+
+So "which backbone is better" has no answer without saying better at what. **Point accuracy:
+probGRU, frame-pooled. Curve shape: Seq2Seq, decisively. Point accuracy per clip on F:
+Seq2Seq** — see the convention table above.
+
+### It does not transfer across sensors
+
+On ActionSense the same backbone swap costs 0.063 to 0.072 of mean skill, the opposite sign
+from OpenTouch's frame-pooled result. Two candidate causes are open and one control is
+pending:
+
+- the absolute head has no persistence prior, so it starts further back and may simply need
+  more epochs — `probgru_agg_e150` tests this;
+- the ActionSense Seq2Seq column it is compared against was written before `_predict` was
+  changed to return the persistence reference rather than assume zeros, so part of the gap is
+  unattributed — `seq2seq_agg_recheck` closes that.
+
+**Until both land, the cross-sensor reversal is an observation and not a finding.**
+
