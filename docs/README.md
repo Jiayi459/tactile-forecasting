@@ -7,7 +7,10 @@ raised and none answered.
 ```
 docs/
   *.md                      project-level: conclusions, plans, the cross-sensor comparison
-  actionsense/              every ActionSense result (harness, tactile_map, action_dynamics)
+  actionsense/
+    *.csv, *.png            legacy results, flat: which run produced each is no longer
+                            recoverable, and guessing would be worse than leaving them
+    <run>/                  every run from 2026-08-25 on, one directory each
   opentouch/
     raw/                    4-fold, uncorrected target                    (2026-08-17)
     df/                     4-fold, raw+df feature ablation               (2026-08-18)
@@ -31,3 +34,21 @@ report's per-clip-equal-weight `skill`. For the same arm and channel they differ
 
 Run names match the `--save-preds` / `--out` tags used on CRC, so a figure can be traced to
 `runs/preds_<name>` and to the SESSION_LOG entry of the same date.
+
+## ActionSense follows the same convention from 2026-08-25
+
+| run | what it is |
+|---|---|
+| `probgru_agg/` | probGRU backbone, aggregate input, 60 epochs |
+| `seq2seq_agg_recheck/` | the old backbone rerun under current code -- a CONTROL, not a result |
+| `probgru_agg_e150/` | probGRU at 150 epochs, to test whether 60 under-trained it |
+
+The 34 files still flat in `actionsense/` predate this. They are left where they are: which
+run produced each is no longer recoverable, and filing them by guess would put a wrong
+provenance on a number, which is worse than none.
+
+**`seq2seq_agg_recheck` is a control and must be read as one.** The Seq2Seq column everyone
+compares probGRU against comes from a CSV written before `_predict` was changed to RETURN the
+persistence reference instead of assuming zeros. Zeros are correct in residual space, so that
+run should reproduce its old numbers exactly -- and until it does, any probGRU-versus-Seq2Seq
+gap is partly unattributed.

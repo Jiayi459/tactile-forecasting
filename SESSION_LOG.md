@@ -7246,3 +7246,59 @@ ActionSense probGRU backbone 与 trait 表),测试数 66→72 即由此而来。
 
 **最终布局**:`scripts/{actionsense 20, opentouch 15, d256 2, egotouch 5, shared 2}`
 + `crc/`(按集群而非数据集组织,不动)+ 上游的 `core/ data_processing/ tools/ utils/` 与顶层 8 项。
+
+## 2026-08-25 — 【ActionSense probGRU aggregate】骨干比较**未跨传感器复现**;但存在一处未堵的归因漏洞
+
+运行:`BACKBONE=probgru ENCODERS=aggregate EPOCHS=60 FOLDS=5`,5 折按录制交叉验证。
+产出:`docs/actionsense/probgru_agg/`。
+
+### 一、结果:probGRU 在 ActionSense 上**更差**,方向与 OpenTouch 相反
+
+| history | Seq2Seq(残差) | probGRU(绝对值) | 差 |
+|---|---|---|---|
+| 1 s | 0.1202 | 0.0576 | **−0.063** |
+| 3 s | 0.1379 | 0.0701 | **−0.068** |
+| 10 s | 0.1422 | 0.0702 | **−0.072** |
+
+**六通道中五个更差**(唯一例外:hist=1 的 F_L,+0.012),三个 history 一致。
+对照 **OpenTouch:probGRU 比 Seq2Seq 骨干高 +0.025(F)**。→ **骨干优劣未跨传感器复现。**
+
+### 二、【必须先堵的漏洞】Seq2Seq 那一列来自旧代码
+
+上表的 Seq2Seq 数字取自 `tactile_map_cv_results_aggregate.csv`,**写于 `_predict` 被修改之前**。
+本次改动让 `_predict` **返回** persistence 参照,而非假定为 0;残差空间下该参照**应当**仍为 0,
+**但这一点从未被验证**。
+→ **−0.07 中有多少来自骨干、多少来自 Claude 的改动,目前无法区分。**
+**处置**:已提交 `seq2seq_agg_recheck`(旧骨干 + 新代码,其余全同)。
+**它必须复现 0.1202 / 0.1379 / 0.1422;不复现则先查改动,上表的比较作废。**
+
+### 三、模型未坏,另有两条线索
+
+**覆盖率 93.8–94.1%**(名义 95.4%)、**Hausdorff 比 persistence 好 10%(0.90x)**
+——**产出的是校准合理的预测,只是 MSE skill 低**。不像实现错误。
+
+**训练不足是真实可能**:绝对值头**没有 persistence 先验**(残差头预测 0 即等于 persistence)。
+冒烟 2 轮时 meanSkill 为 **−0.003**,60 轮为 **0.058–0.070**,**可能仍在爬**。
+**已提交 `probgru_agg_e150`(150 轮)作为判据**:
+明显更高 → 60 轮对该骨干不公平;基本不动 → 骨干在 ActionSense 上确实更差,那才是结论。
+
+### 四、Hausdorff 目前只有这一个模型有
+
+Seq2Seq 的旧 CSV 与 OpenTouch 的报表均**早于** Hausdorff 的加入。
+`seq2seq_agg_recheck` 会顺带补上 ActionSense 侧;**OpenTouch 侧只需重跑报表(不占 GPU)**:
+`opentouch_report.py --preds runs/preds_d1_map2 ...`。**在补齐之前,Hausdorff 不可跨模型比较。**
+
+### 五、docs/actionsense/ 改为按 run 分目录(约定已写入 docs/README.md)
+
+`probgru_agg/`、`seq2seq_agg_recheck/`、`probgru_agg_e150/`。
+**原有 34 个文件保持原位不动**——它们来自哪一次运行已不可考,
+**按猜测归档等于给数字安上错误的出处,比没有出处更糟**。
+
+### 六、附带发现:仓库里跟踪了约 2.6 GB 数据
+
+`data/actionsense_states/` 下 **399 个 `.npy` 被 git 跟踪**(本机每个约 6.6 MB)。
+CRC 上它们是指向真实数据的软链接,故每次 `git status` 都显示为 **typechange (`T`)**,
+并反复阻塞 `pull --rebase`。**这是长期存在的仓库卫生问题,非本轮造成。**
+**处置**:`git pull --rebase --autostash` 可绕过;
+**根治需 `git rm --cached` + `.gitignore`(如 `data/opentouch_states` 已做),
+但那会在提交里混入 400 个删除,应单独成一次清理提交,不与结果提交混在一起。**
