@@ -1,0 +1,77 @@
+# Frozen evaluation harness for d256 / `Dataset256` (ActionSense-derived; two 32x32 gloves).
+# Structurally mirrors configs/actionsense/eval_harness.yaml. Every value is either forced by
+# the sensor, re-derived from d256's own measurements, or held at the same PHYSICAL quantity as
+# the other two arms so their skill numbers stay comparable. Never copied blind.
+# Derivations: SESSION_LOG 2026-08-24 and docs/d256.md. Loaded by src/d256/*.
+
+target:
+  # 6-dim RAW target, both hands -- d256 instruments both, like ActionSense (unlike OpenTouch,
+  # which is right-hand only). RAW = the moments straight from state_N.npy, NO high-pass, NO
+  # warmup cut, and NO baseline correction (OQ-D2, user decision 2026-08-24: match the口径
+  # OpenTouch settled on). The tactile floor sits well above zero, so F carries a large DC
+  # pedestal; expect persistence to be strong and read skill with that in mind.
+  channels: [F_L, CoPx_L, CoPy_L, F_R, CoPx_R, CoPy_R]
+  force_idx: [0, 3]
+  cop_idx:   [1, 2, 4, 5]
+
+rate:
+  # MEASURED, not assumed. The clips carry no timestamps, but data/actionsense_states holds the
+  # same recordings at a known 30 Hz with matching label strings, and a d256 recording's length
+  # follows from the sliding-window reconstruction. Over the 15 recordings whose ActionSense
+  # pairing is 1:1 unambiguous, T_actionsense / T_d256 = 4.948 +- 0.085 => decimation by 5.
+  # Cross-check: 16 frames @ 6 Hz = 2.67 s, the span of the paired 16-frame video.
+  # This is inferred from length ratios, NOT frame-level alignment. To harden it, cross-
+  # correlate F(t) here against ActionSense's F(t) (values are rescaled -- align on shape).
+  fps_raw: 6.0
+  downsample: 1            # signals1 IS the base timeline. Set 2 -> reproduces signals2,
+                           # 3 -> reproduces signals. Those groups are NOT extra data.
+  horizon_s: 1.0           # At 6 Hz => 6 steps. Same physical look-ahead as ActionSense
+                           # (1 s = 10 steps @ 10 Hz) and OpenTouch (1 s = 30 @ 30 Hz).
+
+mask:
+  # Same definition as both other arms: a CoP TARGET frame is excluded from CoP metrics iff
+  # that hand's RAW total force < the TRAIN per-hand 5th percentile. Force is never masked.
+  percentile: 5
+
+baselines:
+  # d256's manifest carries label_idx directly (the session dir name IS the class), so the fit
+  # group needs no string parsing -- unlike ActionSense's parse_label. 20 classes over ~94+
+  # recordings, so groups are small; min_group_size pools the rare ones exactly as OpenTouch does.
+  fit_scope: label_idx
+  min_group_size: 5
+  # ActionSense's [2,5,10,15,20,30] @ 10 Hz = 0.2..3.0 s. Same PHYSICAL seconds re-expressed at
+  # 6 Hz. 0.2 s rounds to 1 frame, which is a degenerate AR(1); floored at 2.
+  ar_orders: [2, 3, 6, 9, 12, 18]
+  seasonal_period_min_s: 0.3    # identical to both other arms: a prior about human hand
+  seasonal_period_max_s: 3.0    # motion-cycle timescales, not about this sensor
+  seasonal_min_autocorr: 0.1
+
+split:
+  # LEAVE-ONE-SUBJECT-OUT, 5 folds (user decision 2026-08-24, OQ-D3). d256 is the only arm that
+  # CAN do this: its manifest carries `subject`, which ActionSense's does not.
+  # The shipped train/val is discarded outright -- it covers 3 of 20 classes, holds out a
+  # different three per group, and puts S05 on both sides (docs/d256.md section 7).
+  protocol: loso
+  subjects: [S01, S02, S03, S04, S05]
+  val_frac: 0.2      # within each fold's TRAIN subjects, held out by recording for early stopping
+  seed: 0
+
+eval:
+  stride: 1
+  # 4 s of history, the same physical history ActionSense uses (40 frames @ 10 Hz).
+  # PROVISIONAL: how many recordings survive 24+6=30 frames depends on the segment-length
+  # distribution, which is only known once scripts/d256/extract_d256_states.py has run on the
+  # full corpus. src/d256/splits.py::report_budget prints the survival table; if the yield is
+  # poor, the documented fallback is 12 (2 s) -- and changing this changes config_hash, which
+  # is the point: it is a different protocol instance.
+  min_history: 24
+  seed: 0
+
+paths:
+  states_root: data/d256_states
+  split_file: data/d256_states/splits.json
+  out_csv: docs/d256/harness_baselines.csv
+
+# Empty = no filter: train on all 20 activities. Rare classes still carry training signal even
+# where they are too small to score individually (same reasoning as OpenTouch).
+actions: []

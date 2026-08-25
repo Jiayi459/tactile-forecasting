@@ -7302,3 +7302,49 @@ CRC 上它们是指向真实数据的软链接,故每次 `git status` 都显示�
 **处置**:`git pull --rebase --autostash` 可绕过;
 **根治需 `git rm --cached` + `.gitignore`(如 `data/opentouch_states` 已做),
 但那会在提交里混入 400 个删除,应单独成一次清理提交,不与结果提交混在一起。**
+
+### 2026-08-25续 — 【CRC 抽取结果】166 段 / 30,916 帧;`min_history=24` 经数据检验站得住
+
+**用户实跑输出**:`166 recordings from 94 cells, 30916 frames (85.9 min)`,
+长度 min 16 / p10 22 / **median 78** / p90 657 / max 1068。
+
+**用户问"一共 163 条?" —— 是 166**(索引 0–165)。且它们是**录制段**,不是 clip;
+clip 有 80,819 个,166 是折回来的段数。
+
+**一个很硬的自洽检验(段切分模型成立的独立证据)**:
+先前按 cell 估计 29,836 帧;166 段比 94 个 cell 多 72 段,每段重建多带 15 帧
+⇒ 29,836 + 15×72 = **30,916**,与实际输出**完全相等**。
+另:94 个 cell 出 166 段 ⇒ **72 个 cell 含多段**,与"ActionSense 每受试者对同一活动录多次"一致。
+
+**`eval.min_history` 由 provisional 转为已检验**:预算表
+`12→160/166`、`18→148`、**`24→138/166(83%)、26,310 origins`**、`30→128`、`40→117`。
+24 帧 = 4 s = 与 ActionSense 同物理历史,**代价仅 17% 的段**,故**维持 24,不启用 2 s 回退**。
+config 不改 ⇒ `config_hash = 2ec2ba37fa8cbb0b` 保持。
+
+#### 本轮落地的代码
+- **`src/d256.py` → `src/d256/` 包**:`raw.py`(clip 级读取)+ `__init__.py` 重导出,
+  故 `from src import d256; d256.load_clip(...)` **保持可用**,两个 scripts 无需改。
+- **`configs/d256/eval_harness.yaml`**(hash `2ec2ba37fa8cbb0b`):6 维双手目标、
+  `fps_raw 6.0 / downsample 1 / horizon_s 1.0 → 6 步`、mask pct 5、
+  `fit_scope: label_idx`、`ar_orders [2,3,6,9,12,18]`(= ActionSense 的 0.2–3.0 s 在 6 Hz 下的**同物理秒数**)、
+  `protocol: loso`。**每个字段都写明是被传感器强制、由 d256 自测、还是为跨臂可比而保持同物理量。**
+- **`src/d256/dataset.py`**:`load_target`/`Norm`/`force_thresholds` **直接复用 ActionSense harness**
+  ——d256 的 state 与它**同形 `(T,2,6)`**,复用而非分叉(与 `opentouch/dataset.py` 同策略)。
+  自有的只有两处:`group_keys` 直读 `label_idx`(无需 ActionSense 的 `parse_label` 字符串解析,
+  因为**目录名即类别**);`eligible_recordings` 作用在**段**上。另加 `budget_table()`。
+- **`src/d256/splits.py`**:LOSO。**VAL 只从 TRAIN 受试者里取** —— 早停读 VAL,
+  若 VAL 来自 held-out 受试者,等于**用被测者本人挑 checkpoint**。
+  VAL 按类分层且**永不取走某类最后一段**(否则该类 AR 组无 fit)。
+  折内直接断言 `missing_groups` 为空,让失败发生在建折时并指名是哪一折,
+  而不是深埋在 `baselines/ar.py` 的 KeyError。
+  `load()` 校验 `config_hash`,协议一变就拒绝加载旧 split。
+- **`tests/test_d256_splits.py`**:fixture 用**真实的 166 段几何**(受试者/类别/长度全部照抄实跑输出),
+  故真实数据上退化的折在测试里同样退化。7 项断言:几何自洽(166 段/30,916 帧)、
+  138 段存活、三分区互不相交、**held-out 受试者不出现在 train 或 val**、
+  每折 TRAIN 覆盖 20 类、AR 组全被 fit、split 文件在 config 变更后拒绝加载。
+
+**实测 LOSO 分布**(真实几何):5 折 TRAIN 均覆盖 **20/20 类**;
+TEST 类数 15–20(S03 仅 15,因其本就缺 1/3/4/5/6 类)。`pytest 79 passed`。
+
+**下一步**:probGRU 两臂(A `action_id≡0` / B `action_id=label_idx`)+ 基线。
+**基线先行**——没有 persistence/seasonal/AR 就没有 skill 的分母。
