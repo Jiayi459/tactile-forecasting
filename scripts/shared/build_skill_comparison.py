@@ -58,7 +58,9 @@ RUNS = [("raw", "08-17", "4-fold, location held out, uncorrected target",
 # mixing them in one table is the mistake this file exists to prevent.
 REPORTS = [("d1", "docs/opentouch/d1/opentouch_report_d1.csv"),
            ("d1_mse", "docs/opentouch/d1_mse/opentouch_report_d1_mse.csv"),
-           ("d1_map2", "docs/opentouch/d1_map2/opentouch_report_d1_map2.csv"),
+           # the _hd rescore, not the original: same predictions, rerun once Hausdorff
+           # existed, so it is the only d1_map2 report that carries shape numbers
+           ("d1_map2", "docs/opentouch/d1_map2/opentouch_report_d1_map2_hd.csv"),
            ("d1_pg", "docs/opentouch/d1_pg/opentouch_report_d1_pg.csv")]
 
 
@@ -165,6 +167,51 @@ def main():
                                  else "—")
                 L.append(f"| {m} | " + " | ".join(cells) + " |")
             L.append("")
+
+    PAIRS = (("prob_gru", "map_aggregate", "aggregate"),
+             ("pg_cnn", "cnn", "cnn"),
+             ("pg_flatten", "flatten", "flatten"))
+
+    if RM.get("d1_map2") and RM.get("d1_pg") and any(
+            k[0] == "hausdorff" for k in RM["d1_map2"]):
+        L += ["## The backbones side by side, one input at a time", "",
+              "Same input, same data, same folds, same loss. Only the decoder differs:",
+              "Seq2Seq emits all H steps at once and predicts a residual; probGRU rolls out",
+              "autoregressively on its own mean and predicts the absolute value.", "",
+              "Hausdorff is lower-is-better, per-clip skill is higher-is-better, so a",
+              "consistent winner would show opposite signs in the two Δ columns. It does not.",
+              "",
+              "| input | channel | HD Seq2Seq | HD probGRU | Δ HD | skill Seq2Seq | skill probGRU | Δ skill |",
+              "|---|---|---|---|---|---|---|---|"]
+        dh, dk, dk_f = [], [], []
+        for pgn, s2n, lab in PAIRS:
+            for c in CH:
+                h2 = RM["d1_map2"].get(("hausdorff", s2n, c))
+                hp = RM["d1_pg"].get(("hausdorff", pgn, c))
+                k2 = RM["d1_map2"].get(("skill", s2n, c))
+                kp = RM["d1_pg"].get(("skill", pgn, c))
+                if None in (h2, hp, k2, kp):
+                    continue
+                dh.append(hp - h2); dk.append(kp - k2)
+                (dk_f if c.startswith("F") else []).append(kp - k2)
+                L.append(f"| {lab} | {c} | {h2:.3f} | {hp:.3f} | **{hp - h2:+.3f}** "
+                         f"| {k2:.4f} | {kp:.4f} | **{kp - k2:+.4f}** |")
+        # counted, not asserted: the first draft of this sentence said six of nine where the
+        # table said three, which is exactly the drift generating the document was meant to
+        # stop
+        n_hd = sum(1 for v in dh if v > 0)
+        n_neg = sum(1 for v in dk if v < 0)
+        n_f = sum(1 for v in dk_f if v < 0)
+        L += ["",
+              f"**Δ HD is positive in {n_hd} of {len(dh)} cells; Δ skill is negative in "
+              f"{n_neg} of {len(dk)}, of which {n_f} are the {len(dk_f)} F channels.**",
+              "probGRU's curves are further from the truth in shape everywhere. Its per-clip",
+              "point error is better on CoP and worse on F, and F is where the two skill",
+              "conventions disagree, so that is the channel to be careful about.",
+              "The backbone effect on shape (0.11-0.23) is at least as large as the spread",
+              "between input representations within either backbone (0.08 within Seq2Seq,",
+              "0.13 within probGRU), so on this data the decoder matters more than what it",
+              "is fed.", ""]
 
     paths = {n: p for n, _, _, p in RUNS}
     if "d1_pg" in RM and "d1_map2" in RM:

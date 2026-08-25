@@ -68,6 +68,17 @@ axes are commensurate: time spans [0,1] over the horizon, value is divided by
 the truth's own standard deviation there. Unlike MSE this is not pointwise, so
 a flat forecast through an oscillation is charged roughly its amplitude.
 
+### `d1_map2`
+
+| model | F_R | CoPx_R | CoPy_R |
+|---|---|---|---|
+| ar | 2.766 (0.84x) | 2.558 (0.81x) | 2.418 (0.79x) |
+| cnn | 2.748 (0.83x) | 2.594 (0.82x) | 2.484 (0.81x) |
+| flatten | 2.820 (0.85x) | 2.649 (0.84x) | 2.511 (0.82x) |
+| map_aggregate | 2.738 (0.83x) | 2.552 (0.81x) | 2.425 (0.79x) |
+| persistence | 3.301 (1.00x) | 3.151 (1.00x) | 3.070 (1.00x) |
+| seasonal | 2.699 (0.82x) | 2.396 (0.76x) | 2.226 (0.73x) |
+
 ### `d1_pg`
 
 | model | F_R | CoPx_R | CoPy_R |
@@ -78,6 +89,36 @@ a flat forecast through an oscillation is charged roughly its amplitude.
 | pg_flatten | 3.013 (0.91x) | 2.764 (0.88x) | 2.637 (0.86x) |
 | prob_gru | 2.883 (0.87x) | 2.669 (0.85x) | 2.566 (0.84x) |
 | seasonal | 2.699 (0.82x) | 2.396 (0.76x) | 2.226 (0.73x) |
+
+## The backbones side by side, one input at a time
+
+Same input, same data, same folds, same loss. Only the decoder differs:
+Seq2Seq emits all H steps at once and predicts a residual; probGRU rolls out
+autoregressively on its own mean and predicts the absolute value.
+
+Hausdorff is lower-is-better, per-clip skill is higher-is-better, so a
+consistent winner would show opposite signs in the two Δ columns. It does not.
+
+| input | channel | HD Seq2Seq | HD probGRU | Δ HD | skill Seq2Seq | skill probGRU | Δ skill |
+|---|---|---|---|---|---|---|---|
+| aggregate | F_R | 2.738 | 2.883 | **+0.144** | 0.3179 | 0.2905 | **-0.0274** |
+| aggregate | CoPx_R | 2.552 | 2.669 | **+0.117** | 0.4409 | 0.4517 | **+0.0108** |
+| aggregate | CoPy_R | 2.425 | 2.566 | **+0.140** | 0.4746 | 0.4780 | **+0.0034** |
+| cnn | F_R | 2.748 | 2.975 | **+0.227** | 0.2935 | 0.2679 | **-0.0256** |
+| cnn | CoPx_R | 2.594 | 2.705 | **+0.111** | 0.3749 | 0.4407 | **+0.0658** |
+| cnn | CoPy_R | 2.484 | 2.663 | **+0.179** | 0.4216 | 0.4378 | **+0.0162** |
+| flatten | F_R | 2.820 | 3.013 | **+0.193** | 0.2386 | 0.2240 | **-0.0146** |
+| flatten | CoPx_R | 2.649 | 2.764 | **+0.115** | 0.3382 | 0.4223 | **+0.0842** |
+| flatten | CoPy_R | 2.511 | 2.637 | **+0.126** | 0.4083 | 0.4491 | **+0.0408** |
+
+**Δ HD is positive in 9 of 9 cells; Δ skill is negative in 3 of 9, of which 3 are the 3 F channels.**
+probGRU's curves are further from the truth in shape everywhere. Its per-clip
+point error is better on CoP and worse on F, and F is where the two skill
+conventions disagree, so that is the channel to be careful about.
+The backbone effect on shape (0.11-0.23) is at least as large as the spread
+between input representations within either backbone (0.08 within Seq2Seq,
+0.13 within probGRU), so on this data the decoder matters more than what it
+is fed.
 
 ## The two skill conventions disagree on F
 
