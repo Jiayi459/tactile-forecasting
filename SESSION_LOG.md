@@ -7424,3 +7424,54 @@ reproduced"。**但 `d1` / `d1_mse` / `d1_map2` / `d1_pg` 四份报表跑的正�
 `scripts/shared/build_skill_comparison.py`。
 (途中 Claude 用循环变量 `a` 遮蔽了 argparse 的 `a`,pyflakes 无法察觉——两个名字都有定义;
 由运行时报错暴露,已改名并注明。)
+
+### 2026-08-25续2 — 【概念澄清】clip vs 录制段;【代码】evaluate + probGRU 两臂落地
+
+#### clip 与"录制段"的区别(用户提问,写死在此以免后续再混)
+- **clip** = d256 **实际发行的文件**,16 帧,**80,819 个**;是**步长 1 的滑窗**,
+  clip c = 第 c..c+15 帧,**相邻共享 15/16 帧**。
+- **录制段(segment / recording)** = 底层真实连续录制,由 clip 折回,**166 段 / 30,916 帧**,
+  彼此**时间不重叠**。
+- **cell** = 目录 `<group>/<split>/<subject>/<session>`,94 个;**一个 cell 可含多段**
+  (72/94 确实如此),因为 ActionSense 每人对同一活动录了多次。
+- 类比:把 30,916 帧的录像**每一个可能的 16 帧窗口**各存一份 → 8 万个文件、仍是 3 万帧内容。
+- **用途分工**:clip = 发行格式(**不可当独立样本**);段 = `state_N.npy` 的单位、splits 的单位、
+  rolling origin 的滚动范围。**按 clip 随机切分 = 两侧是共享 15/16 帧的近重复 ⇒ skill 虚高。**
+
+#### 新增 `src/d256/evaluate.py`
+复用 ActionSense harness 的 baselines / masking / metrics / rolling-origin batcher
+(d256 目标与之同形,**无一处是数据集特有的**),本文件只加协议:
+- **5 折而非单一切分**:每个受试者轮流 held out,每个基线拟合 5 次,数字报**折间均值±标准差**。
+  单切分会掩盖"折 2(S03)只在 15 类上测,其余在 20 类上测"这一事实。
+- **Norm / force threshold / AR 系数 / seasonal 周期全部按折从 TRAIN 重算**。
+  **不是整洁问题**:全局 Norm 会把 held-out 受试者的尺度泄进它自己的测试分。
+- `score_external()`:让 probGRU 在**与基线完全相同的 origins / mask / metrics** 上被打分。
+  **形状即契约**——预测张量必须是 `(n_origins, H, 6)` 且按 `origins()` 顺序,
+  否则当场报错。已用负例测试验证:错形状与缺录制**都被拒绝**。
+
+#### 新增 `src/d256/prob_gru.py` + `scripts/d256/train_prob_gru.py`
+架构与损失**逐字复制** ActionSense(embedding 8 → encoder GRU → 自回归 decoder GRU
+以最后观测目标为种子 → mu/logvar 头、logvar clamp[-6,4]、Gaussian NLL、
+**早停只看 VAL NLL**、hidden 48/epochs 80/lr 3e-3/batch 64)。被迫不同的四处:
+1. **6 通道双手**(d256 双手套),输入 = 6 raw + 双手 CoP 因果速度 = **10 维**;
+   `raw+df` 消融加双手 dF/dt = 12 维(沿用 OpenTouch 补的那个不对称性消融)。
+2. **fps = 6 进入 `causal_velocity`**,非装饰性:速度按 fps 缩放。
+3. **两臂 = 本实验本体**(OQ-D5):`none`(全部 id=0,embedding 退化为常量,
+   **这才是可与另两个数据集横比的数**)vs `class`(id=label_idx,**回答的是"已知活动时的可预测性"**,
+   **不得与另两臂并列报告**)。两臂**其余逐字节相同**,故差值可归因。
+4. **窗口来自 harness `origins()`**,训练与打分同一批窗口;`t_in` 默认 = `min_history` = 24。
+
+#### 校验
+- fixture(真实 166 段几何 + 合成信号)上**端到端跑通**:两臂均产出、
+  `score_external` 接受、metrics.csv 与 history.json 落盘。
+- **⚠️ fixture 的 skill 数字(AR/probGRU ≈ +0.99)是纯正弦波的产物,不是结果**,
+  只证明管道通。真实数字须在 CRC 上用真 states 跑。
+- 新增 3 项测试(共 10 项):harness origins 契约的**负例**、两臂只在词表上不同、
+  **特征因果性**(截断未来不改变过去的特征值)。
+- `pytest 80 passed / 6 skipped`。
+
+**本地 torch 环境**:`/opt/anaconda3` 的 torch 装坏(缺 dylib,**预先存在**);
+可用的是 `/opt/anaconda3/envs/trajectron++`(torch 1.13.1)。
+测试的跳过守卫**不用 `pytest.importorskip`**——坏装抛的是 `OSError` 而非 `ImportError`,
+importorskip 会放行并让测试因环境原因假失败。已改为捕获任意异常再 skip;
+两个环境下分别验证:坏环境 **skip**,好环境 **run**。

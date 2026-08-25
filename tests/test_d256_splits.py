@@ -17,6 +17,19 @@ from src.actionsense.eval_harness.config import load_config
 from src.d256 import dataset as D
 from src.d256 import splits as S
 
+
+def requires_torch():
+    """Skip when torch cannot actually be loaded.
+
+    Not pytest.importorskip: a broken-but-present install (missing dylib) raises OSError, not
+    ImportError, so importorskip lets it through and the test fails for an environment reason
+    rather than a code one.
+    """
+    try:
+        import torch  # noqa: F401
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"torch unusable here: {type(exc).__name__}")
+
 # (subject, label_idx, T) per recording -- the real geometry.
 GEOM = [
     ("S01", 0, 357), ("S01", 0, 22), ("S01", 1, 243), ("S01", 1, 35), ("S01", 1, 71),
@@ -133,3 +146,61 @@ def test_target_is_six_dim_both_hands(cfg):
     y = D.load_target(cfg, 0)
     assert y.shape == (GEOM[0][2], 6)
     assert cfg.channels == ["F_L", "CoPx_L", "CoPy_L", "F_R", "CoPx_R", "CoPy_R"]
+
+
+# --------------------------------------------------------------------- harness wiring --
+
+def test_external_scoring_rejects_predictions_off_the_harness_origins(cfg):
+    """A model that used its own window sampler must fail loudly, not be quietly compared on
+    different data than the baselines were."""
+    from src.actionsense.eval_harness.baselines.base import origins
+    from src.d256 import evaluate as E
+
+    fold = S.folds(cfg)[0]
+    ctx = E.fold_context(cfg, fold)
+    H, C = cfg.horizon, len(cfg.channels)
+
+    wrong = {i: np.zeros((3, H, C)) for i in fold["test"]}
+    with pytest.raises(ValueError, match="did not use the harness origins"):
+        E.score_external(cfg, fold, "bogus", wrong, ctx)
+
+    right = {i: np.zeros((len(origins(len(ctx["test"][i]), cfg)), H, C)) for i in fold["test"]}
+    incomplete = {k: v for k, v in list(right.items())[1:]}
+    with pytest.raises(KeyError):
+        E.score_external(cfg, fold, "bogus", incomplete, ctx)
+
+    out = E.score_external(cfg, fold, "bogus", right, ctx)
+    assert out["ch_mse"].shape == (C,)
+
+
+def test_the_two_arms_differ_only_in_the_action_vocabulary(cfg):
+    """arm 'none' collapses the embedding so skill measures signal predictability alone; arm
+    'class' hands the model the label. Anything else differing would make the ablation
+    uninterpretable."""
+    requires_torch()
+    from src.d256 import prob_gru as PG
+
+    ids = S.folds(cfg)[0]["train"]
+    a_none, n_none = PG.action_ids(cfg, "none", ids)
+    a_cls, n_cls = PG.action_ids(cfg, "class", ids)
+    assert n_none == 1 and set(a_none.values()) == {0}
+    assert n_cls == 20 and len(set(a_cls.values())) == 20
+    with pytest.raises(ValueError, match="unknown arm"):
+        PG.action_ids(cfg, "labels", ids)
+
+
+def test_features_are_causal_and_correctly_dimensioned(cfg):
+    """velocity[t] must not depend on any sample after t -- a forecast built on a
+    future-peeking feature is not a forecast."""
+    requires_torch()
+    from src.d256 import prob_gru as PG
+
+    Y = D.load_target(cfg, 0)
+    f = PG.features(Y, cfg.fps)
+    assert f.shape == (len(Y), 10)
+    assert PG.features(Y, cfg.fps, with_df=True).shape == (len(Y), 12)
+    assert np.allclose(f[0, 6:], 0.0)                     # v[0] = 0, no backward reach
+
+    cut = 40
+    f_trunc = PG.features(Y[:cut], cfg.fps)
+    assert np.allclose(f[:cut], f_trunc)                  # truncating the future changes nothing
