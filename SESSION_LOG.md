@@ -7754,3 +7754,47 @@ CoPx 左 mean -0.020 std 0.0047 ; CoPy 左 mean -0.051 std 0.011
 (C) 合成"每折停在 patience 下限、best_epoch=2" → **两条 LOOK 均正确触发**。
 
 **下一步**:跑真正的训练(不带 `EPOCHS`/`FOLDS`),以及全语料 raw data 图 + pedestal 报告。
+
+### 2026-08-26续2 — 【警报】CRC 上 100 个 actionsense npy 变成了符号链接;report 模式的两处依赖缺陷
+
+#### 一、`data/actionsense_states/clip_*.npy` 的 typechange —— 差点被提交
+用户 `git status --short` 出现 **100 个 `T`(typechange)**,`git diff` 显示
+`Bin 6647936 -> 42 bytes` —— 42~44 字节即一条路径字符串。
+`readlink` 确认:`clip_1.npy -> /users/jhao3/actionsense/states/clip_1.npy`。
+
+**事实**:这 401 个 npy **是被 git 跟踪的,仓库里占 415 MiB**(mode 100644 = 真实文件),
+本地 mac 上是真文件,**CRC 上其中 100 个已被替换为符号链接**。
+**若提交,仓库里真正的 ActionSense states 会被换成只在 CRC 有效的链接**,
+本地与任何新 clone 全部拿到断链,`probe_actionsense` / fps 反推 / `check_leakage` 一并失效。
+
+**成因推断(未向用户求证)**:链接目标在**同一个 home 文件系统**
+(`/users/jhao3/actionsense/states/`),即不是搬到别的存储层,而是**去重**——
+仓库副本 415 MiB + 该目录副本 415 MiB = 830 MiB,而 home 只有 100 GB 且已用 68 GB。
+**与"守 home 配额"的既有做法一致。**
+
+**处置**:`git stash push -m "..." -- data/actionsense_states/`,**只挪这一个目录**,
+用户其余未跟踪产物一概不动。**明确劝阻 `git checkout -- data/actionsense_states/`**:
+那会用 git 版本覆盖链接,若链接目标是更新的数据即丢失,且往 home 写回数百 MB。
+**stash 保留,待成因确认后再决定。**
+
+#### 二、遗留待裁定:415 MiB 的 npy 该不该继续留在 git 里
+三个臂里**只有 actionsense_states 被提交进仓库**;`data/opentouch_states` 早已忽略,
+`data/d256_states` 本轮补上忽略(见下)。**不一致。**
+移出跟踪会让新 clone 拿不到 ActionSense states(多处依赖),故**须用户拍板**,不擅自改。
+
+#### 三、`.gitignore` 漏了 `data/d256_states`(本轮已修)
+`extract_d256_states.py --aux` 写 166 个 state + 数十 MiB 的 EMG/姿态/gaze npz,
+全部可从 clip 重建。**opentouch 有忽略规则而 d256 没有 —— 是我加配置时漏的**,
+CRC 上一个 `git add -A` 就会把整个 cache 提交进去。
+
+#### 四、`--what report` 的两处依赖缺陷(均由"换一个环境跑"才暴露)
+1. **matplotlib 在模块级 import**。report 模式**根本不画图**,却因此在 `(base)` 环境
+   直接 `ModuleNotFoundError` 而死 —— 为一个它从不使用的依赖。改为**惰性导入**
+   (`_plt()` 只在真要画时才 import)。模块级 import 现在只剩 numpy 与 stdlib。
+2. **`x.ptp()` 在 NumPy 2.0 已从 ndarray 移除**。改用 `np.ptp(x)`。
+   **这条是换到 numpy 2.0.1 的环境跑才发现的** —— 本地默认环境是 1.26,CRC `tactile` 大概率也是,
+   两边都碰不到,但 `(base)` 会。
+**双向验证**:numpy 2.0.1 + 无 matplotlib → report 正常出表并写文件;
+numpy 1.26 + 有 matplotlib → 画图路径未被破坏。
+
+**用户说"都做好了",但实际上报告没生成、commit 因文件不存在而失败** —— 已如实告知。

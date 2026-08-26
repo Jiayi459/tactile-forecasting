@@ -30,10 +30,7 @@ import json
 import os
 import sys
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt        # noqa: E402
-import numpy as np                     # noqa: E402
+import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from src import d256  # noqa: E402
@@ -64,7 +61,21 @@ def pick(rows, classes, per_class, subject):
     return out
 
 
+def _plt():
+    """Import matplotlib only when something is actually drawn.
+
+    --what report draws nothing, and it is the mode that matters most right now (it decides
+    whether an F skill number is readable at all). Importing matplotlib at module scope made
+    that mode fail on any environment without it, for a dependency it never uses.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    return plt
+
+
 def plot_fcop(rows, states, out):
+    plt = _plt()
     n = len(rows)
     fig, axes = plt.subplots(n, 3, figsize=(15, 2.1 * n), squeeze=False)
     for i, r in enumerate(rows):
@@ -105,6 +116,7 @@ def rebuild_grids(root, r):
 
 
 def plot_map(rows, states, root, out, n_frames=8):
+    plt = _plt()
     n = len(rows)
     fig, axes = plt.subplots(n, n_frames + 1, figsize=(2.0 * (n_frames + 1), 2.3 * n),
                              squeeze=False)
@@ -162,7 +174,9 @@ def pedestal_report(rows, states) -> str:
         for name, m in CHANNELS:
             for _, h, _ in HANDS:
                 x = st[:, h, m]
-                per[name][h].append((float(x.mean()), float(x.std()), float(x.ptp())))
+                # np.ptp, not x.ptp(): the method was removed from ndarray in NumPy 2.0, and the
+                # cluster env and this one are not on the same major version.
+                per[name][h].append((float(x.mean()), float(x.std()), float(np.ptp(x))))
     out = [f"per-channel over {len(rows)} recordings (no baseline correction, OQ-D2):",
            f"  {'channel':22s} {'hand':>5s} {'mean':>12s} {'std':>10s} {'ptp':>10s} {'std/|mean|':>11s}"]
     for name, _ in CHANNELS:
