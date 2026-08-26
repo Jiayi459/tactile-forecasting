@@ -36,3 +36,9 @@ data/opentouch_states
 # Missing this rule while opentouch_states had it meant a `git add -A` on the cluster would
 # have committed the whole cache.
 data/d256_states
+# And ActionSense's, which until 2026-08-26 was the one arm whose states WERE committed --
+# 401 npy, 415 MiB. That inconsistency had a cost: deduplicating them on the cluster with
+# symlinks (home is 100 GB and 68 GB used) registered as a typechange that blocked `git pull`
+# twice, and each `git stash` to clear it wrote the 415 MiB straight back. Rebuild command is
+# in scripts/crc/README.md; every consumer is listed there too.
+data/actionsense_states

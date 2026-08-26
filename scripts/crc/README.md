@@ -146,6 +146,27 @@ python scripts/shared/aggregate_results.py        # prints "PER-CATEGORY RANKING
 Run dirs: `runs/simvp_full_<slug>_lto_f<fold>/summary.json`. `aggregate_results.py` parses the
 `<slug>` and prints a per-category ranking by mean test skill — compare its order to the probe PI.
 
+## Rebuilding `data/actionsense_states/` (no longer in git)
+
+The 401 state files (415 MiB) were removed from tracking on 2026-08-26, so all three arms now
+keep their caches out of the repo. **A fresh clone therefore has no ActionSense states**, and
+these need them: `src/actionsense/state_forecast.py`, `scripts/actionsense/{train_action_dynamics,
+train_state_forecaster,plot_action_forecast,plot_fcop_loss_curve,plot_test_results}.py`,
+`scripts/actionsense/check_leakage.py`, `scripts/crc/{train_state_gpu,train_tactile_map_gpu}.job`,
+and the fps derivation for d256 (it matches recording lengths against this manifest).
+
+Rebuild from the raw ActionSense HDF5:
+
+```bash
+bash scripts/crc/stream_actionsense.sh              # downloads + extracts, one file at a time
+# or, if the HDF5 are already local:
+python scripts/actionsense/probe_actionsense.py --data-dir ~/actionsense \
+       --extract-states data/actionsense_states
+```
+
+If you keep a second copy elsewhere and symlink into `data/actionsense_states/`, that is now
+free -- git no longer watches the directory, so the links cannot show up as a typechange.
+
 ## Notes
 - The repo's top-level `environment.yaml` (full DINOv2/xformers stack) is **not** needed here —
   `environment_tactile_cuda.yaml` is the lean env.

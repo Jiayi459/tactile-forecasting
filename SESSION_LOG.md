@@ -7939,3 +7939,40 @@ Norm/FeatNorm 按该折 TRAIN 重新拟合 —— **与训练时逐字一致,故
 **等 CRC `git pull` 后重跑成功,即可:**
 `plot_d256_forecast.py` 出图;`metrics.csv` 里已含 Hausdorff;再扩展 `build_skill_comparison.py`
 把 d256 并入横比表。
+
+### 2026-08-26续7 — 【裁定】`data/actionsense_states` 移出 git 跟踪;作业增加版本戳
+
+#### 一、连续三次 qsub 失败,根因都是 CRC 未 pull —— 而作业本身不报告版本
+第 3 次:`plot_d256_forecast.py` 在 CRC 上不存在、`history.json` 缺失、
+`git log` 停在 `6d18e04`(落后 3 个 commit)。
+**问题不在用户,在我的作业脚本:它不检查自己在跑哪个版本的代码**,
+于是六分钟后抛出**旧代码**的 KeyError,读起来像一个新 bug。
+
+**`scripts/crc/d256_probgru_gpu.job` 已加**:
+- 无条件把 `git rev-parse --short HEAD` + commit 标题打进日志第一屏;
+- `git fetch` 成功且落后 origin ⇒ **立刻 `exit 1`**,不烧 GPU 槽位;
+- fetch 失败(计算节点可能无外网/无凭据)**不视为失败**,但上面那行 commit 仍能定位版本。
+
+#### 二、pull 反复被挡的根因,与用户裁定
+`git pull` 两次被 `data/actionsense_states` 的 **typechange** 挡住:用户在 CRC 上把 401 个
+npy 符号链接到 `/users/jhao3/actionsense/states/` **去重**(两份各 415 MiB,而 home 100 GB
+已用 68 GB —— **这个做法是合理的**),但该目录是**三个臂里唯一被 git 跟踪的 states**,
+于是链接被记为文件类型改变。
+**且 `git stash` 有隐性代价**:它把工作区恢复成 git 版本,即**把 415 MiB 真实文件重新写回 home**
+—— 去重省下的空间,每 stash 一次吐回去一次。
+
+**用户裁定:移出 git 跟踪,与另两个臂一致。**
+执行:`git rm -r --cached data/actionsense_states`(**磁盘文件不动**,399 个仍在)
++ `.gitignore` 补规则。索引中该目录已清空。
+
+**同时在 `scripts/crc/README.md` 写明重建方式与全部消费者** —— 否则就是把问题推给下一个人。
+消费者清单:`src/actionsense/state_forecast.py`、
+`scripts/actionsense/{train_action_dynamics,train_state_forecaster,plot_action_forecast,
+plot_fcop_loss_curve,plot_test_results,check_leakage}.py`、
+`scripts/crc/{train_state_gpu,train_tactile_map_gpu}.job`,
+以及 **d256 的 fps 反推**(它靠该 manifest 的录制长度做匹配)。
+重建:`bash scripts/crc/stream_actionsense.sh`,或
+`python scripts/actionsense/probe_actionsense.py --data-dir ~/actionsense --extract-states data/actionsense_states`。
+
+**副作用(正面)**:此后在该目录做符号链接**不会再被 git 视为改动**,pull 不再被挡。
+**副作用(需注意)**:新 clone 不再自带 ActionSense states,须按 README 重建。
