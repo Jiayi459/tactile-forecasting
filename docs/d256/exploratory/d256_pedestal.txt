@@ -1,0 +1,10 @@
+corpus: 166 recordings
+
+per-channel over 166 recordings (no baseline correction, OQ-D2):
+  channel                 hand         mean        std        ptp  std/|mean|
+  F (total force, a.u.)   left     423.9192     7.0655    30.7819       1.7%   <- almost all constant
+  F (total force, a.u.)  right     536.6901     9.9469    42.4865       1.9%   <- almost all constant
+  CoP x  [-1,1]           left      -0.0086     0.0047     0.0228      54.3%
+  CoP x  [-1,1]          right       0.0012     0.0040     0.0200     327.2%
+  CoP y  [-1,1]           left      -0.0103     0.0052     0.0247      50.2%
+  CoP y  [-1,1]          right      -0.0196     0.0049     0.0225      25.1%
