@@ -33,6 +33,10 @@ def main():
                     help="seq2seq = the one-shot residual head this family has always used; "
                          "probgru = the autoregressive, action-conditioned, absolute-target "
                          "backbone OpenTouch's arm uses, so the two are one model")
+    ap.add_argument("--save-preds", metavar="DIR",
+                    help="write one clip_<idx>.npz per recording, in the layout "
+                         "scripts/opentouch/plot_opentouch_forecast_overlay.py reads, so the "
+                         "same overlay plotter serves both sensors")
     ap.add_argument("--csv", default="docs/actionsense/tactile_map_cv_results.csv")
     args = ap.parse_args()
 
@@ -62,8 +66,15 @@ def main():
     for enc in encoders:
         for hist in histories:
             t_in = int(round(hist * fps))
+            # predictions only for the chosen history, otherwise every length would
+            # overwrite the last and the npz would silently hold a mixture
+            want = args.save_preds if (not args.histories or hist == histories[-1]) else None
             cv = T.cross_validate(cfg, {**tm, "backbone": args.backbone}, enc, t_in, recs,
-                                  folds=args.folds)
+                                  folds=args.folds, save_preds=want)
+            if want and cv.get("preds"):
+                from src.actionsense.tactile_map import data as D
+                T.save_predictions({f"{args.backbone}_{enc}": cv["preds"]}, cfg, want,
+                                   D.verbs_of(cfg, recs))
             skc, sks = cv["skill_ch"], cv["skill_step"]
             cr, cc = cv["coverage_raw"], cv["coverage_cal"]
             hd_m = np.nanmean(cv["hausdorff_ch"], axis=0)          # (6,)

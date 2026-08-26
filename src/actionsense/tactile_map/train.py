@@ -7,6 +7,8 @@ Target is the RESIDUAL over persistence, so persistence == predicting residual 0
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -173,14 +175,64 @@ def calibrate_sigma(model, ds, target=0.95):
     return float(np.percentile(np.abs(y - mu) / (sd + 1e-9), 100 * target) / 2.0)
 
 
+@torch.no_grad()
+def _per_recording(model, ds, tnorm, H):
+    """-> {idx: (y_raw (T,C), origins, mu_raw (n,H,C), sigma_raw (n,H,C))}.
+
+    The CV concatenates every test recording's origins into one array, which is all a metric
+    needs and useless for a figure: clip identity is gone. This splits them back out, in RAW
+    units, in the layout scripts/opentouch/plot_opentouch_forecast_overlay.py already reads --
+    so ONE overlay plotter serves both sensors rather than a second being written here.
+    """
+    mu, sd, _, _ = _predict(model, ds)
+    if not len(mu):
+        return {}
+    src = ds.tgts if hasattr(ds, "tgts") else ds.sig       # z-normed ABSOLUTE target
+    absolute = not ds.residual
+    idxs = [i for i, _ in ds.index]
+    out, at = {}, 0
+    for i in sorted(set(idxs)):
+        ors = np.asarray([t for j, t in ds.index if j == i])
+        sl = slice(at, at + len(ors)); at += len(ors)
+        z = np.asarray(src[i], dtype=np.float64)
+        # A residual model predicts the delta from the value at the origin, so the anchor is
+        # z[origin] -- taken from the series, not reconstructed from the persistence array,
+        # which is all zeros in that space and carries no anchor at all.
+        m = np.asarray(mu[sl], dtype=np.float64)
+        if not absolute:
+            m = m + z[ors][:, None, :]
+        out[i] = (tnorm.unz(z), ors, tnorm.unz(m),
+                  np.asarray(sd[sl], dtype=np.float64) * np.asarray(tnorm.std))
+    return out
+
+
+def save_predictions(store: dict, cfg: Config, out_dir: str, verbs: dict):
+    """Write one clip_<idx>.npz per recording, in the OpenTouch overlay format."""
+    import json
+    os.makedirs(out_dir, exist_ok=True)
+    idxs = sorted({i for d in store.values() for i in d})
+    for i in idxs:
+        first = next(d[i] for d in store.values() if i in d)
+        np.savez_compressed(
+            os.path.join(out_dir, f"clip_{i}.npz"),
+            y=first[0], origins=first[1], fps=cfg.fps,
+            action=verbs.get(i, ""), object_name="",
+            channels=np.array(cfg.channels), tag="actionsense",
+            **{f"mu_{m}": d[i][2] for m, d in store.items() if i in d},
+            **{f"sigma_{m}": d[i][3] for m, d in store.items() if i in d})
+    print(f"  saved {len(idxs)} recordings of forecasts -> {out_dir}")
+    return len(idxs)
+
+
 def cross_validate(cfg: Config, tm: dict, encoder: str, t_in: int, recs: list[int],
-                   folds: int = 5, seed: int = 0):
+                   folds: int = 5, seed: int = 0, save_preds: str | None = None):
     """5-fold CV by recording. Norms + model fit on TRAIN; sigma calibrated on a VAL subset of TRAIN;
     skill + coverage measured on the held-out TEST fold. -> (sk_ch (folds,6), sk_step (folds,H,6),
     cov_raw, cov_cal)."""
     rng = np.random.default_rng(seed)
     fold_of = rng.integers(0, folds, size=len(recs))
     skc, sks, cr, cc, hdc, hdr = [], [], [], [], [], []
+    preds = {}                       # recording idx -> forecasts, filled only if requested
     for f in range(folds):
         te = [recs[i] for i in range(len(recs)) if fold_of[i] == f]
         tr = [recs[i] for i in range(len(recs)) if fold_of[i] != f]
@@ -222,6 +274,9 @@ def cross_validate(cfg: Config, tm: dict, encoder: str, t_in: int, recs: list[in
         c_cal = evaluate(model, test_ds, sigma_scale=s)["coverage"]
         skc.append(sk_ch); sks.append(sk_step); cr.append(c_raw); cc.append(c_cal)
         hdc.append(hd_ch); hdr.append(hd_ratio)
+        if save_preds:
+            preds.update(_per_recording(model, test_ds, tnorm, cfg.horizon))
     return {"skill_ch": np.array(skc), "skill_step": np.array(sks),
             "coverage_raw": float(np.mean(cr)), "coverage_cal": float(np.mean(cc)),
-            "hausdorff_ch": np.array(hdc), "hausdorff_ratio_ch": np.array(hdr)}
+            "hausdorff_ch": np.array(hdc), "hausdorff_ratio_ch": np.array(hdr),
+            "preds": preds}
