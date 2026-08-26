@@ -31,3 +31,8 @@ Thumbs.db
 # raw tactile map clips: now TRACKED (committed for portability across machines, ~401MB).
 # (previously gitignored + kept only on CRC.)
 data/opentouch_states
+# Same reason, for the d256 arm: extract_d256_states.py writes 166 state_*.npy plus, with
+# --aux, the EMG/pose/gaze npz -- tens of MiB that are reproducible from the clips on CRC.
+# Missing this rule while opentouch_states had it meant a `git add -A` on the cluster would
+# have committed the whole cache.
+data/d256_states
