@@ -7663,3 +7663,66 @@ CSV/history 落盘。
 - 提交前**先断言 `data/d256_states/manifest.jsonl` 存在**——静默地在空数据上训练会白白浪费整个 GPU 槽位。
 - **`pytest tests/` 跑全量而非手列子集**:torch 相关测试只在有 torch 的机器上真正执行,
   而本地是坏的;"会跳过文件的门禁就是有洞的门禁"(OpenTouch 2026-08-23 的教训)。
+
+### 2026-08-26 — 【本次 run 的训练信息存档】【5 分钟是否有问题:算给结论】【新增 raw data 图】
+
+#### 一、本次(2026-08-25)probGRU run 用到的架构与代码 —— 存档
+**模型 `src/d256/prob_gru.py:169`,参数量 17,396(`class` 臂 17,548,只多 embedding 表)**:
+```
+emb  Embedding(n_act, 8)          enc  GRU(10 -> 48)         dec  GRU(6 -> 48)
+mu   Linear(48+8 -> 6)            lv   Linear(48+8 -> 6), clamp(-6,4)
+forward: enc(x) -> h ; decoder 以 y_last 为种子自回归展开 6 步,每步把预测均值喂回
+形状: x(B,24,10) aid(B,) y_last(B,6) -> mu(B,6,6) logvar(B,6,6)
+```
+**损失(`:196`)**:`0.5*(lv + (y-mu)^2 * exp(-lv))` 的均值 = 高斯 NLL 去常数 ⇒ **概率预测**。
+**数据通路**:`state (T,2,6)` → `load_target (T,6)` →〔`Norm.z` 做目标 / `features` 做输入〕
+→ `features (T,10)` = 6 原始通道 + **双手 CoP 因果后向差分**(`v[t]=(x[t]-x[t-1])*fps`,fps=6 实参与)
+→ `FeatNorm.z` → `window_set` 按 harness origins 切窗。
+**超参**:hidden 48 / epochs 80 / lr 3e-3 / batch 64 / t_in 24 / patience 15 / Adam / **早停只看 VAL NLL**。
+**来源**:`src/actionsense/action_dynamics.py:142` → `src/opentouch/prob_gru.py:250` → 本文件,
+**逐字复制,刻意不为 d256 改动**,以保跨传感器可比。d256 被迫不同的仅四处:6 通道双手、
+输入 10 维、fps=6、窗口取自 harness。
+
+#### 二、"只跑了 5 分钟,我认为有问题" —— 算完的结论:**5 分钟本身不构成证据**
+用 OpenTouch job 抬头里的实测基准外推(那里:300 clips / 16k windows / t_in=30 / **horizon=30**
+→ **7 s/epoch**)。d256:窗口数几乎相同(~16.3k/折),但 **horizon 6 vs 30 ⇒ 自回归解码循环短 5 倍**
+(这是顺序瓶颈),t_in 24 vs 30 编码更便宜。
+```
+3 s/epoch × 17 epoch × 5 fold = 4.2 min      1 s/epoch × 80 epoch × 5 fold = 6.7 min
+```
+**两种完全不同的情形都落在 5 分钟附近**:一种是"跑满 80 epoch,只是 GPU 快";
+另一种是"每折在 patience 下限(16–17 epoch)就早停"。**光看墙钟分不出来。**
+
+**判据在 `history.json`**,故新增 **`scripts/d256/inspect_run.py`**,直接给结论:
+- 每折 epoch 数 ≈ patience+1 ⇒ **早停在下限触发,即 VAL NLL 从第 1–2 epoch 后就不再改善**
+  → **这是 OpenTouch 的既有模式(2026-08-17:epoch 2 起过拟合)**,是**真实发现而非 bug**,
+  但意味着 80 epoch 的预算是虚的。
+- 跑满 80 ⇒ 预算用尽,墙钟快只是模型小(17k 参数、6 步 horizon)。
+- `best_epoch == 1` ⇒ 初始化之后什么都没学到。
+- `n_train_windows` 远低于 ~16,300 ⇒ **训练在错的/空的数据上**。
+- 折数 < 5 ⇒ 漏传 `--folds`。
+**请在 CRC 跑 `python scripts/d256/inspect_run.py runs/d256_probgru_none` 并把输出贴回。**
+在此之前,"5 分钟有问题"既不能证实也不能证伪。
+
+#### 三、新增 `scripts/d256/plot_d256_raw.py` —— d256 版的两张 exploratory 图
+对应 `docs/opentouch/exploratory/{opentouch_fcop,opentouch_tactile_map}.png`,改成双手:
+- `--what fcop`:每段一行,三列 F / CoPx / CoPy,**左右手叠在同一轴上**(蓝=左、红=右)。
+  不拆成六列,因为这两张图要回答的正是"两只手套动不动得一致",分开画就看不出来了。
+- `--what map`:左|右两块 32×32 压力图的胶片条 + CoP 青环 + 末列 F(t)。
+  grid 不在 state cache 里(cache 存的是矩),故**用 `extract_d256_states.rebuild` 同一套折叠**
+  从 clip 现场重建 —— **画出来的就是模型吃到的**。
+
+**并新增 `pedestal_report()` 定量输出**(不是装饰):OQ-D2 选择不扣基线,
+若 F 的 `std/|mean|` 只有百分之几,则**目标的绝大部分是常数**,persistence 结构上近乎不可战胜,
+F 上的低 skill 是**关于目标的陈述而非关于模型的** —— 正是 OpenTouch D1 追的那个坑。
+
+**本地 2 段真实数据(S04 的 class 13/14)实测,已经能看到问题**:
+```
+F  左  mean 488.94  std 16.60  std/|mean| 3.4%     <- 几乎全是常数
+F  右  mean 519.27  std  2.49  std/|mean| 0.5%     <- 几乎全是常数
+CoPx 左 mean -0.020 std 0.0047 ; CoPy 左 mean -0.051 std 0.011
+```
+**F 的调制只有 DC 的 0.5%–3.4%;CoP 全程被困在 [-1,1] 里不到 0.04 的范围内。**
+⚠️ **这是 2 段数据的观察,不能外推到全语料** —— 但若全量确认此形态,
+**OQ-D2(不扣基线)必须重开**,否则 F 上的 skill 数字读不出任何东西。
+**请在 CRC 上跑全量出图与该报告。**
