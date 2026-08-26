@@ -52,34 +52,55 @@ def main():
 
     print()
     n_folds = len(verdicts)
-    problems = []
-    if n_folds < 5:
-        problems.append(f"only {n_folds}/5 folds present -- was --folds passed?")
-    if any(w < EXPECTED_WINDOWS * 0.5 for _, _, _, w in verdicts):
-        problems.append("a fold trained on far fewer windows than expected (~16,300) -- "
-                        "check eval.min_history and that states_root is the real cache")
-    if all(b <= 2 for _, _, b, _ in verdicts):
-        problems.append("best epoch <= 2 in EVERY fold: VAL NLL never improved past the first "
-                        "epochs. The model is overfitting immediately or not learning; the "
-                        "80-epoch budget is not being used and hidden/lr/regularisation is "
-                        "the thing to look at, not the runtime")
+    budget = hp["epochs"]
     floor = hp["patience"] + 1
-    if all(n <= floor + 2 for _, n, _, _ in verdicts) and hp["epochs"] > floor + 2:
-        problems.append(f"every fold stopped at ~{floor} epochs, the early-stopping floor -- "
-                        f"so the run IS complete, it just gave up early. Short wall clock "
-                        f"explained; the finding is that VAL NLL stops improving almost at once")
-    if all(n >= hp["epochs"] for _, n, _, _ in verdicts):
-        print("VERDICT: every fold ran its full epoch budget. The run is complete; a short "
-              "wall clock just means the GPU is fast for this model size (17k params, "
-              "6-step horizon).")
+    problems, notes = [], []
 
-    if problems:
-        print("VERDICT: look at these --")
-        for p in problems:
-            print(f"  * {p}")
-    elif not all(n >= hp["epochs"] for _, n, _, _ in verdicts):
-        print("VERDICT: folds stopped between the floor and the budget -- normal early "
-              "stopping. Compare best_val_nll across folds for stability.")
+    # A deliberately shortened run is not a finding about the model. Establish that first,
+    # because every heuristic below is only meaningful against a budget large enough to
+    # exercise it -- "best epoch <= 2" is vacuous when the budget IS 2.
+    smoke = budget < floor or n_folds < 5
+    if smoke:
+        why = []
+        if budget < floor:
+            why.append(f"--epochs {budget} (below the early-stopping floor of {floor}, so "
+                       f"stopping never had a chance to fire)")
+        if n_folds < 5:
+            why.append(f"--folds limited to {n_folds} of 5")
+        print("This was a SMOKE RUN, not a training run: " + "; ".join(why) + ".")
+        print("Nothing here can say whether the model learns. Re-run without EPOCHS/FOLDS.")
+        print()
+
+    if any(w < EXPECTED_WINDOWS * 0.5 for _, _, _, w in verdicts):
+        problems.append("a fold trained on far fewer windows than expected (~16,300) -- check "
+                        "eval.min_history and that states_root is the real cache")
+    else:
+        notes.append(f"window counts look right (~{verdicts[0][3]:,}/fold), so the real cache "
+                     f"was read")
+
+    if not smoke:
+        if all(b <= 2 for _, _, b, _ in verdicts):
+            problems.append("best epoch <= 2 in EVERY fold: VAL NLL never improved past the "
+                            "first epochs. The model overfits immediately or is not learning; "
+                            "look at hidden/lr/regularisation, not the runtime")
+        if all(n <= floor + 2 for _, n, _, _ in verdicts) and budget > floor + 2:
+            problems.append(f"every fold stopped near {floor} epochs, the early-stopping "
+                            f"floor -- the run IS complete, it just gave up early. The finding "
+                            f"is that VAL NLL stops improving almost at once (OpenTouch saw "
+                            f"the same from epoch 2)")
+        elif all(n >= budget for _, n, _, _ in verdicts):
+            notes.append("every fold ran its full epoch budget; a short wall clock just means "
+                         "the GPU is fast for this model size (17k params, 6-step horizon)")
+        else:
+            notes.append("folds stopped between the floor and the budget -- ordinary early "
+                         "stopping. Compare best_val_nll across folds for stability")
+
+    for n in notes:
+        print(f"  OK   {n}")
+    for p_ in problems:
+        print(f"  LOOK {p_}")
+    if not problems and not smoke:
+        print("\nNothing anomalous.")
 
 
 if __name__ == "__main__":
