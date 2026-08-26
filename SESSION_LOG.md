@@ -7904,3 +7904,38 @@ KeyError: 'probgru: no forecasts for test recording 124'
 `src/actionsense/eval_harness/splits.py:39` 都是 `need = min_history + horizon`)。
 **是否同样受影响取决于其语料中有没有长度恰为 `need` 的片段,尚未核查;
 且它们的结果已产出,改动会移动既有数字,故本轮不动,记为待办。**
+
+### 2026-08-26续6 — 【重跑仍失败:CRC 未 pull】【补 Hausdorff 与预测图,等结果】
+
+**用户重跑后仍是同一个 `KeyError: no forecasts for test recording 124`。**
+**原因:CRC 上没有 `git pull`,跑的还是修复前的代码。** 判据:报错仍在
+`evaluate.py:108` 的 `score_external`;而修好的版本里 `forecast()` 会**在到达那里之前**
+就抛出说明清楚的 `ValueError`(续5 的第二处修改),**根本轮不到那个 KeyError**。
+⇒ 仍无任何训练结果。**故 skill 与 Hausdorff 无从写起,不编。**
+
+#### 用户要求的三件事,当前只能做两件
+**(1) 写 skill / Hausdorff 进 `docs/skill_comparison.md` —— 现在不能做,且不该手写。**
+该文件由 `scripts/shared/build_skill_comparison.py` **生成**,开头自述
+"every number is read from the run's own CSV, never transcribed"。
+手写数字会破坏这条契约。正确做法是**等 d256 有 CSV 后扩展生成器**。
+
+**(2) Hausdorff 接入 d256 —— 已做。**
+先前 d256 臂**只算 MSE/MAE/skill,没有 Hausdorff**(ActionSense 与 OpenTouch 两侧早已接入,
+见 2026-08-24续2)。现复用 `src/shape_metrics.py::hausdorff_scaled`(**共享实现,刻意放在
+`src/` 顶层以防两侧漂移**),在 `_result()` 里按通道求均值,写入 CSV 的
+`Hausdorff` 与 `HD_ratio_vs_{persistence,seasonal,ar}` 两类行。
+**取比值而非差值**:Hausdorff 无量纲,但绝对尺度是任意的,只有模型间比较有意义。
+丢弃两类预测:horizon 全被 mask 的,以及**真值在 horizon 上恒定的**
+(`hausdorff_scaled` 返回 NaN —— 无形状可比,算作完美匹配会美化所有模型)。
+fixture 验证:persistence ≈ 3.0–3.2,AR ≈ 0.36–0.82,**区分度正常**。
+
+**(3) 预测图 —— 已做,`scripts/d256/plot_d256_forecast.py`。**
+对应 `docs/opentouch/raw/opentouch_forecast_*.png`,每通道一图,画 truth + 四个模型在若干
+rolling origin 上的 1 s 预测。**关键设计:预测由 checkpoint 现场重算,而不是训练时 dump。**
+checkpoint 带 hp 与 `config_hash`(不符即拒绝加载),fold 由同一 config 确定性重建,
+Norm/FeatNorm 按该折 TRAIN 重新拟合 —— **与训练时逐字一致,故图上画的必是被打分的那条曲线**,
+且不需要存预测。fixture 上六张图全部产出。
+
+**等 CRC `git pull` 后重跑成功,即可:**
+`plot_d256_forecast.py` 出图;`metrics.csv` 里已含 Hausdorff;再扩展 `build_skill_comparison.py`
+把 d256 并入横比表。

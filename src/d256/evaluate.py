@@ -30,6 +30,7 @@ from src.actionsense.eval_harness.baselines.ar import AR
 from src.actionsense.eval_harness.baselines.persistence import Persistence
 from src.actionsense.eval_harness.baselines.seasonal import SeasonalNaive
 from src.actionsense.eval_harness.config import Config, load_config
+from src.shape_metrics import hausdorff_scaled
 
 from .dataset import Norm, force_thresholds, group_keys, load_group
 from . import splits as S
@@ -49,8 +50,33 @@ def _result(ytrue, yhat, mask) -> dict:
         "ch_mae": metrics.masked_channel_mae(ytrue, yhat, mask),
         "hz_mse": metrics.masked_horizon_mse(ytrue, yhat, mask),
         "hz_mae": metrics.masked_horizon_mae(ytrue, yhat, mask),
+        "hausdorff": _hausdorff_per_channel(ytrue, yhat, mask),
         "n": mask.reshape(-1, mask.shape[-1]).sum(0),
     }
+
+
+def _hausdorff_per_channel(ytrue, yhat, mask) -> np.ndarray:
+    """Mean scaled Hausdorff per channel, on the same masked forecasts as the MSE.
+
+    Beside MSE because MSE is pointwise: a flat forecast through the middle of an
+    oscillation scores far better than its shape deserves, which is what every arm in this
+    project has done (SESSION_LOG 2026-08-20). Hausdorff charges a flat line roughly the
+    amplitude it failed to follow.
+
+    A forecast is dropped when its horizon is entirely masked or its truth is constant over
+    the horizon (hausdorff_scaled returns NaN there -- no shape to compare, and calling it a
+    perfect match would flatter every model).
+    """
+    C = ytrue.shape[-1]
+    out = np.full(C, np.nan)
+    for c in range(C):
+        keep = mask[:, :, c].all(axis=1)
+        if not keep.any():
+            continue
+        hd = hausdorff_scaled(yhat[keep, :, c], ytrue[keep, :, c])
+        if np.isfinite(hd).any():
+            out[c] = float(np.nanmean(hd))
+    return out
 
 
 def fold_context(cfg: Config, fold: dict):
@@ -145,9 +171,15 @@ def build_rows(cfg: Config, per_fold: list[dict]) -> list[dict]:
                              metrics.skill(R["hz_mse"][h, ci], results[b]["hz_mse"][h, ci]), n)
                 emit(m, ci, "all", "MSE", R["ch_mse"][ci], n)
                 emit(m, ci, "all", "MAE", R["ch_mae"][ci], n)
+                emit(m, ci, "all", "Hausdorff", R["hausdorff"][ci], n)
                 for b in names:
                     emit(m, ci, "all", f"SS_vs_{b}",
                          metrics.skill(R["ch_mse"][ci], results[b]["ch_mse"][ci]), n)
+                    # Ratio, not difference: Hausdorff is dimensionless but its absolute
+                    # scale is arbitrary, so only comparisons between models carry meaning.
+                    ref = results[b]["hausdorff"][ci]
+                    emit(m, ci, "all", f"HD_ratio_vs_{b}",
+                         R["hausdorff"][ci] / ref if ref and np.isfinite(ref) else np.nan, n)
     return rows
 
 
