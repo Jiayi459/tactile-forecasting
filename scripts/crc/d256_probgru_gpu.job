@@ -1,0 +1,90 @@
+#!/bin/bash
+# UGE job: the REAL d256 run -- baselines + probGRU, both arms, all 5 LOSO folds.
+#
+# WHAT "REAL" MEANS HERE, because the only d256 probGRU run so far was not one. That was a
+# plumbing smoke test: 1 fold of 5, 4 epochs of 80, 12.7 s, on a SYNTHETIC fixture of sine
+# waves standing in for tactile data. It proved the folds build, the shapes align and
+# score_external accepts the forecasts. It proved nothing about skill -- the +0.99 it printed
+# was AR and the GRU trivially fitting a sinusoid. This job is the first run on real signal.
+#
+# SCALE. ~16,300 training windows per fold, up to 80 epochs, 5 folds => up to ~6.5M window
+# passes per arm, and there are two arms. The decoder is autoregressive over the 6-step
+# horizon, so a batch is 6 sequential GRU steps.
+#
+# BASELINES FIRST. skill is measured against persistence, so without the baselines the GRU
+# number has no denominator. This job runs them per fold inside the same process (they are
+# cheap: closed-form fits) so the GRU is always scored against baselines fitted on the same
+# fold's TRAIN.
+#
+# THE TWO ARMS ARE THE EXPERIMENT (OQ-D5, SESSION_LOG 2026-08-24):
+#   ARM=none   action embedding collapsed to one id -> tactile-from-tactile only. THIS is the
+#              number comparable to the OpenTouch and ActionSense arms.
+#   ARM=class  embedding = label_idx -> the model is told which activity is being performed.
+#              Answers a different question and must never be reported beside the other two
+#              without that qualifier.
+# Run both; the difference is what knowing the activity is worth.
+#
+# Prerequisites (once):
+#   python scripts/d256/extract_d256_states.py --root ~/forcevision --out data/d256_states --aux
+#   mkdir -p ~/TouchAnything/logs
+# Submit from the repo root:
+#   qsub -v ARM=none  scripts/crc/d256_probgru_gpu.job
+#   qsub -v ARM=class scripts/crc/d256_probgru_gpu.job
+#   qsub -v ARM=none,EPOCHS=2,FOLDS=0 scripts/crc/d256_probgru_gpu.job     # smoke, real data
+#   qsub -v ARM=none,FEATURES=raw+df scripts/crc/d256_probgru_gpu.job      # dF/dt ablation
+# Watch it:
+#   qstat -u $USER ; tail -f logs/d256_probgru.o<JOB_ID>
+# NOTE: no inline comments on #$ lines.
+#$ -M jhao3@nd.edu
+#$ -m abe
+#$ -q gpu
+#$ -l gpu_card=1
+#$ -pe smp 4
+#$ -N d256_probgru
+#$ -cwd
+#$ -o logs/
+#$ -e logs/
+
+set -euo pipefail
+conda activate tactile
+
+# Same reason as the OpenTouch job: torch.use_deterministic_algorithms needs this for
+# reproducible cuBLAS GEMMs behind every Linear and GRU on CUDA >= 10.2. configure_determinism
+# passes warn_only=True, so an op lacking a deterministic kernel still falls back silently --
+# this narrows the gap, it does not close it.
+export CUBLAS_WORKSPACE_CONFIG=:4096:8
+
+ARM="${ARM:-none}"
+echo "Host: $(hostname)  JOB_ID: ${JOB_ID:-NA}  arm: $ARM  started $(date)"
+python -c "import torch; print('torch', torch.__version__, '| cuda', torch.cuda.is_available(),
+      '|', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU only')"
+
+# Fail here, not deep in the run: a job that silently trains on nothing wastes the GPU slot.
+test -f data/d256_states/manifest.jsonl || {
+    echo "FATAL: data/d256_states/manifest.jsonl missing. Run the extractor first:"
+    echo "  python scripts/d256/extract_d256_states.py --root ~/forcevision --out data/d256_states --aux"
+    exit 1
+}
+
+# The torch-dependent tests only ever execute where torch works, i.e. here -- the machine they
+# are written on has a broken install and skips them. Run tests/ in full rather than a
+# hand-listed subset: a gate that skips files is a gate with holes in it (OpenTouch, 2026-08-23).
+python -c "import pytest" 2>/dev/null || pip install pytest --quiet
+python -m pytest tests/ -q
+
+# Baselines alone, once, so their table exists independently of any GRU run.
+if [ "${SKIP_BASELINES:-0}" != "1" ]; then
+    python -u -m src.d256.evaluate ${CONFIG:+--config "$CONFIG"} ${FOLDS:+--folds "$FOLDS"}
+fi
+
+python -u scripts/d256/train_prob_gru.py \
+    --arm "$ARM" \
+    ${CONFIG:+--config "$CONFIG"} \
+    ${FOLDS:+--folds "$FOLDS"} \
+    ${EPOCHS:+--epochs "$EPOCHS"} \
+    ${T_IN:+--t-in "$T_IN"} \
+    ${FEATURES:+--features "$FEATURES"} \
+    --seed "${SEED:-0}" \
+    --out "${OUT:-runs/d256_probgru_$ARM}"
+
+echo "finished $(date)"

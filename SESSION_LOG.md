@@ -7572,3 +7572,94 @@ probGRU 逐帧点误差更好**却**形状更差。**只有一个骨干时,这�
 
 **唯一有实质空间的后续是 N6(慢包络分解)**,针对长 horizon 那 0.15–0.30 的缺口——
 若做成,故事第 7 点可加一句"并给出一条越过它的路径";若不成,前 7 点仍然成立。
+
+### 2026-08-25 — GRU-aggregate 流程图(与 probGRU 图同风格),及一处自查纠错
+
+**用户要求**:按 GRU-aggregate 的 code 画一份同风格 pipeline 图;先列出参考的 code,并指出
+ActionSense 与 OpenTouch 上分别的实现。
+
+**核实结果:"GRU-aggregate" 有三份实现,不是两份。**
+1. **ActionSense** `src/actionsense/tactile_map/`,`encoder="aggregate"`:
+   [data.py:160](src/actionsense/tactile_map/data.py#L160) `AggWindows` ·
+   [models.py:44](src/actionsense/tactile_map/models.py#L44) `AggEncoder(n_in=6)` ·
+   [models.py:56](src/actionsense/tactile_map/models.py#L56) `Seq2Seq`(**概率** one-shot 头)·
+   [train.py:55](src/actionsense/tactile_map/train.py#L55) `train_model`(Gaussian NLL)·
+   [:176](src/actionsense/tactile_map/train.py#L176) `cross_validate`(5-fold by recording)·
+   [:169](src/actionsense/tactile_map/train.py#L169) `calibrate_sigma`。
+   配置 `configs/actionsense/{tactile_map,eval_harness}.yaml`(d=64, hidden=64, epochs=60,
+   lr=3e-3, batch=64, histories_s=[1,3,10]; C=6, 10 Hz, H=10, min_history=40, stride=1)。
+2. **OpenTouch 预注册确定性臂** `src/opentouch/gru_aggregate.py`:`Seq2SeqPoint`(**单 head,
+   MSE,无 logvar**)、冻结 train/val/test(非 CV)、`configure_determinism`、
+   `predict_clip` 做 anchor+`unz`。C=3, 30 Hz, H=30, min_history=15, histories_s=[1,2,3]。
+3. **OpenTouch 概率臂** `src/opentouch/tactile_map.py:90/102`:`AggEncoder(n_in=3)` +
+   **概率** `Seq2Seq`。其 docstring [:36](src/opentouch/tactile_map.py#L36) 明写本臂是概率的,
+   "gru_aggregate.py is left alone as the pre-registered deterministic arm"。
+   **故与实现 1 架构逐行对应的是实现 3,不是实现 2。**
+共享地基:`Config`([eval_harness/config.py:20](src/actionsense/eval_harness/config.py#L20))、
+`Norm`([eval_harness/dataset.py:58](src/actionsense/eval_harness/dataset.py#L58),OpenTouch 是
+re-export 而非复制,[opentouch/dataset.py:23](src/opentouch/dataset.py#L23))、
+`origins = arange(min_history, T-H, stride)`。
+
+**用户裁定(2026-08-25)**:画**实现 1(ActionSense)**。理由采纳我给的论证:与上一张 probGRU 图
+同传感器、同 harness,两图之间**只差模型**,正是论文要做的对照。
+
+**新脚本 `scripts/actionsense/plot_gru_aggregate_diagram.py`**,产物
+`docs/gru_aggregate_diagram.{png,pdf}`。绘图原语(`box/arrow/note/demo_signal` + 调色板 +
+画布常量)**从 `plot_model_diagram` import 而非复制**,保证两图风格严格一致且只有一份来源。
+版面与 probGRU 图逐项对齐:同 `NOW=61.5` 原点列、同 `DIV=36.5` 分栏、同顶部双箭头标尺、
+同 caption 高度。**关键对照被刻意放在同一 y=19.8**:probGRU 图那里写
+"autoregressive: μ̂ fed back…",本图写 "one-shot: the entire horizon in one forward pass —
+no decoder, no feedback"。两图并排时该对照直接落地。
+
+**画错并已自查纠正的一处(重要)**。第一版绿框写的是 `ẑ_{t+h} = z_t + r̂_{t+h}` → `unz` →
+raw units,并画了一条 "persistence anchor" 总线把 z_t 从观测曲线送回加法器。**这是实现 2 的
+行为,不是实现 1。** 核对 [train.py:131](src/actionsense/tactile_map/train.py#L131) 与
+[:152-156](src/actionsense/tactile_map/train.py#L152-L156):`_predict` 返回的就是残差空间的值,
+`evaluate` 用 `pers = zeros`,**全程不反归一化、不加锚点**;`z_hat = z[ors] + resid` 后接 `unz`
+只存在于 [gru_aggregate.py:225-234](src/opentouch/gru_aggregate.py#L225-L234)。
+(`tactile_map/__init__.py:11` 说预测会导出给 `evaluate.py --model-preds`,但**该导出代码不存在**
+——grep `unz|score_external|--model-preds` 在 ActionSense 侧只命中 docstring。)
+**改法**:绿框改为 "residual forecast r̂_{t+1:t+H} (H×C), normalized units";删除锚点总线及其
+标注(z_t 在本臂从不回流,它只在 panel (a) 里定义 target);输出小图改为**残差空间**——
+persistence 就是那条 y=0 虚线,ground truth 与 μ 都围绕 0。同时删掉因此不再被引用的 `bus()`。
+
+**诚实性声明的处置与 probGRU 图一致**:画布上不写"曲线为合成示意",由 `main()` 每次保存后
+stdout 打印提醒,并要求论文 caption 承担。
+
+产物**未提交**,等用户确认。
+
+### 2026-08-26 — 【澄清】此前的 probGRU run 是冒烟测试,不是训练;补 CRC 作业文件
+
+**用户指出**:"这个 run 在跑什么?这并不是完整的训练。" **属实,且此前我讲得不够。**
+
+**2026-08-25 那次 run 的实际内容**:
+| | 已跑 | 完整一臂 |
+|---|---|---|
+| 数据 | **合成正弦波 fixture**(我造的) | 真实触觉 states |
+| 折 | 1 / 5 | 5 / 5 |
+| epoch | **4**(early stopping **未触发**,patience 15 > 4) | 至多 80 |
+| 耗时 | **12.7 s** | 5 折 × 80 ep × ~16,257 窗口 ≈ **6.5M 窗口前传/臂**,×2 臂 |
+
+即 **≈ 一臂一折的 1%,且信号是假的**。
+
+**它确实验证的**:LOSO 折能从真实几何建出、索引无泄漏;基线 fit/select/score 不崩;
+ProbGRU 前后向与形状对齐;`forecast()` 交回的正是 harness origins 且 `score_external` 接受;
+CSV/history 落盘。
+**它没有验证的**:模型在**真实触觉**上是否学得到;任何 skill 数字
+(+0.99 = AR/GRU 在纯正弦上的平凡拟合);80 epoch 下的过拟合行为
+(**OpenTouch 那边 epoch 2 就开始过拟合**);真实 F 的 DC 台座是否让 persistence 近乎不可战胜。
+**真实训练只能在 CRC 跑**——真 states 在那里,本地 anaconda 的 torch 还是坏的。
+
+**每折窗口数(真实几何)**:train 15,667–16,828 / val 4,239–5,359 / test 3,985–5,963。
+
+#### 新增 `scripts/crc/d256_probgru_gpu.job`
+沿用 `opentouch_probgru_gpu.job` 的模式,并把上面的"那次不是训练"直接写进抬头,
+以免日后有人把 12.7 秒的 fixture 数字当结果。要点:
+- `ARM=none|class` 经 `-v` 传入;**抬头写明 `none` 才是可横比的臂**,`class` 回答的是另一个问题。
+- **先跑基线再跑 GRU**(`SKIP_BASELINES=1` 可跳过):skill 的分母必须先存在,
+  且基线按折用同一 TRAIN 拟合。
+- 保留 `CUBLAS_WORKSPACE_CONFIG=:4096:8`(理由同 OpenTouch:确定性 GEMM;
+  `warn_only=True` 意味着无确定性 kernel 的算子仍会静默回退,**只是收窄而非关闭差异**)。
+- 提交前**先断言 `data/d256_states/manifest.jsonl` 存在**——静默地在空数据上训练会白白浪费整个 GPU 槽位。
+- **`pytest tests/` 跑全量而非手列子集**:torch 相关测试只在有 torch 的机器上真正执行,
+  而本地是坏的;"会跳过文件的门禁就是有洞的门禁"(OpenTouch 2026-08-23 的教训)。
