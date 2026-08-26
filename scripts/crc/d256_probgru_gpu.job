@@ -56,6 +56,25 @@ export CUBLAS_WORKSPACE_CONFIG=:4096:8
 
 ARM="${ARM:-none}"
 echo "Host: $(hostname)  JOB_ID: ${JOB_ID:-NA}  arm: $ARM  started $(date)"
+
+# Which code is this? Three consecutive runs (2026-08-26) died on a bug that had already been
+# fixed, because the clone was never pulled -- and nothing in the log said so. The failure
+# surfaced six minutes later as a KeyError from the OLD code, which reads like a fresh bug.
+# Stamp the commit into every log, and refuse to burn a GPU slot on a known-stale tree.
+echo "commit: $(git rev-parse --short HEAD)  $(git log -1 --format=%s)"
+if git fetch -q origin main 2>/dev/null; then
+    BEHIND=$(git rev-list --count HEAD..FETCH_HEAD 2>/dev/null || echo 0)
+    if [ "${BEHIND:-0}" != "0" ]; then
+        echo "FATAL: this tree is $BEHIND commit(s) behind origin/main."
+        echo "  git pull --rebase origin main    then resubmit"
+        exit 1
+    fi
+    echo "  up to date with origin/main"
+else
+    # Compute nodes may have no outbound network or no credentials; that is not a reason to
+    # fail, but the commit line above still tells you what ran.
+    echo "  (could not reach origin -- version not verified, see commit above)"
+fi
 python -c "import torch; print('torch', torch.__version__, '| cuda', torch.cuda.is_available(),
       '|', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU only')"
 
