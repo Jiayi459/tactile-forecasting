@@ -190,6 +190,65 @@ def pedestal_report(rows, states) -> str:
     return "\n".join(out)
 
 
+def predictability_floor(rows, states, H=6) -> str:
+    """Is each channel's VARIATION structure, or white noise at the forecast horizon?
+
+    This supersedes reading std/|mean| as evidence about skill. A DC pedestal cancels in
+    y[t+H] - y[t], and Norm z-scores it away before the model sees it, so skill vs persistence
+    is exactly invariant to it -- verified numerically 2026-08-26. std/|mean| describes the
+    sensor, not the forecasting problem.
+
+    What does decide readability is whether the deviations carry temporal structure. For white
+    noise E[(y[t+H]-y[t])^2] = 2*Var(y), so
+
+        R = E[(y[t+H]-y[t])^2] / (2*Var(y))
+
+    R ~ 1   -> white noise at this horizon: persistence is no better than predicting the mean,
+               and NOTHING can beat it. A near-zero skill here is a statement about the target.
+    R << 1  -> smooth and strongly autocorrelated: persistence is hard to beat, but beatable.
+    R > 1   -> oscillatory / anti-correlated across the horizon.
+
+    rho1 is the lag-1 autocorrelation of the deviations, reported alongside because R alone
+    cannot distinguish "smooth" from "slow drift plus noise".
+    """
+    acc = {name: {h: [] for _, h, _ in HANDS} for name, _ in CHANNELS}
+    for r in rows:
+        st = np.load(os.path.join(states, f"state_{r['idx']}.npy"))
+        if len(st) <= H + 2:
+            continue
+        for name, m in CHANNELS:
+            for _, h, _ in HANDS:
+                x = np.asarray(st[:, h, m], dtype=np.float64)
+                d = x - x.mean()
+                var = float(d.var())
+                if var <= 1e-12:
+                    continue
+                step = float(np.mean((x[H:] - x[:-H]) ** 2))
+                rho1 = float(np.mean(d[1:] * d[:-1]) / var)
+                acc[name][h].append((step / (2 * var), rho1, var))
+
+    out = [f"predictability floor at H={H} steps (1 s @ 6 Hz), over {len(rows)} recordings:",
+           "  R = E[(y[t+H]-y[t])^2] / (2*Var(y));  R~1 means white noise -> nothing is "
+           "predictable and a ~0 skill says so",
+           f"  {'channel':22s} {'hand':>5s} {'R':>8s} {'rho1':>8s} {'verdict':>34s}"]
+    for name, _ in CHANNELS:
+        for hname, h, _ in HANDS:
+            a = np.array(acc[name][h])
+            if not len(a):
+                continue
+            R, rho1 = a[:, 0].mean(), a[:, 1].mean()
+            if R > 0.85:
+                v = "WHITE NOISE -- skill cannot be read"
+            elif R > 0.5:
+                v = "weak structure"
+            elif R > 0.15:
+                v = "clear structure"
+            else:
+                v = "smooth; persistence strong"
+            out.append(f"  {name:22s} {hname:>5s} {R:8.3f} {rho1:8.3f} {v:>34s}")
+    return "\n".join(out)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--what", choices=["fcop", "map", "both", "report"], default="both",
@@ -214,8 +273,10 @@ def main():
     # The pedestal table is reported over the WHOLE corpus, not the plotted subset: it is
     # evidence about the dataset, and a handful of hand-picked recordings is not.
     report = pedestal_report(all_rows, args.states)
+    floor = predictability_floor(all_rows, args.states)
     header = f"corpus: {len(all_rows)} recordings"
-    print(header); print(); print(report); print()
+    print(header); print(); print(report); print(); print(floor); print()
+    report = report + "\n\n" + floor
 
     # Write it, do not just print it. This table is what decides whether an F skill number can
     # be read at all (OQ-D2), so it has to be a committable artefact that travels with the
