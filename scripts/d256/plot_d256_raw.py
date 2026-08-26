@@ -178,7 +178,10 @@ def pedestal_report(rows, states) -> str:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--what", choices=["fcop", "map", "both"], default="both")
+    ap.add_argument("--what", choices=["fcop", "map", "both", "report"], default="both",
+                    help="'report' prints the pedestal table only and draws nothing -- the "
+                         "table is what decides whether an F skill number is readable, and "
+                         "re-rendering the whole corpus just to see it is wasteful")
     ap.add_argument("--states", default=os.path.join("data", "d256_states"))
     ap.add_argument("--root", default=os.path.join(os.path.expanduser("~"), "forcevision"),
                     help="raw clips; needed for --what map")
@@ -189,15 +192,24 @@ def main():
     ap.add_argument("--out", default=None, help="explicit output file (single --what only)")
     args = ap.parse_args()
 
-    rows = pick(manifest(args.states), args.classes, args.per_class, args.subject)
+    all_rows = manifest(args.states)
+    rows = pick(all_rows, args.classes, args.per_class, args.subject)
     if not rows:
         sys.exit("no recordings selected -- check --classes/--subject")
-    os.makedirs(args.outdir, exist_ok=True)
-    print(f"selected {len(rows)} recordings")
-    print()
-    print(pedestal_report(rows, args.states))
-    print()
 
+    # The pedestal table is reported over the WHOLE corpus, not the plotted subset: it is
+    # evidence about the dataset, and a handful of hand-picked recordings is not.
+    print(f"corpus: {len(all_rows)} recordings")
+    print()
+    print(pedestal_report(all_rows, args.states))
+    print()
+    if args.what == "report":
+        return
+    os.makedirs(args.outdir, exist_ok=True)
+    print(f"plotting {len(rows)} selected recordings")
+
+    if args.what == "report":
+        return
     if args.what in ("fcop", "both"):
         plot_fcop(rows, args.states,
                   args.out or os.path.join(args.outdir, "d256_fcop.png"))
