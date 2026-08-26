@@ -300,7 +300,13 @@ def forecast(model, cfg: Config, ids: list[int], hp: dict, norm: Norm, fnorm: Fe
     for i in ids:
         X, A, L, _ = window_set(cfg, [i], hp, norm, fnorm, aids)
         if len(X) == 0:
-            continue
+            # Never skip silently. score_external requires a forecast for every test
+            # recording, so a skip here surfaces far away as an opaque KeyError -- which is
+            # exactly how the T == min_history + horizon off-by-one presented.
+            raise ValueError(
+                f"recording {i}: zero windows at min_history "
+                f"{cfg.raw['eval']['min_history']} + horizon {cfg.horizon}. It should not "
+                f"have passed dataset.eligible_recordings; the two disagree.")
         mus = []
         for k in range(0, len(X), hp["batch"]):
             mu, _ = model(X[k:k + hp["batch"]].to(dev), A[k:k + hp["batch"]].to(dev),

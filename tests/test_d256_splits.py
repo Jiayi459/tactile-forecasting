@@ -102,8 +102,13 @@ def test_geometry_matches_the_real_extraction(cfg):
 
 
 def test_config_min_history_keeps_most_recordings(cfg):
-    """The 4 s history is provisional in the config; this pins what it actually costs."""
-    assert len(D.eligible_recordings(cfg)) == 138
+    """The 4 s history is provisional in the config; this pins what it actually costs.
+
+    136, not the 138 recorded on 2026-08-25: that count came from the off-by-one eligibility
+    test, which admitted the two 30-frame segments that yield no windows. The budget table in
+    SESSION_LOG was computed the same way and is high by two for every row.
+    """
+    assert len(D.eligible_recordings(cfg)) == 136
 
 
 def test_folds_are_disjoint_and_subject_pure(cfg):
@@ -204,3 +209,38 @@ def test_features_are_causal_and_correctly_dimensioned(cfg):
     cut = 40
     f_trunc = PG.features(Y[:cut], cfg.fps)
     assert np.allclose(f[:cut], f_trunc)                  # truncating the future changes nothing
+
+
+def test_a_recording_of_exactly_min_history_plus_horizon_is_not_eligible(cfg):
+    """The half-open range makes T == min_history + horizon yield zero origins.
+
+    Two of the corpus's 166 segments are exactly 30 frames. Deriving eligibility as
+    `T >= min_history + horizon` admitted them, they produced no windows, and every LOSO run
+    died in score_external with an opaque KeyError. Eligibility must agree with origins()
+    exactly, at the boundary and not merely in general.
+    """
+    from src.actionsense.eval_harness.baselines.base import origins
+
+    need = cfg.raw["eval"]["min_history"] + cfg.horizon
+    assert len(origins(need, cfg)) == 0, "boundary assumption changed"
+    assert len(origins(need + 1, cfg)) == 1
+
+    rows = D.eligible_recordings(cfg)
+    assert all(len(origins(r["T"] // cfg.downsample, cfg)) > 0 for r in rows)
+    assert not any(r["T"] == need for r in rows), \
+        f"a T == {need} recording is eligible but yields no windows"
+    # The corpus really does contain the boundary case, so this test is not hypothetical.
+    assert sum(1 for _, _, T in GEOM if T == need) == 2
+
+
+def test_every_test_recording_in_every_fold_yields_windows(cfg):
+    """What actually broke: forecast() had nothing to return for one test recording, and
+    score_external demands one per recording. Assert the property directly, per fold."""
+    from src.actionsense.eval_harness.baselines.base import origins
+
+    rows = {r["idx"]: r for r in D.eligible_recordings(cfg)}
+    for f in S.folds(cfg):
+        for part in ("train", "val", "test"):
+            for i in f[part]:
+                assert len(origins(rows[i]["T"] // cfg.downsample, cfg)) > 0, \
+                    f"fold {f['fold']} {part} recording {i} (T={rows[i]['T']}) yields no windows"

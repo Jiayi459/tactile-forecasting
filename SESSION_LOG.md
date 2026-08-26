@@ -7864,3 +7864,43 @@ F_L 0.330   F_R 0.375   CoPx_L 0.362   CoPx_R 0.395   CoPy_L 0.332   CoPy_R 0.35
 
 **并更正一条我自己的错误判据**(见续3):`std/|mean|` 与 skill 数值无关,
 **OQ-D2 维持不扣基线**,不因 F 的 1.7%/1.9% 而重开。
+
+### 2026-08-26续5 — 【根因】六次 qsub 全部死于我代码里的 off-by-one;非训练问题
+
+**用户报"两个 qsub 7 分钟就结束"。查 `inspect_run.py`:**
+`runs/d256_probgru_none/history.json` **仍是上一次冒烟的**(epochs 2 / 1 折 / 6.6 s,未被覆盖),
+`runs/d256_probgru_class` **根本没有 history.json**。
+⇒ **那 7 分钟不是训练**,job 在训练前/中失败退出。用户据此打印的 skill
+(F_L −0.67、CoPy_R −1.27、std 全 NaN)**是冒烟产物,不可读**。
+
+**日志锁定根因,六个 job 全部同一处**:
+```
+KeyError: 'probgru: no forecasts for test recording 124'
+```
+录制 124 = `S04 s13 clip0` **长度正好 30 帧**。
+
+**Bug**:`eligible_recordings` 用 `T >= min_history + horizon = 30` 判定,
+而 `origins()` = `arange(min_history, T - horizon, stride)` 是**半开区间**,
+`T == 30` 时 `arange(24, 24, 1)` **为空**。
+⇒ **通过筛选却产不出任何窗口** → `forecast()` 静默 `continue` → `score_external`
+在很远处抛出难以理解的 KeyError。**全语料 166 段中恰有 2 段长度为 30。**
+
+**根因不是"算错了",而是同一个条件在两个地方各推导了一遍,于是它们不一致。**
+**修法**:`eligible_recordings` 改为**直接调用 `origins()` 判空**,唯一真源,两者不可能再漂移。
+另把 `forecast()` 的静默 `continue` 改为**显式报错**——正是那个静默让问题以最难懂的形式在远处爆出来。
+
+**⇒ 数字更正**:`138 → 136` 段存活。SESSION_LOG 2026-08-25 那张预算表**每一行都高了约 2**,
+正确值:`12→158, 18→147, 24→136(26,172 origins), 30→126, 40→116`。
+`tests/test_d256_splits.py` 里断言 138 的那条已改为 136 并注明来历。
+
+**新增两条测试**(`pytest 82 passed`):
+- **边界**:`origins(min_history+horizon)` 必须为空、`+1` 必须为 1;
+  eligible 结果中**不得存在 `T == 30` 的段**;并断言语料中**确实有 2 段**命中该边界
+  —— 使这条测试不是假想的。
+- **逐折**:每一折的 train/val/test 中**每一条**录制都必须能产出窗口,
+  直接断言"当时真正坏掉的那个性质"。
+
+**另外两个臂有同样的写法**(`src/opentouch/dataset.py:153`、
+`src/actionsense/eval_harness/splits.py:39` 都是 `need = min_history + horizon`)。
+**是否同样受影响取决于其语料中有没有长度恰为 `need` 的片段,尚未核查;
+且它们的结果已产出,改动会移动既有数字,故本轮不动,记为待办。**

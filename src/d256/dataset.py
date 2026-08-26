@@ -94,14 +94,22 @@ def missing_groups(train_groups: dict[int, str], other_groups: dict[int, str]) -
 
 
 def eligible_recordings(cfg: Config) -> list[dict]:
-    """Manifest rows long enough to yield >= 1 forecast origin at the configured rate.
+    """Manifest rows that yield >= 1 forecast origin at the configured rate.
 
     A FILTER only -- partitioning is splits.py. `T` in the manifest is the rebuilt SEGMENT
     length; a cell that held several recordings contributes one row per segment.
+
+    Eligibility is defined by calling `origins()` rather than by re-deriving its condition.
+    Re-deriving it as `T >= min_history + horizon` was off by one: origins() is
+    `arange(min_history, T - horizon, stride)`, which is EMPTY at `T == min_history + horizon`
+    because the range is half-open. Two of d256's 166 segments are exactly 30 frames, so they
+    passed the filter, produced no windows, and every LOSO run died in score_external with
+    "no forecasts for test recording 124" (2026-08-26, six jobs). Deriving the same condition
+    in two places is what allowed them to disagree; there is now one source of truth.
     """
+    from src.actionsense.eval_harness.baselines.base import origins
     ds = cfg.downsample
-    need = cfg.raw["eval"]["min_history"] + cfg.horizon
-    return [r for r in manifest(cfg) if (r["T"] // ds) >= need]
+    return [r for r in manifest(cfg) if len(origins(r["T"] // ds, cfg)) > 0]
 
 
 def budget_table(cfg: Config, candidates=(12, 18, 24, 30, 40)) -> str:
