@@ -199,10 +199,18 @@ def main():
 
     # The pedestal table is reported over the WHOLE corpus, not the plotted subset: it is
     # evidence about the dataset, and a handful of hand-picked recordings is not.
-    print(f"corpus: {len(all_rows)} recordings")
-    print()
-    print(pedestal_report(all_rows, args.states))
-    print()
+    report = pedestal_report(all_rows, args.states)
+    header = f"corpus: {len(all_rows)} recordings"
+    print(header); print(); print(report); print()
+
+    # Write it, do not just print it. This table is what decides whether an F skill number can
+    # be read at all (OQ-D2), so it has to be a committable artefact that travels with the
+    # figures -- terminal scrollback does not survive a push.
+    os.makedirs(args.outdir, exist_ok=True)
+    txt = os.path.join(args.outdir, "d256_pedestal.txt")
+    with open(txt, "w") as fh:
+        fh.write(header + "\n\n" + report + "\n")
+    print(f"  wrote {txt}")
     if args.what == "report":
         return
     os.makedirs(args.outdir, exist_ok=True)
