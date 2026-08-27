@@ -21,21 +21,32 @@ import os
 
 CH = ["F_R", "CoPx_R", "CoPy_R"]
 
+# d256, the third sensor. Its metrics.csv shares OpenTouch's schema (an extra `fold` column is
+# simply ignored, and averaging over folds is what we want), so `opentouch()` reads it.
+#
+# ITS PROTOCOL IS NOT THE OTHERS'. d256 is leave-one-SUBJECT-out; OpenTouch holds out a
+# location over 4 folds; ActionSense is a stratified 60/20/20 by recording. All three answer
+# "generalises to unseen what?" differently, and d256 answers the hardest of the three. A
+# lower number here is therefore not by itself evidence of a worse model.
+D256_RUNS = [("d256 none", "runs/d256_probgru_none/metrics.csv"),
+             ("d256 class", "runs/d256_probgru_class/metrics.csv")]
+
 # (label, ActionSense model name, OpenTouch model name). None means the arm has no
 # counterpart there -- NOT that it scored zero.
-ROWS = [("AR", "ar", "ar"),
-        ("seasonal", "seasonal", "seasonal"),
+# (label, ActionSense name, OpenTouch name, d256 name)
+ROWS = [("AR", "ar", "ar", "ar"),
+        ("seasonal", "seasonal", "seasonal", "seasonal"),
         # ActionSense's probGRU predicts the FAST component against persistence-of-fast,
         # OpenTouch's predicts the RAW target under the harness. Same name, different
         # question, so the ActionSense side stays empty rather than inviting the comparison.
-        ("probGRU", None, "prob_gru"),
-        ("GRU-aggregate", "aggregate", "map_aggregate"),
-        ("CNN (map)", "cnn", "cnn"),
-        ("flatten (map)", "flatten", "flatten"),
+        ("probGRU", None, "prob_gru", "probgru"),
+        ("GRU-aggregate", "aggregate", "map_aggregate", None),
+        ("CNN (map)", "cnn", "cnn", None),
+        ("flatten (map)", "flatten", "flatten", None),
         # the probGRU backbone reading the map: same architecture as the probGRU row above,
         # only the input differs, which is what the d1_pg run exists to isolate
-        ("probGRU + CNN", None, "pg_cnn"),
-        ("probGRU + flatten", None, "pg_flatten")]
+        ("probGRU + CNN", None, "pg_cnn", None),
+        ("probGRU + flatten", None, "pg_flatten", None)]
 
 # d1_map (08-22) is absent on purpose: flatten and cnn predicted arrays of zeros in it.
 RUNS = [("raw", "08-17", "4-fold, location held out, uncorrected target",
@@ -107,6 +118,26 @@ def actionsense(root="docs/actionsense"):
     return {k: sum(v) / len(v) for k, v in out.items()}
 
 
+def d256_hausdorff(path):
+    """-> {(model, channel): (hausdorff, ratio_vs_persistence)} averaged over folds."""
+    if not os.path.exists(path):
+        return {}
+    hd, rt = collections.defaultdict(list), collections.defaultdict(list)
+    for r in csv.DictReader(open(path)):
+        if r["horizon_step"] != "all":
+            continue
+        try:
+            v = float(r["value"])
+        except ValueError:
+            continue
+        if r["metric"] == "Hausdorff":
+            hd[(r["model"], r["channel"])].append(v)
+        elif r["metric"] == "HD_ratio_vs_persistence":
+            rt[(r["model"], r["channel"])].append(v)
+    return {k: (sum(hd[k]) / len(hd[k]),
+                sum(rt[k]) / len(rt[k]) if rt.get(k) else None) for k in hd}
+
+
 def cell(tbl, model, ch):
     v = tbl.get((model, ch)) if model else None
     return "—" if v is None else f"{v:.3f}".replace("-", "−")
@@ -118,15 +149,26 @@ def main():
     a = ap.parse_args()
 
     AS = actionsense()
+    D2 = {n: opentouch(p) for n, p in D256_RUNS if os.path.exists(p)}
+    D2H = {n: d256_hausdorff(p) for n, p in D256_RUNS if os.path.exists(p)}
+    if not D2:
+        print("note: no d256 metrics.csv -- its columns will be absent")
     OT = {n: opentouch(p) for n, _, _, p in RUNS if os.path.exists(p)}
     missing = [n for n, _, _, p in RUNS if not os.path.exists(p)]
     if missing:
         print(f"note: no CSV for {', '.join(missing)} -- their columns will be empty")
 
-    L = ["# Skill against persistence — every run, both sensors", "",
+    L = ["# Skill against persistence — every run, all three sensors", "",
          "Skill = 1 − MSE(model)/MSE(persistence) at the full 1 s horizon, pooled over",
          "frames, averaged over folds. Right hand only: OpenTouch instruments one hand, so",
-         "ActionSense's `_R` channels are the closest its two-handed target allows.", "",
+         "ActionSense's and d256's `_R` channels are the closest their two-handed targets allow.",
+         "",
+         "**The three columns are not the same experiment.** d256 holds out a whole SUBJECT",
+         "(5-fold LOSO), OpenTouch holds out a location (4-fold), ActionSense is a stratified",
+         "60/20/20 by recording. Unseen-person is the hardest of the three, so d256 scoring",
+         "lower is not on its own evidence of a worse model — it is a different question.",
+         "The 1 s horizon and the persistence reference ARE identical across all three,",
+         "which is what makes any comparison possible at all.", "",
          "Generated by `scripts/shared/build_skill_comparison.py` — every number is read from the",
          "run's own CSV, never transcribed. Rerun it after any new run.", "",
          # Definitions FIRST: the document quotes two different estimators that share the
@@ -142,13 +184,35 @@ def main():
           "`d1_map` (08-22) is **excluded**: flatten and cnn predicted arrays of zeros there.",
           "See SESSION_LOG 2026-08-22.", ""]
 
+    d2names = [n for n, _ in D256_RUNS if n in D2]
     for ch in CH:
         L += [f"## {ch}", "",
-              "| model | ActionSense | " + " | ".join(f"`{n}`" for n, *_ in RUNS) + " |",
-              "|---" * (len(RUNS) + 2) + "|"]
-        for label, asn, otn in ROWS:
-            cells = [cell(AS, asn, ch)] + [cell(OT.get(n, {}), otn, ch) for n, *_ in RUNS]
+              "| model | ActionSense | " + " | ".join(f"`{n}`" for n in d2names)
+              + (" | " if d2names else "") + " | ".join(f"`{n}`" for n, *_ in RUNS) + " |",
+              "|---" * (len(RUNS) + len(d2names) + 2) + "|"]
+        for label, asn, otn, d2n in ROWS:
+            cells = ([cell(AS, asn, ch)]
+                     + [cell(D2[n], d2n, ch) for n in d2names]
+                     + [cell(OT.get(n, {}), otn, ch) for n, *_ in RUNS])
             L.append(f"| {label} | " + " | ".join(cells) + " |")
+        L.append("")
+
+    if D2H and any(D2H.values()):
+        L += ["## Hausdorff — d256", "",
+              "Lower is better; `x` is the ratio to persistence. Same definition as the",
+              "OpenTouch section below (`src/shape_metrics.py`, shared so it cannot drift),",
+              "but note these come from the driver's own table rather than a report CSV, so",
+              "they are frame-pooled like the skill above rather than per-clip.", "",
+              "| model | run | " + " | ".join(CH) + " |", "|---" * (len(CH) + 2) + "|"]
+        for n in d2names:
+            for m in sorted({k[0] for k in D2H[n]}):
+                cells = []
+                for c in CH:
+                    vr = D2H[n].get((m, c))
+                    cells.append(f"{vr[0]:.3f} ({vr[1]:.2f}x)"
+                                 if vr and vr[1] is not None else
+                                 (f"{vr[0]:.3f}" if vr else "—"))
+                L.append(f"| {m} | `{n}` | " + " | ".join(cells) + " |")
         L.append("")
 
     RM = {n: report_metrics(p) for n, p in REPORTS}

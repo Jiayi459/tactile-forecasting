@@ -8006,3 +8006,103 @@ plot_fcop_loss_curve,plot_test_results,check_leakage}.py`、
 **注**:本仓当前 `origin` 是 HTTPS(`oldfork` 指向旧的 TouchAnything URL),
 但 CRC 那边的 remote 形式未核实,用户 push 输出里出现过 `github.com:Jiayi459/...` 的 SSH 形式。
 **故该风险对 CRC 是真实的,不是假想。**
+
+## 2026-08-26续9 — 【d256 首次完整 run 存档】JOB 1389130,arm=none
+
+### 一、运行环境与版本(日志实录)
+```
+Host: qa-a10-023.crc.nd.edu   JOB_ID: 1389130   arm: none
+commit: d45e0f4   up to date with origin/main
+torch 2.5.1+cu124 | cuda True | NVIDIA A10
+finished Wed Aug 26 11:42:54 PM EDT 2026     (五折合计约 296 s)
+```
+**这是第一次三行版本戳全部正常的 run** —— 此前四次失败(1387053/54、1387126/27、1387418/19、
+1389118)分别死于 off-by-one 与 CRC 未 pull,均无结果。
+
+### 二、协议(frozen config `configs/d256/eval_harness.yaml`, hash `2ec2ba37fa8cbb0b`)
+| 项 | 值 | 依据 |
+|---|---|---|
+| 目标 | 6 维 `[F_L,CoPx_L,CoPy_L,F_R,CoPx_R,CoPy_R]` | 双手套,与 ActionSense 同形 |
+| `fps_raw` | **6.0** | 实测(与 ActionSense 30 Hz 长度比 4.948±0.085 ⇒ 抽取 5) |
+| `downsample` | 1 | signals1 即基准时间轴 |
+| horizon | `horizon_s 1.0` ⇒ **6 帧** | 与 OT(30@30Hz)、AS(10@10Hz)**同物理量** |
+| `min_history` | **24 帧 = 4 s** | 与 AS 同秒数;实测 136/166 段存活 |
+| stride | 1 | |
+| mask | 力 5th pct 以下的 CoP 帧不计 | 三臂一致 |
+| `fit_scope` | `label_idx`,`min_group_size 5` | 目录名即类别,无需字符串解析 |
+| `ar_orders` | `[2,3,6,9,12,18]` | = AS 的 0.2–3.0 s 在 6 Hz 下的**同物理秒数** |
+| 划分 | **LOSO 5 折**,`val_frac 0.2`,seed 0 | val 只取自 TRAIN 受试者 |
+| 基线校正 | **无**(OQ-D2) | |
+
+### 三、架构与超参(`src/d256/prob_gru.py`,ActionSense 逐字复制)
+```
+emb Embedding(n_act=1, 8) | enc GRU(10->48) | dec GRU(6->48)
+mu/lv Linear(56->6), logvar clamp[-6,4] | 自回归 6 步,预测均值回喂
+参数 17,396   损失 0.5*(lv+(y-mu)^2*exp(-lv))  = 高斯 NLL 去常数
+hidden 48 | epochs 80 | lr 3e-3 | batch 64 | t_in 24 | patience 15 | Adam | dropout 0
+早停只看 VAL NLL | features="raw" | arm="none"(embedding 退化为常量)
+```
+**输入 10 维** = 6 原始通道 + 双手 CoP 的**因果后向差分** `v[t]=(x[t]-x[t-1])*6`。
+目标用 harness 的 `Norm`(按折 TRAIN 拟合,与基线共用);输入另用 `FeatNorm`(含速度)。
+窗口来自 harness `origins()`,训练与打分同一批。
+
+### 四、训练动态
+```
+fold  epochs  best  val NLL   train win  val win   secs
+  0     18      3   -0.5965    16,277     4,497    55.2
+  1     20      5   -0.4902    15,623     4,752    59.0
+  2     19      4   -0.5268    16,750     5,437    60.2
+  3     23      8   -0.4887    16,393     4,750    70.9
+  4     17      2   -0.2797    16,049     4,160    51.0
+```
+**五折全部早停,best epoch 落在 2–8** —— 即 **VAL NLL 在第 2–8 个 epoch 后就不再改善**,
+80 epoch 的预算实际只用了约 1/4,**且真正有效的只有前几个 epoch**。
+**这与 OpenTouch 的既有观察一致(2026-08-17:epoch 2 起过拟合)**,在第三个数据集上复现。
+
+### 五、结果 —— probGRU **输给了 persistence,也输给了线性 AR**
+skill vs persistence(折间均值±标准差):
+```
+model        F_L            CoPx_L         CoPy_L         F_R            CoPx_R         CoPy_R
+ar          +0.068±0.04    +0.130±0.04    +0.121±0.05    +0.101±0.05    +0.131±0.03    -0.032±0.28
+probgru     -0.353±0.36    +0.026±0.15    +0.039±0.10    +0.002±0.10    -0.057±0.19    -0.218±0.43
+seasonal    -0.087±0.12    -0.019±0.03    -0.071±0.09    -0.047±0.05    -0.040±0.04    -0.073±0.09
+```
+**通道均值:AR +0.087,probGRU −0.093,seasonal −0.056。**
+**probGRU 在 6 个通道中的 3 个上比 persistence 更差**,F_L 上差 −0.353。
+Hausdorff 独立佐证同一结论:AR 2.43–2.69 最好,probGRU 2.58–3.31,
+**F_L 上 probGRU(3.313)甚至差于 persistence(2.995)**。
+折间标准差极大(probGRU F_L ±0.36、CoPy_R ±0.43)⇒ **跨受试者极不稳定**。
+
+### 六、【我的预注册被证伪 —— 记录错在哪】
+我在 2026-08-26续4 预注册"若只抓线性结构,skill 应落在 **0.33–0.40**",
+并写下"≈0 ⇒ 不是数据不可预测,而是模型/训练有问题"。
+**实测 AR 只有 +0.087,probGRU −0.093。预注册值高了约 4 倍。**
+
+**错在哪**:我用 `R = 1 − ρ^H` 反解等效 AR(1),再套最优预测器公式
+`1 − (1−ρ^{2H})/(2(1−ρ^H))`。**那个公式给的是 ORACLE 上界 —— 它假设系数已知。**
+实际的 AR 必须 (a) 从有限 TRAIN 估系数,(b) 在 **LOSO 下跨受试者**泛化。
+另外 `rho1^H = 0.26` 与 `1−R = 0.34` 不一致,我当时判为"记忆更长 ⇒ 这是下界",
+但同样可以是**慢变分量 + 噪声**,那种结构下最优预测器并不比 persistence 好多少。
+**⇒ 把 oracle 上界当作可达下界,是推导本身的错误,不是数据的意外。**
+
+**因此我预先写的判读规则也随之失效**:不能再说"≈0 就是 bug"。
+**AR 的 +0.087 才是这个数据集在此协议下的经验参照**;probGRU 低于它,
+说明的是**这个 17k 参数的 GRU 打不过线性模型**,而不是流程坏了
+(`inspect_run` 报 `Nothing anomalous`,窗口数、折结构、版本戳均正常)。
+
+### 七、可信度检查(为什么这组数字是可读的)
+- 窗口数 15,623–16,750/折,与预期相符;五折 TRAIN 均覆盖 20 类。
+- LOSO 不变量由 `tests/test_d256_splits.py` 守住:三分区互斥、held-out 受试者不入 train/val、
+  每折每条录制都能产出窗口。
+- probGRU 与基线**在同一批 origins、同一 mask、同一 metrics** 上打分
+  (`score_external` 以形状为契约)。
+- `finished` 正常打印,无 traceback。
+
+### 八、`docs/skill_comparison.md` 已扩展以纳入 d256
+`scripts/shared/build_skill_comparison.py`:新增 `D256_RUNS`(两臂)、`d256_hausdorff()`,
+每个通道表加 d256 列,并新增 "Hausdorff — d256" 段。
+`opentouch()` 解析器可直接复用(schema 相同,多出的 `fold` 列被忽略且本就按折平均)。
+**表头显式写明三者协议不同**:d256 留一受试者、OpenTouch 留一地点、ActionSense 分层 60/20/20,
+**"未见过的人"是三者中最难的,故 d256 数字更低本身不构成"模型更差"的证据**;
+可比的是 1 s horizon 与 persistence 参照,这两者三臂一致。
+**数字仍由生成器从 CSV 读取,不手写。** 需在 CRC 上运行以刷新该文档。
