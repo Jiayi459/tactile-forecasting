@@ -32,6 +32,28 @@ from src.d256 import prob_gru as PG  # noqa: E402
 from src.d256 import splits as S  # noqa: E402
 
 
+def _window(y, fps, seconds, start):
+    """Which slice of the recording to draw.
+
+    Default picks the most active stretch rather than the first N seconds: a recording often
+    opens with the hand at rest, and a panel of flat line says nothing about any model.
+    Activity = rolling standard deviation over the window length.
+    """
+    T = len(y)
+    if not seconds or seconds <= 0 or T / fps <= seconds:
+        return 0.0, T / fps
+    w = int(seconds * fps)
+    if start is not None:
+        lo = int(np.clip(start * fps, 0, max(0, T - w)))
+        return lo / fps, (lo + w) / fps
+    best, best_v = 0, -1.0
+    for lo in range(0, T - w + 1, max(1, w // 4)):
+        v = float(np.std(y[lo:lo + w]))
+        if v > best_v:
+            best, best_v = lo, v
+    return best / fps, (best + w) / fps
+
+
 def load_model(run: str, fold: int, cfg):
     import torch
     path = os.path.join(run, f"fold{fold}.pt")
@@ -49,7 +71,14 @@ def main():
     ap.add_argument("--run", default="runs/d256_probgru_none")
     ap.add_argument("--config", default=os.path.join("configs", "d256", "eval_harness.yaml"))
     ap.add_argument("--fold", type=int, default=0)
-    ap.add_argument("--n", type=int, default=5, help="test recordings to draw")
+    ap.add_argument("--n", type=int, default=3, help="test recordings to draw (columns)")
+    ap.add_argument("--seconds", type=float, default=20.0,
+                    help="span to draw per panel. OpenTouch's clips are ~3.5 s so it drew them "
+                         "whole; d256 recordings run to 178 s, and at 6 Hz a whole one is too "
+                         "dense to read the shape off -- which is the only thing this figure "
+                         "is for. 0 draws everything.")
+    ap.add_argument("--start", type=float, default=None,
+                    help="window start in seconds (default: the most active stretch)")
     ap.add_argument("--outdir", default=os.path.join("docs", "d256", "forecast"))
     args = ap.parse_args()
 
@@ -85,39 +114,54 @@ def main():
 
     os.makedirs(args.outdir, exist_ok=True)
     H, fps = cfg.horizon, cfg.fps
-    style = {"persistence": ("0.55", "--"), "seasonal": ("tab:green", ":"),
-             "ar": ("tab:orange", "-."), "probgru": ("tab:red", "-")}
+
+    # Layout copied from docs/opentouch/raw/opentouch_forecast_*.png deliberately: ROWS ARE
+    # MODELS, columns are recordings. Overlaying every model in one panel -- the first version
+    # here -- hides exactly what these plots exist to show, which is the SHAPE each model
+    # draws. A flat line and a lagging line look alike when four curves share an axis.
+    MODEL_ROWS = [("ar", "tab:blue"), ("persistence", "0.35"),
+                  ("probgru", "tab:red"), ("seasonal", "tab:green")]
+    UNITS = {"F": "total force (a.u.)", "CoPx": "CoP x  [-1,1]", "CoPy": "CoP y  [-1,1]"}
 
     for ci, ch in enumerate(cfg.channels):
-        fig, axes = plt.subplots(len(picks), 1, figsize=(13, 2.4 * len(picks)), squeeze=False)
-        for r, i in enumerate(picks):
-            ax = axes[r][0]
+        nrow, ncol = len(MODEL_ROWS), len(picks)
+        fig, axes = plt.subplots(nrow, ncol, figsize=(4.3 * ncol, 2.5 * nrow),
+                                 squeeze=False, sharex="col")
+        for cj, i in enumerate(picks):
             Y = D.load_target(cfg, i)
             t = np.arange(len(Y)) / fps
-            ax.plot(t, Y[:, ci], color="0.15", lw=1.0, label="truth", zorder=5)
             orig = origins(len(Y), cfg)
-            # A handful of origins, spread out: drawing all of them would black out the axis.
-            for k in np.linspace(0, len(orig) - 1, min(6, len(orig))).astype(int):
-                o = orig[k]
-                ft = (np.arange(H) + o + 1) / fps
-                ax.plot(ft, preds[i][k, :, ci], color=style["probgru"][0],
-                        ls=style["probgru"][1], lw=1.6, alpha=0.9,
-                        label="probGRU" if (r == 0 and k == 0) else None, zorder=4)
-                for name in E.MODELS:
-                    yh = classical[name].predict(Y[:o + 1], H, ctx["gte"][i])
-                    c, ls = style[name]
-                    ax.plot(ft, yh[:, ci], color=c, ls=ls, lw=1.1, alpha=0.75,
-                            label=name if (r == 0 and k == 0) else None, zorder=3)
-                ax.axvline(o / fps, color="0.85", lw=0.5, zorder=1)
-            ax.set_ylabel(f"[{rows[i]['label_idx']}] {rows[i]['subject']}\n"
-                          f"{rows[i]['label'][:24]}", fontsize=7)
-            ax.tick_params(labelsize=7)
-            if r == 0:
-                ax.legend(fontsize=7, ncol=5, loc="upper right")
-            if r == len(picks) - 1:
-                ax.set_xlabel("time (s)")
-        fig.suptitle(f"d256 {ch} -- {H}-step ({H/fps:.1f} s) forecasts, fold {args.fold} "
-                     f"(test {fold['held_out']}), arm '{hp['arm']}'", y=0.999)
+            lo_t, hi_t = _window(Y[:, ci], fps, args.seconds, args.start)
+            # Non-overlapping origins, so successive forecast segments tile the axis instead
+            # of painting over each other -- the same reading the OpenTouch figure gives.
+            keep = orig[::H]
+            for ri, (mname, colour) in enumerate(MODEL_ROWS):
+                ax = axes[ri][cj]
+                ax.plot(t, Y[:, ci], color="black", lw=1.0, zorder=5,
+                        label="real" if (ri == 0 and cj == 0) else None)
+                for k, o in enumerate(keep):
+                    ft = (np.arange(H) + o + 1) / fps
+                    if mname == "probgru":
+                        yh = preds[i][list(orig).index(o), :, ci]
+                    else:
+                        yh = classical[mname].predict(Y[:o + 1], H, ctx["gte"][i])[:, ci]
+                    ax.plot(ft, yh, color=colour, lw=1.5, alpha=0.9, zorder=4,
+                            label=f"{mname} {H/fps:.0f} s forecast"
+                                  if (ri == 0 or True) and cj == 0 and k == 0 else None)
+                ax.set_xlim(lo_t, hi_t)
+                ax.grid(alpha=0.25, lw=0.4)
+                ax.tick_params(labelsize=7)
+                if cj == 0:
+                    ax.set_ylabel(f"{mname}\n{UNITS.get(ch.rsplit('_', 1)[0], ch)}", fontsize=8)
+                if ri == 0:
+                    ax.set_title(f"[{rows[i]['label_idx']}] {rows[i]['subject']} — "
+                                 f"{rows[i]['label'][:26]}", fontsize=8)
+                if ri == nrow - 1:
+                    ax.set_xlabel("time (s)")
+                if cj == 0:
+                    ax.legend(fontsize=6, loc="upper right")
+        fig.suptitle(f"d256 {ch}: real vs rolling {H/fps:.0f} s forecast (one model per row) — "
+                     f"fold {args.fold}, test {fold['held_out']}, arm '{hp['arm']}'", y=0.998)
         fig.tight_layout()
         out = os.path.join(args.outdir, f"d256_forecast_{ch}.png")
         fig.savefig(out, dpi=110, bbox_inches="tight"); plt.close(fig)
