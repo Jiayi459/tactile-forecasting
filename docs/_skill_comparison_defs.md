@@ -1,0 +1,78 @@
+## Definitions
+
+A forecast origin $t$ produces $H$ steps. $y_{t,h,c}$ is the true value of channel $c$ at
+target time $t+h$ and $\hat y_{t,h,c}$ the forecast; persistence predicts $y_{t,c}$, the value
+at the origin, for every $h$. $k$ indexes clips and $n_{k,c}$ is the number of valid
+(origin, step) pairs clip $k$ contributes to channel $c$ after the force mask.
+
+### Skill against persistence — two estimators, not interchangeable
+
+Both are $1-\mathrm{MSE}_{\text{model}}/\mathrm{MSE}_{\text{persistence}}$. They differ in
+what is averaged before the ratio is taken, and on F they disagree in **sign**, so every
+number has to say which one it is.
+
+**Frame-pooled** — written by the driver into `opentouch_cv4*.csv`:
+
+$$
+\mathrm{skill}_c \;=\; 1-\frac{\sum_k\sum_{t,h}\bigl(\hat y_{t,h,c}-y_{t,h,c}\bigr)^2}
+{\sum_k\sum_{t,h}\bigl(y_{t,c}-y_{t,h,c}\bigr)^2}
+$$
+
+Every valid (frame, channel) counts once, so long and high-variance clips carry more weight.
+
+**Clip-balanced** — written by the report into `opentouch_report*.csv`:
+
+$$
+\mathrm{skill}_c \;=\; 1-
+\frac{\dfrac{1}{K}\sum_k \dfrac{1}{n_{k,c}}\sum_{(t,h)\in k}\bigl(\hat y_{t,h,c}-y_{t,h,c}\bigr)^2}
+{\dfrac{1}{K}\sum_k \dfrac{1}{n_{k,c}}\sum_{(t,h)\in k}\bigl(y_{t,c}-y_{t,h,c}\bigr)^2}
+$$
+
+Each clip's mean error is formed first, so every clip counts once regardless of length. Clips
+with $n_{k,c}=0$ are dropped from numerator and denominator together, keeping both over the
+same clip set; a channel with no usable clip yields NaN rather than 0 or 1.
+
+$\mathrm{skill}=0$ ties persistence, $1$ is perfect, $<0$ is worse than assuming nothing
+changes.
+
+### Hausdorff distance between forecast and truth curves
+
+One forecast, from one origin, in one channel, is treated as a **set** of $H$ points in
+(time, value). Time is scaled to $[0,1]$ over the horizon and value by the truth's own spread
+there, so the two axes are commensurate:
+
+$$
+\sigma_t=\operatorname{std}_h\bigl(y_{t,h}\bigr),\qquad
+p_i=\Bigl(\tfrac{i}{H},\ \tfrac{\hat y_{t,i}}{\sigma_t}\Bigr),\qquad
+q_j=\Bigl(\tfrac{j}{H},\ \tfrac{y_{t,j}}{\sigma_t}\Bigr),\qquad i,j=0,\dots,H-1
+$$
+
+$$
+d(p_i,q_j)=\sqrt{\frac{(i-j)^2}{H^2}+\frac{\bigl(\hat y_{t,i}-y_{t,j}\bigr)^2}{\sigma_t^2}}
+$$
+
+$$
+\mathrm{HD}_t=\max\Bigl\{\ \max_i\min_j d(p_i,q_j),\ \ \max_j\min_i d(p_i,q_j)\ \Bigr\}
+$$
+
+Reported per channel as the mean of $\mathrm{HD}_t$ over origins within a clip, then over
+clips, and as a ratio to the same quantity for persistence. Lower is better; $1.00\times$
+ties persistence.
+
+Three properties govern how it is read:
+
+- **Both axis scalings are conventions.** They are identical for every model, so ratios
+  between models mean something even though the absolute number carries no units.
+- **Invariant to shifting both curves together.** Adding the same constant to $\hat y$ and
+  $y$ moves every point of both sets and leaves all pairwise distances unchanged — which is
+  why it may be computed on residual-over-persistence targets exactly, not approximately.
+- **$\sigma_t=0$ yields NaN, not 0.** A truth that is constant over the horizon has no shape
+  to compare against, and scoring that as a perfect match would flatter every model.
+
+### Why both are reported
+
+MSE is pointwise, so a flat forecast through the middle of an oscillation is charged only its
+distance from the centre. Hausdorff asks how far the worst point of one curve is from the
+whole of the other, so the same flat forecast is charged roughly the amplitude. On a unit
+sine over one horizon: a perfect forecast scores $0.000$, one shifted by $0.4$ rad scores
+$0.301$, and the mean scores $0.995$.
