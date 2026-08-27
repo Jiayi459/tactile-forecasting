@@ -139,15 +139,25 @@ def main():
                 ax = axes[ri][cj]
                 ax.plot(t, Y[:, ci], color="black", lw=1.0, zorder=5,
                         label="real" if (ri == 0 and cj == 0) else None)
-                for k, o in enumerate(keep):
-                    ft = (np.arange(H) + o + 1) / fps
+                # STITCHED, not one plot call per origin. OpenTouch concatenates the
+                # non-overlapping forecasts into a single line
+                # (plot_opentouch_forecast_overlay.py: "stitched into a continuous line",
+                # `idx = np.concatenate([arange(o+1, o+1+H) for o in sel])`). Drawing each
+                # 6-frame block separately -- the first version here -- broke the curve into
+                # disconnected pieces and made a tracking model look like a stuttering one.
+                # The step between blocks stays visible, because it is real: each block
+                # restarts from a new origin.
+                ft, yv = [], []
+                for o in keep:
+                    ft.append((np.arange(H) + o + 1) / fps)
                     if mname == "probgru":
-                        yh = preds[i][list(orig).index(o), :, ci]
+                        yv.append(preds[i][list(orig).index(o), :, ci])
                     else:
-                        yh = classical[mname].predict(Y[:o + 1], H, ctx["gte"][i])[:, ci]
-                    ax.plot(ft, yh, color=colour, lw=1.5, alpha=0.9, zorder=4,
-                            label=f"{mname} {H/fps:.0f} s forecast"
-                                  if (ri == 0 or True) and cj == 0 and k == 0 else None)
+                        yv.append(classical[mname].predict(Y[:o + 1], H, ctx["gte"][i])[:, ci])
+                if ft:
+                    ax.plot(np.concatenate(ft), np.concatenate(yv), color=colour, lw=1.5,
+                            alpha=0.9, zorder=4,
+                            label=f"{mname} {H/fps:.0f} s forecast" if cj == 0 else None)
                 ax.set_xlim(lo_t, hi_t)
                 ax.grid(alpha=0.25, lw=0.4)
                 ax.tick_params(labelsize=7)

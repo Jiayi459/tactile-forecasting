@@ -8205,3 +8205,29 @@ OpenTouch 的同类图亦然(persistence 行就是一段段平台)。**此为刻
 
 #### 五、待用户在 CRC 运行
 `python scripts/d256/probe_d256_anchor.py --run runs/d256_probgru_none`
+
+### 2026-08-27续 — 【用户纠正】预测曲线应**拼接成连续线**,而非逐段分画
+
+**用户指出**:预测线一节一节断开,与 OpenTouch probGRU 的结构不符。**属实,是我的画法错了。**
+
+**核查**:分歧**不在 origin 的取法**——OpenTouch 的
+`scripts/opentouch/plot_opentouch_forecast_overlay.py` 用的也是**不重叠** origin
+(`sel = range(0, len(ors), H)`),与我一致。
+**分歧在绘制**:该脚本 docstring 第 12 行明写 **"stitched into a continuous line"**,
+其第 68 行 `idx = np.concatenate([np.arange(ors[j]+1, ors[j]+1+H) for j in sel])`
+—— **先把各段索引拼接,再一次 plot 成一条线**。
+我则在循环里对每段各调一次 `ax.plot`,于是断成一节一节。
+**后果不只是难看:一个持续跟随信号的模型会被画得像在断续抖动**,读图结论会被误导。
+
+**已改为拼接绘制。** 段与段之间的跳变仍然可见,**那是真实的**:每段从一个新的 origin 重启。
+persistence 因而呈阶梯状,与 OpenTouch 的同类图外观一致。
+
+#### 顺带澄清用户提到的 "history 1/2/3 s"
+那是 **ActionSense 原图**的做法:**行 = 历史长度**,脚本内部为每个历史长度各训一个模型。
+OpenTouch 的 overlay 明确解释了为何它不这么做(其 docstring 第 19–24 行):
+`select_history` 虽训练 {1,2,3} s,但**只保留 VAL 选中的那个,其余被丢弃**,故那些预测不存在,
+行改用**模型**。
+**d256 的情况更简单:`t_in` 固定为 24(= `min_history` = 4 s),根本没有 sweep**,
+故"行 = 模型"是唯一可行且正确的选择。
+**若要复现 ActionSense 的"行 = 历史长度",需另开一个 history sweep 臂**
+(6 Hz 下 1/2/3 s = 6/12/18 帧,均 < 24,技术上可行),**这是另一个实验,未做,不擅自加。**
