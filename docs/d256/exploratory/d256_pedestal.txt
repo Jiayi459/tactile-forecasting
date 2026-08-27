@@ -8,3 +8,13 @@ per-channel over 166 recordings (no baseline correction, OQ-D2):
   CoP x  [-1,1]          right       0.0012     0.0040     0.0200     327.2%
   CoP y  [-1,1]           left      -0.0103     0.0052     0.0247      50.2%
   CoP y  [-1,1]          right      -0.0196     0.0049     0.0225      25.1%
+
+predictability floor at H=6 steps (1 s @ 6 Hz), over 166 recordings:
+  R = E[(y[t+H]-y[t])^2] / (2*Var(y));  R~1 means white noise -> nothing is predictable and a ~0 skill says so
+  channel                 hand        R     rho1                            verdict
+  F (total force, a.u.)   left    0.660    0.799                     weak structure
+  F (total force, a.u.)  right    0.750    0.806                     weak structure
+  CoP x  [-1,1]           left    0.723    0.680                     weak structure
+  CoP x  [-1,1]          right    0.791    0.651                     weak structure
+  CoP y  [-1,1]           left    0.664    0.692                     weak structure
+  CoP y  [-1,1]          right    0.715    0.701                     weak structure
