@@ -8155,3 +8155,53 @@ corrected = np.clip(flat - (base + k*sigma), 0.0, None)     # src/opentouch/base
 `python scripts/d256/probe_d256_baseline.py --root ~/forcevision --n 8`
 
 #### 另外:`class` 臂仍未跑,故 `skill_comparison.md` 只有 `d256 none` 一列。
+
+### 2026-08-27 — 【两臂结果齐】【读图诊断:probGRU 的缺陷疑在 ANCHOR 而非模型】
+
+#### 一、两臂结果(LOSO 5 折,右手三通道见 `docs/skill_comparison.md`)
+```
+skill vs persistence      CoPx_L  CoPx_R  CoPy_L  CoPy_R    F_L    F_R
+  ar                       0.130   0.131   0.121  -0.032  0.068  0.101
+  probgru (arm none)       0.026  -0.057   0.039  -0.218 -0.353  0.002
+  probgru (arm class)      0.049  -0.019   0.017  -0.192 -0.385 -0.027
+  seasonal                -0.019  -0.040  -0.071  -0.073 -0.087 -0.047
+```
+**OQ-D5 消融结论:标签几乎不值钱。** Δ(class − none) 六通道为
+`+0.023 +0.038 −0.022 +0.026 −0.032 −0.029`,**三正三负,均值 +0.001**。
+⇒ **告诉模型"正在做哪个活动"没有带来可辨识的收益**;两臂 best epoch 同样落在 2–8。
+(注:这**不能**解读为"活动身份无信息",只能说**在当前这个天花板下无法体现**。)
+
+**Hausdorff 与 skill 独立同向**:AR 全通道最低(0.849–0.916×persistence);
+probGRU 在 **F_L 1.107×、CoPy_R 1.031×** —— **比 persistence 还差**,与其负 skill 一致。
+
+#### 二、用户报"预测线一节一节断开" —— **不是 bug**
+每段是一次独立的 1 秒预测(6 帧),origin 之间隔一整个 horizon,故本就不相连;
+OpenTouch 的同类图亦然(persistence 行就是一段段平台)。**此为刻意设计**(2026-08-26 提交说明)。
+
+#### 三、但图上确有一个真问题:probGRU 的预测**系统性偏在真值上方**
+`docs/d256/forecast_none/d256_forecast_F_L.png` 第三行,红段整体浮于黑线之上(中列 63–70 s 最明显);
+而 persistence **按构造必从最后一个观测值出发**,故贴合。
+
+**机制假设**:probGRU 预测的是**绝对值** —— `mu` 是自由的 Linear,训练目标被该折 TRAIN 拟合的
+`Norm` z-score 过。**在留一受试者下,测试者的力水平不是训练者的**,于是该头回归到一个
+对这个人本就错误的水平。persistence / AR **不可能有此问题**:它们在原始单位上锚定于观测历史。
+**与通道分布吻合**:probGRU 在 **F**(人际绝对水平差异最大)上最差,在 CoP(已归一化到 [-1,1],
+更跨人不变)上接近 0。
+
+**仓库早已命名过这一区分**(`docs/_skill_comparison_notes.md:58`):
+"Seq2Seq predicts a residual; probGRU ... predicts the absolute value.
+**Part of what looks like detail is the anchor, not the model.**"
+—— 但 OpenTouch 是**留一地点**,水平漂移小得多;**LOSO 把它放大了**。
+
+#### 四、新增 `scripts/d256/probe_d256_anchor.py`(**纯只读**)—— 把读图变成测量
+按折按通道报:`bias = mean(pred − truth)`、`level shift = mean(test) − mean(train)`、
+`skill`、以及 **`skill_deb`(减去该折自身平均 bias 后的 skill)**,并给 `corr(bias, level shift)`。
+
+**`skill_deb` 的定性必须写明**:它**不是一个修复方案** —— 用测试集上算出的 bias 去减是作弊。
+它是**"消除 anchor 误差最多能买到多少"的上界**。
+- 若 `skill_deb` 逼近 AR ⇒ 架构没问题,**错在锚定**,值得做 residual 臂;
+- 若仍为负 ⇒ 模型有更深的问题,**重锚是白费功夫**。
+**先测再决定,不先改代码。**
+
+#### 五、待用户在 CRC 运行
+`python scripts/d256/probe_d256_anchor.py --run runs/d256_probgru_none`
