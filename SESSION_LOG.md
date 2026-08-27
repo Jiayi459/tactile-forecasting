@@ -7976,3 +7976,33 @@ plot_fcop_loss_curve,plot_test_results,check_leakage}.py`、
 
 **副作用(正面)**:此后在该目录做符号链接**不会再被 git 视为改动**,pull 不再被挡。
 **副作用(需注意)**:新 clone 不再自带 ActionSense states,须按 README 重建。
+
+### 2026-08-26续8 — 【本地五折全通,代码无罪】【我加的版本检查本身有挂住风险,已封顶】
+
+**调查方式**:不再靠猜,**在本地把完整流程跑一遍** —— fixture 用的是真实的 166 段几何
+(受试者/类别/长度全部照抄实跑输出),失败点录制 124 就在其中。
+**结果:五折全部跑通,含 fold 3(S04,即含 124 的那折)**,产出 5,640 行 metrics.csv。
+⇒ **off-by-one 修复有效,代码通路干净,失败不在代码。**
+
+顺带确认修复后的折分布(与旧值差 1–2 段,与 138→136 一致):
+`fold0 train 85 / fold1 82 / fold2 91 / fold3 88 / fold4 85`,每折 TRAIN 仍覆盖 20 类。
+
+#### 用户猜"是不是 git pull 有关系" —— 有,而且有两层
+**第一层(已知)**:前两次失败确实是 CRC 未 pull,跑的是旧代码。
+
+**第二层(我引入的新风险,用户这一问才让我去查)**:
+续7 给作业加的版本检查**自己就在跑 `git fetch`**,而我写成了
+`git fetch -q origin main 2>/dev/null` —— **既没有超时,也没有 batch 模式**。
+若 remote 是 SSH 形式且计算节点无 SSH agent,git 会**卡在 passphrase 提示**;
+若节点出站被防火墙挡,则**等到 TCP 超时才返回**。
+⇒ **一个本意是"省下 GPU 槽位"的检查,反而可能把墙钟耗在那里。**
+
+**已封顶**:`GIT_TERMINAL_PROMPT=0`(拒绝任何交互提示)+
+`GIT_SSH_COMMAND="ssh -oBatchMode=yes -oConnectTimeout=10"` + `timeout 20`;
+20 秒内答不上来就走"未验证"分支继续跑。
+并加 `command -v timeout >/dev/null || timeout() { shift; "$@"; }` —— 某些环境无 coreutils
+`timeout`,在 `set -e` 下会直接让作业死掉,故降级为不封顶执行而非失败。
+
+**注**:本仓当前 `origin` 是 HTTPS(`oldfork` 指向旧的 TouchAnything URL),
+但 CRC 那边的 remote 形式未核实,用户 push 输出里出现过 `github.com:Jiayi459/...` 的 SSH 形式。
+**故该风险对 CRC 是真实的,不是假想。**

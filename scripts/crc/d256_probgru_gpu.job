@@ -54,6 +54,8 @@ conda activate tactile
 # this narrows the gap, it does not close it.
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
 
+command -v timeout >/dev/null || timeout() { shift; "$@"; }   # no coreutils timeout: run uncapped
+
 ARM="${ARM:-none}"
 echo "Host: $(hostname)  JOB_ID: ${JOB_ID:-NA}  arm: $ARM  started $(date)"
 
@@ -62,7 +64,12 @@ echo "Host: $(hostname)  JOB_ID: ${JOB_ID:-NA}  arm: $ARM  started $(date)"
 # surfaced six minutes later as a KeyError from the OLD code, which reads like a fresh bug.
 # Stamp the commit into every log, and refuse to burn a GPU slot on a known-stale tree.
 echo "commit: $(git rev-parse --short HEAD)  $(git log -1 --format=%s)"
-if git fetch -q origin main 2>/dev/null; then
+# Never let the version check itself cost wall clock. An SSH remote on a node with no agent
+# can sit at a passphrase prompt, and a firewalled node waits out a TCP timeout; either way a
+# check meant to save a GPU slot would be burning one. Batch mode refuses to prompt, and the
+# whole fetch is capped -- if it cannot answer in 20 s, fall through to the unverified branch.
+if GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -oBatchMode=yes -oConnectTimeout=10" \
+       timeout 20 git fetch -q origin main 2>/dev/null; then
     BEHIND=$(git rev-list --count HEAD..FETCH_HEAD 2>/dev/null || echo 0)
     if [ "${BEHIND:-0}" != "0" ]; then
         echo "FATAL: this tree is $BEHIND commit(s) behind origin/main."
