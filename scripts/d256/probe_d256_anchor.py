@@ -17,7 +17,9 @@ level shift is smaller.
 
 WHAT IT REPORTS, per fold and channel:
   bias        mean(pred - truth). Zero if the model is not systematically displaced.
-  level shift mean(test) - mean(train). If bias tracks this, the anchor is the culprit.
+  level shift mean(test) - mean(train). Their correlation should be NEGATIVE if the anchor
+              is the culprit: emitting TRAIN's level on a higher-level test person under-
+              predicts, so bias ~ -(level shift).
   skill       as scored.
   skill_deb   skill after subtracting the fold's own mean bias from every forecast.
 
@@ -113,8 +115,13 @@ def main():
     a = np.array([r[2:] for r in rows], dtype=float)
     r = np.corrcoef(a[:, 0], a[:, 1])[0, 1]
     print(f"\ncorr(bias, level shift) = {r:+.3f} over {len(rows)} fold-channels")
-    print("  strongly positive => the model is reproducing TRAIN's level on a test person")
-    print("     whose level differs, i.e. the anchor, not the dynamics.")
+    # The sign the mechanism predicts is NEGATIVE, and the first version of this message said
+    # positive -- which would have read the confirming result as a refutation. If the model
+    # reproduces TRAIN's level on a test person whose level differs, then
+    #     bias = pred - truth ~ train_level - test_level = -(test - train) = -level_shift.
+    print("  the anchor mechanism predicts a NEGATIVE correlation: the model emits TRAIN's")
+    print("  level, so bias ~ train - test = -(level shift). Near zero instead would mean the")
+    print("  displacement is not tracking who is held out, and the anchor is not the cause.")
 
 
 if __name__ == "__main__":
