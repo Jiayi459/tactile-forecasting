@@ -147,24 +147,6 @@ See SESSION_LOG 2026-08-22.
 | probGRU + CNN | — | — | — | — | — | — | — | — | — | 0.430 |
 | probGRU + flatten | — | — | — | — | — | — | — | — | — | 0.446 |
 
-## Hausdorff — d256
-
-Lower is better; `x` is the ratio to persistence. Same definition as the
-OpenTouch section below (`src/shape_metrics.py`, shared so it cannot drift),
-but note these come from the driver's own table rather than a report CSV, so
-they are frame-pooled like the skill above rather than per-clip.
-
-| model | run | F_R | CoPx_R | CoPy_R |
-|---|---|---|---|---|
-| ar | `d256 none` | 2.694 (0.89x) | 2.427 (0.85x) | 2.628 (0.92x) |
-| persistence | `d256 none` | 3.023 (1.00x) | 2.857 (1.00x) | 2.870 (1.00x) |
-| probgru | `d256 none` | 3.022 (1.00x) | 2.646 (0.93x) | 2.959 (1.03x) |
-| seasonal | `d256 none` | 3.065 (1.01x) | 2.872 (1.01x) | 2.905 (1.01x) |
-| ar | `d256 class` | 2.694 (0.89x) | 2.427 (0.85x) | 2.628 (0.92x) |
-| persistence | `d256 class` | 3.023 (1.00x) | 2.857 (1.00x) | 2.870 (1.00x) |
-| probgru | `d256 class` | 3.071 (1.02x) | 2.570 (0.90x) | 2.914 (1.01x) |
-| seasonal | `d256 class` | 3.065 (1.01x) | 2.872 (1.01x) | 2.905 (1.01x) |
-
 ## Hausdorff distance between forecast and truth curves
 
 Lower is better; `x` is the ratio to persistence. Scaled per forecast so the
@@ -172,7 +154,29 @@ axes are commensurate: time spans [0,1] over the horizon, value is divided by
 the truth's own standard deviation there. Unlike MSE this is not pointwise, so
 a flat forecast through an oscillation is charged roughly its amplitude.
 
-### `d1_map2`
+### `d256 none` — d256
+
+Frame-pooled, from the driver's own table rather than a report CSV, so it pairs with the skill above; the OpenTouch subsections below are per-clip.
+
+| model | F_R | CoPx_R | CoPy_R |
+|---|---|---|---|
+| ar | 2.694 (0.89x) | 2.427 (0.85x) | 2.628 (0.92x) |
+| persistence | 3.023 (1.00x) | 2.857 (1.00x) | 2.870 (1.00x) |
+| probgru | 3.022 (1.00x) | 2.646 (0.93x) | 2.959 (1.03x) |
+| seasonal | 3.065 (1.01x) | 2.872 (1.01x) | 2.905 (1.01x) |
+
+### `d256 class` — d256
+
+Frame-pooled, from the driver's own table rather than a report CSV, so it pairs with the skill above; the OpenTouch subsections below are per-clip.
+
+| model | F_R | CoPx_R | CoPy_R |
+|---|---|---|---|
+| ar | 2.694 (0.89x) | 2.427 (0.85x) | 2.628 (0.92x) |
+| persistence | 3.023 (1.00x) | 2.857 (1.00x) | 2.870 (1.00x) |
+| probgru | 3.071 (1.02x) | 2.570 (0.90x) | 2.914 (1.01x) |
+| seasonal | 3.065 (1.01x) | 2.872 (1.01x) | 2.905 (1.01x) |
+
+### `d1_map2` — OpenTouch
 
 | model | F_R | CoPx_R | CoPy_R |
 |---|---|---|---|
@@ -183,7 +187,7 @@ a flat forecast through an oscillation is charged roughly its amplitude.
 | persistence | 3.301 (1.00x) | 3.151 (1.00x) | 3.070 (1.00x) |
 | seasonal | 2.699 (0.82x) | 2.396 (0.76x) | 2.226 (0.73x) |
 
-### `d1_pg`
+### `d1_pg` — OpenTouch
 
 | model | F_R | CoPx_R | CoPy_R |
 |---|---|---|---|

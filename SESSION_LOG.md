@@ -8273,3 +8273,34 @@ OpenTouch 的 overlay 明确解释了为何它不这么做(其 docstring 第 19�
 - **OQ-D2 / 基线去噪**(`probe_d256_baseline.py` 尚未运行)**可能是更大的杠杆**:
   OpenTouch 内部 raw→d1 把 AR 从 0.178 抬到 0.425、probGRU 从 0.237 抬到 0.428,
   **量级远大于这里的去偏增益**。**应先跑那个 probe。**
+
+### 2026-08-28续 — 【版式修正】Hausdorff 并为一节;【核实】三处 probGRU 的解码器种子完全一致
+
+#### 一、用户"看不到 d256 的 skill 和 HD" —— 数据在,是版式问题
+d256 的 skill 列(`d256 none` / `d256 class`)本就在三张通道表里;Hausdorff 也在,
+但被放在**一个单独的 `## Hausdorff — d256` 大节**中,紧挨着 `## Hausdorff distance between
+forecast and truth curves`。**两个几乎同名的并列大节,使同一指标在不同传感器上读起来像两回事**,
+而 skill 是三个传感器合在一张表里的 —— **不一致**。
+**已改为单一 Hausdorff 大节**,d256 与 OpenTouch 各作子节
+(`### d256 none — d256` / `### d1_pg — OpenTouch`),并在 d256 子节标明
+**它是 frame-pooled(与上方 skill 同口径),而 OpenTouch 子节是 per-clip** —— 两者不可混读。
+
+#### 二、用户问:"每一秒都是从这一秒开始时的 ground truth 开始预测,这和 OpenTouch/ActionSense 一样吗"
+**核实结论:三处完全一致。**
+| | 解码器种子 |
+|---|---|
+| d256 | `YL.append(z[t])` (`prob_gru.py:160`) |
+| OpenTouch | `YL.append(z[t])` (`prob_gru.py:240`) |
+| ActionSense | `norm.ny(Yin)[:, -1]` (`action_dynamics.py:183`) |
+三者都以 **origin 处的真值目标**为种子,随后**自回归 rollout 喂自己的 mean**
+(`inp = mu.unsqueeze(1)`,三处同)。
+
+**这不是泄漏**:在预报时刻 t,y[t] 是**已观测**的。**而且 persistence 用的是同一个锚点**
+(ActionSense `action_dynamics.py:213`:`pers = np.repeat(Yin[:, -1:], t_out, 1)`),
+故 skill 的分子分母共享同一起点,比较是公平的。
+
+**但有一处必须点破,它正是"看起来准而数字差"的来源**:
+**种子只是解码器的输入,输出 `mu[0]` 来自一个自由的 Linear 头,并不被约束在 y[t] 附近。**
+`docs/d256/forecast_none/d256_forecast_F_L.png` 上可见:t=85 处真值 ~395,红线起点 ~401
+—— **第一步就偏离了锚点约 6 个单位**。这与 anchor 诊断测到的 |bias| 1.83/1.98(仅 F 通道)一致。
+⇒ **图上"每段从真值出发"的印象是错的;真正从真值出发的是 persistence,不是 probGRU。**

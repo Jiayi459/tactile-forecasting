@@ -197,34 +197,37 @@ def main():
             L.append(f"| {label} | " + " | ".join(cells) + " |")
         L.append("")
 
-    if D2H and any(D2H.values()):
-        L += ["## Hausdorff — d256", "",
-              "Lower is better; `x` is the ratio to persistence. Same definition as the",
-              "OpenTouch section below (`src/shape_metrics.py`, shared so it cannot drift),",
-              "but note these come from the driver's own table rather than a report CSV, so",
-              "they are frame-pooled like the skill above rather than per-clip.", "",
-              "| model | run | " + " | ".join(CH) + " |", "|---" * (len(CH) + 2) + "|"]
-        for n in d2names:
-            for m in sorted({k[0] for k in D2H[n]}):
-                cells = []
-                for c in CH:
-                    vr = D2H[n].get((m, c))
-                    cells.append(f"{vr[0]:.3f} ({vr[1]:.2f}x)"
-                                 if vr and vr[1] is not None else
-                                 (f"{vr[0]:.3f}" if vr else "—"))
-                L.append(f"| {m} | `{n}` | " + " | ".join(cells) + " |")
-        L.append("")
-
     RM = {n: report_metrics(p) for n, p in REPORTS}
     have = [n for n in RM if any(k[0] == "hausdorff" for k in RM[n])]
-    if have:
+    # ONE Hausdorff section, not one per sensor. d256's used to sit in a separate "## Hausdorff
+    # -- d256" heading immediately above this one, and two near-identically named sections made
+    # the same metric on different sensors read as two different things. Skill puts all three
+    # sensors in one table; this now matches.
+    if have or (D2H and any(D2H.values())):
         L += ["## Hausdorff distance between forecast and truth curves", "",
               "Lower is better; `x` is the ratio to persistence. Scaled per forecast so the",
               "axes are commensurate: time spans [0,1] over the horizon, value is divided by",
               "the truth's own standard deviation there. Unlike MSE this is not pointwise, so",
               "a flat forecast through an oscillation is charged roughly its amplitude.", ""]
+        for n in d2names:
+            if not D2H.get(n):
+                continue
+            L += [f"### `{n}` — d256", "",
+                  "Frame-pooled, from the driver's own table rather than a report CSV, so it "
+                  "pairs with the skill above; the OpenTouch subsections below are per-clip.",
+                  "",
+                  "| model | " + " | ".join(CH) + " |", "|---" * (len(CH) + 1) + "|"]
+            for m in sorted({k[0] for k in D2H[n]}):
+                cells = []
+                for c in CH:
+                    vr = D2H[n].get((m, c))
+                    cells.append(f"{vr[0]:.3f} ({vr[1]:.2f}x)" if vr and vr[1] is not None
+                                 else (f"{vr[0]:.3f}" if vr else "—"))
+                L.append(f"| {m} | " + " | ".join(cells) + " |")
+            L.append("")
+
         for n in have:
-            L += [f"### `{n}`", "",
+            L += [f"### `{n}` — OpenTouch", "",
                   "| model | " + " | ".join(CH) + " |", "|---" * (len(CH) + 1) + "|"]
             for m in sorted({k[1] for k in RM[n] if k[0] == "hausdorff"}):
                 cells = []
