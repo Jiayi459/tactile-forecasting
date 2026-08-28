@@ -8304,3 +8304,55 @@ forecast and truth curves`。**两个几乎同名的并列大节,使同一指标
 `docs/d256/forecast_none/d256_forecast_F_L.png` 上可见:t=85 处真值 ~395,红线起点 ~401
 —— **第一步就偏离了锚点约 6 个单位**。这与 anchor 诊断测到的 |bias| 1.83/1.98(仅 F 通道)一致。
 ⇒ **图上"每段从真值出发"的印象是错的;真正从真值出发的是 persistence,不是 probGRU。**
+
+## 2026-08-28续2 — 【解释"skill 低但图看着准"】并**撤回**我一个不成立的跨数据集对照
+
+### 用户观察
+d256 的 probGRU skill 低于 AS/OT、也低于 AR,只胜过 seasonal;**但预测图看起来比 OT 精准**。
+
+### 一、【我的错误】拿去对比的 OpenTouch 图是**错的那一张**
+我先前给出的是 `docs/opentouch/raw/opentouch_forecast_F.png` —— **`raw` 运行,OpenTouch 最差的一版**
+(AR skill 0.148)。而 `skill_comparison` 表里的数字来自 **`d1`**(AR 0.367)。
+
+**看 `docs/opentouch/d1/opentouch_forecast_d1_F.png`:它比 d256 的图难看得多** ——
+ar 与 prob_gru 画的是近乎平滑的线,穿过剧烈振荡的黑色真值,**几乎没跟上任何一次摆动**;
+可它的 skill 是 d256 的 **3.6 倍**。
+⇒ **"视觉准确度"与 skill 的背离比用户注意到的更强,且方向相反:OT 里 skill 最高的一版,预测看起来最不像。**
+
+**机制(定义层面,非经验)**:`skill = 1 − MSE_model / MSE_persistence` 是**比值**。
+它衡量的是**相对 persistence 还剩多少余地**,不是绝对准确度。
+persistence 在剧烈振荡的信号上很差 ⇒ 分母大 ⇒ 任何做平滑的模型都能拿高分,哪怕曲线毫不像。
+
+### 二、【撤回】我上一轮那张"跨数据集归一化 MSE"对照不成立
+我把 **d256 的 frame-pooled MSE** 与 **OpenTouch 的 clip-balanced R²** 放在一起比,
+并据此说"OpenTouch 上模型和 persistence 都更准"。
+**`docs/skill_comparison.md` 第 24–28 行明确写着这两个估计量 "on F they disagree in sign"。**
+**混用它们做的比较不能作数,该结论撤回。**
+
+### 三、新增 `scripts/shared/predictability_floor.py` —— 用**同一个量、同一份代码**量三个传感器
+`R = E[(y[t+H] − y[t])²] / (2·Var(y))`,白噪声 R≈1。
+**R 直接就是"persistence 之上还剩多少余地"**,而这正是 skill 的计量单位。
+刻意放在 `scripts/shared/`(与 `src/shape_metrics.py` 同理):**定义一旦在两侧漂移,比较就没意义**。
+兼容任意 `(T,C,6)` 缓存(d256/AS 为 C=2,OpenTouch C=1),horizon 取各自冻结 config 的值。
+
+**已测**:
+```
+ActionSense (10 Hz, H=10)   R 均值 0.585    AR skill 0.216
+d256        ( 6 Hz, H=6 )   R 均值 0.717    AR skill 0.087
+OpenTouch                   待测(states 未在仓库中,须在 CRC 跑)
+```
+**⇒ d256 的信号在 1 秒内比 ActionSense 变化【更大】(更接近白噪声),却被预测得【更差】。**
+即:**R 衡量的是变化幅度,不是该变化可不可预测。** d256 的 horizon 尺度变化里,
+可预测成分的占比更低。
+
+### 四、由此产生的一个具体假设(**未验证**,值得测)
+**d256 = ActionSense 按 5 倍抽取(SESSION_LOG 2026-08-24 实测)。**
+若该抽取**未做抗混叠滤波**,则原 30 Hz 信号中 3 Hz 以上的能量会**折叠回 0–3 Hz 频带成为噪声**。
+这恰好同时解释两件事:
+- **图上看着平滑**(6 Hz 采样本就画不出快速抖动,而 OT 是 30 Hz,抖动全部可见);
+- **却更难预测**(折叠进来的高频能量在低频带里表现为不可预测的噪声)。
+**判别方法**:把本地 ActionSense 的 30 Hz states 分别用「带抗混叠滤波」与「直接抽取」降到 6 Hz,
+比较各自的功率谱与 R,看 d256 与哪一种吻合。**未实施。**
+
+### 五、待用户在 CRC 运行以补齐第三个数字
+`python scripts/shared/predictability_floor.py --config configs/opentouch/eval_harness_d1.yaml`
