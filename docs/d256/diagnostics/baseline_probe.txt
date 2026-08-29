@@ -1,0 +1,19 @@
+sampling 8 cells from signals1
+
+cell                       T    quantum  #levels  base med  sigma med   kept%  F kept%  CoP shift
+S01/s0  train        357     0.0143       63    0.4571    0.02118   23.0%    1.44%     0.1532
+S01/s12 train         56     0.0143       50    0.4714    0.00714   22.2%    0.93%     0.1284
+S02/s3  train        205     0.0143       71    0.4857    0.02118   23.5%    1.70%     0.1845
+S02/s14 train         56     0.0143       71    0.4929    0.02118   22.3%    1.11%     0.1365
+S03/s10 train         50     0.0143       50    0.4714    0.00714   21.8%    0.77%     0.1377
+S04/s1  train        273     0.0143       69    0.4857    0.02118   25.1%    1.67%     0.1407
+S04/s12 train         36     0.0143       50    0.4714    0.00714   22.7%    0.81%     0.1269
+S05/s5  train         68     0.0143       53    0.4714    0.00714   24.2%    1.05%     0.1279
+
+median over cells: quantum 0.01429   levels 58   taxel-frames kept 22.8%   F kept 1.08%   CoP shift 0.1371
+
+=== verdict ===
+  quantum is IDENTICAL across cells (0.01429) -> a real sensor LSB, shared
+     electronics property. estimate()'s sigma floor is meaningful here.
+  F keeps 1.08% while 22.8% of taxel-frames
+     survive -- the correction is doing real work rather than nothing or everything.

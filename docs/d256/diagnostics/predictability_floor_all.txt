@@ -1,0 +1,26 @@
+# predictability floor across all three sensors
+# R = E[(y[t+H]-y[t])^2] / (2*Var(y));  R~1 = decorrelated by the horizon
+# one definition, one implementation: scripts/shared/predictability_floor.py
+# generated 2026-08-29T14:51:11Z  commit 78cd094
+
+=== configs/actionsense/eval_harness.yaml ===
+/users/jhao3/TouchAnything/data/actionsense_states/manifest.jsonl missing -- this arm's cache is not built here
+
+=== configs/d256/eval_harness.yaml ===
+eval_harness.yaml   fps 6  H 6 steps (1.00 s)   166 recordings
+  channel          R    rho1   R~1 = decorrelated by the horizon (persistence weak, easy to beat)
+  F_L          0.660   0.799
+  CoPx_L       0.723   0.680
+  CoPy_L       0.664   0.692
+  F_R          0.750   0.806
+  CoPx_R       0.791   0.651
+  CoPy_R       0.715   0.701
+  MEAN         0.717
+
+=== configs/opentouch/eval_harness_d1.yaml ===
+eval_harness_d1.yaml   fps 30  H 30 steps (1.00 s)   2902 recordings
+  channel          R    rho1   R~1 = decorrelated by the horizon (persistence weak, easy to beat)
+  F_R          1.045   0.303
+  CoPx_R       1.060   0.358
+  CoPy_R       1.017   0.204
+  MEAN         1.041
