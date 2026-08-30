@@ -8356,3 +8356,71 @@ OpenTouch                   待测(states 未在仓库中,须在 CRC 跑)
 
 ### 五、待用户在 CRC 运行以补齐第三个数字
 `python scripts/shared/predictability_floor.py --config configs/opentouch/eval_harness_d1.yaml`
+
+### 2026-08-28 — 【核查】`d256_forecast_*` 画的是不是 test set
+
+**用户问**:`d256_forecast_COPx` 画的是 test set 对吗,应该是 test set。
+
+**答:是。** 逐条证据(`scripts/d256/plot_d256_forecast.py`):
+- 第 104 行 `picks = sorted(fold["test"], ...)[:args.n]` —— 只从 `fold["test"]` 取,按录音时长降序取最长的 3 条;
+- `fold["test"]` = LOSO 留一受试者的全部录音(`src/d256/splits.py:66`),与 train/val 受试者不相交;
+- 图标题写明 `test {fold['held_out']}`(第 174 行);
+- `Norm`/`FeatNorm` 只从 `fold["train"]` 拟合(第 96–98 行);经典臂 `fit(ctx["train"])` + `select(ctx["val"])`(第 112 行),VAL 亦出自 train 受试者;
+- probGRU 由 `fold{n}.pt` 重算并校验 `config_hash`(第 63–65 行)⇒ **画出的曲线与 metrics 表中被打分的是同一批预测**。
+
+**但有两个口径必须写明(非 bug,影响读图):**
+1. **横轴窗口按 test 信号自身活跃度选取**(`_window`,第 49–54 行,滚动 std 取最活跃 20 s)。
+   仅影响显示、不进入预测,但意味着面板展示的是**最剧烈的一段**而非随机段 ——
+   目视印象比全程平均更严苛。2026-08-27 那条 `forecast_none/d256_forecast_F_L.png` 的
+   probGRU 上偏观察即取自此类窗口。
+2. **`action_ids` 的标签词表建在 `train+val+test` 上**(第 99 行)。这只是 id 映射、不含数值;
+   但 `class` 臂本就把 test 的活动标签当输入(评分时同样如此),**非画图引入**。
+   ⇒ `forecast_class/` 对应"已知活动身份"条件,`forecast_none/` 才是无标签条件。
+
+**结论:无需修改代码。**
+
+## 2026-08-30 — 【三传感器 R 齐】OpenTouch R=1.041;【自我更正 ×2】我又把 oracle 量当成可达量
+
+### 一、predictability floor:三个传感器,同一定义、同一实现
+```
+ActionSense (10 Hz, H=10)   R 0.585   AR skill 0.216      * 本地 60 段;CRC 上其 states 缺失
+d256        ( 6 Hz, H= 6)   R 0.717   AR 0.087 / pg -0.093
+OpenTouch d1(30 Hz, H=30)   R 1.041   AR 0.367 / pg 0.386   2902 段
+```
+**OpenTouch 的 R > 1 ⇒ 1 秒 horizon 上信号已完全去相关(略反相关)。**
+`rho1` 也印证:OT 仅 0.20–0.36,而 d256 0.65–0.81、AS 0.89–0.95。
+**⇒ OpenTouch 的 skill 0.367/0.386 是在一个极弱的分母上取得的**:persistence 在那里
+比"不动"还差,`MSE_persist = 2R·Var ≈ 2.08·Var`。
+**这解释了 `opentouch_forecast_d1_F.png` 为何画成近乎平直的线却拿高分** —— 它逼近的是局部均值,
+而那在 R>1 的信号上就足以大幅胜过 persistence。
+
+### 二、【更正 1】我由此推出"平凡的均值预测器会赢过所有模型" —— **实测推翻**
+推算:`skill(恒均值) = 1 − 1/(2R)` ⇒ AS 0.145、d256 0.303、OT 0.520,
+并据此断言 AR/probGRU 都输给平凡基线。
+**新增 `scripts/shared/probe_mean_baseline.py` 实测(纯只读),ActionSense 上:**
+```
+hist_mean    -0.300   (推算 +0.145)
+hist_mean_w  -0.157
+```
+**符号都反了。** 原因:推算里的"均值"是**整段自身的均值**(MSE ≡ Var,按定义);
+而因果可得的 `hist_mean` 只能用 t 之前的历史,**它滞后** —— 信号一有漂移,running mean
+就系统性偏离当下水平。由实测反推 `MSE(hist_mean) ≈ 1.52·Var`,而非推算假设的 `1.00·Var`。
+
+### 三、【更正 2】这是同一类错误的**第二次**
+- 2026-08-26:用 AR(1) 最优预测器公式给出 skill **0.33–0.40 的"下界"** —— 那是 **oracle 上界**
+  (假设系数已知),实测 AR 仅 0.087。
+- 本轮:用**整段均值**(需要全局信息)去推**因果均值**的表现。
+**共同点:把一个需要未来/全局信息的量当作可达的,再当成"下界"。**
+**教训写死在此:凡由解析式推出的性能数,在标注为"可达"之前必须先跑一次因果实现。**
+
+### 四、仍然成立、且仍然重要的部分
+`R` 本身是实测量,三个数字有效。**"OpenTouch 的高 skill 来自弱分母"这一解释不依赖被推翻的推算**
+—— 它只依赖 R=1.041 与 `MSE_persist = 2R·Var` 的定义,以及 d1 图上模型确实画成近平直线这一观察。
+**但"平凡基线会赢"的强断言已撤回**,须在 d256 与 OpenTouch 上实跑 `probe_mean_baseline.py` 才知道;
+两者 R 远高于 ActionSense(0.717 / 1.041 vs 0.585),结论**可能不同**,不能由 AS 的结果外推。
+
+### 五、待用户在 CRC 运行
+```
+python scripts/shared/probe_mean_baseline.py --config configs/d256/eval_harness.yaml
+python scripts/shared/probe_mean_baseline.py --config configs/opentouch/eval_harness_d1.yaml
+```
