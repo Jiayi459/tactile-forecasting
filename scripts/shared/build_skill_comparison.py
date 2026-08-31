@@ -118,6 +118,23 @@ def actionsense(root="docs/actionsense"):
     return {k: sum(v) / len(v) for k, v in out.items()}
 
 
+FLOOR_CSV = "docs/predictability_floor.csv"
+
+
+def floor_R(path=FLOOR_CSV):
+    """-> {(sensor, channel): (R, rho1)} from scripts/shared/predictability_floor.py --csv.
+
+    Read, never transcribed, like every other number here. R is reported beside skill because
+    skill's denominator is persistence and persistence is NOT equally hard across sensors:
+    measured, it ranges from 0.585 on ActionSense to 1.041 on OpenTouch. A reader comparing
+    two skill columns without knowing that is comparing two different questions.
+    """
+    if not os.path.exists(path):
+        return {}
+    return {(r["sensor"], r["channel"]): (float(r["R"]), float(r["rho1"]))
+            for r in csv.DictReader(open(path))}
+
+
 def d256_hausdorff(path):
     """-> {(model, channel): (hausdorff, ratio_vs_persistence)} averaged over folds."""
     if not os.path.exists(path):
@@ -149,6 +166,7 @@ def main():
     a = ap.parse_args()
 
     AS = actionsense()
+    FL = floor_R()
     D2 = {n: opentouch(p) for n, p in D256_RUNS if os.path.exists(p)}
     D2H = {n: d256_hausdorff(p) for n, p in D256_RUNS if os.path.exists(p)}
     if not D2:
@@ -195,6 +213,16 @@ def main():
                      + [cell(D2[n], d2n, ch) for n in d2names]
                      + [cell(OT.get(n, {}), otn, ch) for n, *_ in RUNS])
             L.append(f"| {label} | " + " | ".join(cells) + " |")
+        # How hard was the denominator? Same row shape, so it reads directly under the skills
+        # it qualifies. Sensor-level, not run-level: R is a property of the signal and the
+        # horizon, so every run on one sensor shares it.
+        if FL:
+            def rcell(sensor):
+                v = FL.get((sensor, ch))
+                return "—" if v is None else f"{v[0]:.3f}".replace("-", "−")
+            cells = ([rcell("actionsense")] + [rcell("d256") for _ in d2names]
+                     + [rcell("opentouch") for _ in RUNS])
+            L.append("| **R** (persistence difficulty) | " + " | ".join(cells) + " |")
         L.append("")
 
     RM = {n: report_metrics(p) for n, p in REPORTS}

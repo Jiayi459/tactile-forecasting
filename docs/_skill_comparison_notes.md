@@ -91,3 +91,26 @@ pending:
   unattributed — `seq2seq_agg_recheck` closes that.
 
 **Until both land, the cross-sensor reversal is an observation and not a finding.**
+
+## d256 is ActionSense reprocessed, not a fourth collection
+
+The ICLR page presents `d256.zip` as its own dataset. The evidence says it is ActionSense,
+decimated 5x in time and cut into 16-frame sliding windows with paired video:
+
+* All 20 class strings match ActionSense's verbatim ("Slice a cucumber", "Get/replace items
+  from refrigerator/cabinets/drawers", ...).
+* The sensor suite is identical -- two tactile gloves, Myo EMG and accelerometer,
+  joint-position, both hand poses -- and the subject codes S01-S05 are the same.
+* Pairing recordings by label and taking the three classes where the counts match 1:1, the
+  length ratio over **15 independent recordings** is **4.948 +- 0.085**. Independently
+  collected recordings of the same activity do not come out to a constant 4.95x.
+* 6 Hz is 30 Hz / 5, and ActionSense is natively 30 Hz.
+
+This is inference from length ratios, not frame-level alignment. The check that would settle
+it: cross-correlate a d256 F(t) against the matching ActionSense F(t) decimated by 5 --
+same recording means correlation near 1 once aligned, since the rescaling to [0,1] changes
+amplitude but not shape. Not yet run.
+
+It matters for reading the tables. d256 and ActionSense are not independent evidence about
+tactile forecasting; they are the same recordings at two rates, under two protocols
+(leave-one-subject-out against a stratified split). Their agreement is not corroboration.

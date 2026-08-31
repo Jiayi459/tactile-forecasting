@@ -8424,3 +8424,36 @@ hist_mean_w  -0.157
 python scripts/shared/probe_mean_baseline.py --config configs/d256/eval_harness.yaml
 python scripts/shared/probe_mean_baseline.py --config configs/opentouch/eval_harness_d1.yaml
 ```
+
+### 2026-08-30续 — 【R 进入横比表】【判定:d256 是 ActionSense 的再处理,非独立数据集】
+
+#### 一、`R` 已接入 `docs/skill_comparison.md`,且**从 CSV 读取而非手写**
+`predictability_floor.py` 新增 `--csv/--sensor`,把 `[sensor, channel, R, rho1, n]` 追加到
+`docs/predictability_floor.csv`;`build_skill_comparison.py` 新增 `floor_R()` 读它,
+在每张通道表底部加一行 **`R (persistence difficulty)`**。
+**保持该文档"每个数字都来自 CSV,从不转抄"的契约。**
+R 是**传感器级**属性(信号 × horizon),故同一传感器的所有 run 共享一个值。
+
+**并更正一处**:先前记录的 ActionSense R=0.585 来自**仅 60 段**的试跑;
+全量 **299 段**为 **R 均值 0.649**。CSV 与文档用全量值。
+三者:**ActionSense 0.649 / d256 0.717 / OpenTouch 1.041**。
+
+**为什么必须并排显示**:skill 的分母是 persistence,而 persistence 的难度**跨传感器差近一倍**。
+读者只看两个 skill 数字而不知道 R,比较的其实是两个不同的问题。
+
+#### 二、用户问"d256(ICLR)是不是独立数据集" —— **不是,是 ActionSense 的再处理**
+证据(已写入 `docs/_skill_comparison_notes.md`):
+1. **20 个类的标签字符串与 ActionSense 逐字相同**;
+2. **传感器组合完全一致**(双触觉手套 + Myo EMG/acc + joint-position + 双手姿态),
+   **受试者编号 S01–S05 相同**;
+3. **决定性的一条**:按标签配对,取录制条数 1:1 无歧义的三个类,
+   **15 段独立录制的长度比 = 4.948 ± 0.085(±1.7%)**。
+   **独立采集的同一活动录制,时长不可能整齐压在 4.95 倍上。**
+4. 6 Hz = 30 Hz ÷ 5,而 ActionSense 原生 30 Hz。
+
+**证据强度声明**:这是**由长度比推断**,非逐帧对齐。**待做的铁证**:
+取 d256 某段的 F(t) 与对应 ActionSense 段按 5 倍抽取后的 F(t) 做互相关 ——
+同一段录制则对齐后相关系数应接近 1(数值被重缩放,形状不变)。**尚未执行。**
+
+**对读表的影响,已写进 notes**:**d256 与 ActionSense 不是关于触觉预报的两份独立证据**,
+而是同一批录制在两种速率、两种协议(LOSO vs 分层切分)下的结果。**两者一致不构成互证。**

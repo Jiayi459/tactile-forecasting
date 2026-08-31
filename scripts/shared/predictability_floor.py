@@ -48,6 +48,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
     ap.add_argument("--limit", type=int, default=None, help="recordings to read (default all)")
+    ap.add_argument("--csv", default=None,
+                    help="append rows [sensor,channel,R,rho1,n_recordings] here, so "
+                         "build_skill_comparison.py can read the numbers instead of having "
+                         "them transcribed into the document by hand")
+    ap.add_argument("--sensor", default=None, help="name for the --csv rows (default: config stem)")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -97,6 +102,22 @@ def main():
         print(f"  {name:10s} {a[:,0].mean():7.3f} {a[:,1].mean():7.3f}")
     allR = np.concatenate([np.array(v)[:, 0] for v in acc.values() if v])
     print(f"  {'MEAN':10s} {allR.mean():7.3f}")
+
+    if args.csv:
+        import csv as _csv
+        sensor = args.sensor or os.path.splitext(os.path.basename(args.config))[0]
+        new = not os.path.exists(args.csv)
+        with open(args.csv, "a", newline="") as fh:
+            w = _csv.writer(fh)
+            if new:
+                w.writerow(["sensor", "channel", "R", "rho1", "n_recordings"])
+            for c, name in enumerate(names):
+                if not acc[c]:
+                    continue
+                a = np.array(acc[c])
+                w.writerow([sensor, name, round(float(a[:, 0].mean()), 4),
+                            round(float(a[:, 1].mean()), 4), used])
+        print(f"  appended {len(names)} rows -> {args.csv}")
 
 
 if __name__ == "__main__":

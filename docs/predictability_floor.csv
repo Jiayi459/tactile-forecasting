@@ -1,0 +1,16 @@
+sensor,channel,R,rho1,n_recordings
+actionsense,F_L,0.6069,0.9334,299
+actionsense,CoPx_L,0.6491,0.8979,299
+actionsense,CoPy_L,0.5787,0.9085,299
+actionsense,F_R,0.6551,0.9309,299
+actionsense,CoPx_R,0.7463,0.8679,299
+actionsense,CoPy_R,0.6584,0.8917,299
+d256,F_L,0.66,0.799,166
+d256,CoPx_L,0.723,0.68,166
+d256,CoPy_L,0.664,0.692,166
+d256,F_R,0.75,0.806,166
+d256,CoPx_R,0.791,0.651,166
+d256,CoPy_R,0.715,0.701,166
+opentouch,F_R,1.045,0.303,2902
+opentouch,CoPx_R,1.06,0.358,2902
+opentouch,CoPy_R,1.017,0.204,2902

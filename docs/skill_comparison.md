@@ -157,42 +157,45 @@ See SESSION_LOG 2026-08-22.
 
 ## F_R
 
-| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|
-| AR | 0.200 | 0.148 | 0.148 | 0.367 | 0.367 | 0.367 | 0.367 | 0.367 |
-| seasonal | 0.000 | −0.019 | −0.019 | −0.038 | −0.038 | −0.038 | −0.038 | −0.038 |
-| probGRU | — | 0.203 | 0.207 | 0.386 | 0.383 | — | — | 0.386 |
-| GRU-aggregate | 0.181 | — | — | — | — | 0.360 | 0.360 | — |
-| CNN (map) | 0.138 | — | — | — | — | 0.333 | 0.330 | — |
-| flatten (map) | −0.042 | — | — | — | — | 0.273 | 0.269 | — |
-| probGRU + CNN | — | — | — | — | — | — | — | 0.356 |
-| probGRU + flatten | — | — | — | — | — | — | — | 0.322 |
+| model | ActionSense | `d256 none` | `d256 class` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
+|---|---|---|---|---|---|---|---|---|---|---|
+| AR | 0.200 | 0.101 | 0.101 | 0.148 | 0.148 | 0.367 | 0.367 | 0.367 | 0.367 | 0.367 |
+| seasonal | 0.000 | −0.047 | −0.047 | −0.019 | −0.019 | −0.038 | −0.038 | −0.038 | −0.038 | −0.038 |
+| probGRU | — | 0.002 | −0.027 | 0.203 | 0.207 | 0.386 | 0.383 | — | — | 0.386 |
+| GRU-aggregate | 0.181 | — | — | — | — | — | — | 0.360 | 0.360 | — |
+| CNN (map) | 0.138 | — | — | — | — | — | — | 0.333 | 0.330 | — |
+| flatten (map) | −0.042 | — | — | — | — | — | — | 0.273 | 0.269 | — |
+| probGRU + CNN | — | — | — | — | — | — | — | — | — | 0.356 |
+| probGRU + flatten | — | — | — | — | — | — | — | — | — | 0.322 |
+| **R** (persistence difficulty) | 0.655 | 0.750 | 0.750 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 |
 
 ## CoPx_R
 
-| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|
-| AR | 0.254 | 0.214 | 0.214 | 0.431 | 0.431 | 0.431 | 0.431 | 0.431 |
-| seasonal | 0.000 | −0.015 | −0.015 | −0.033 | −0.033 | −0.033 | −0.033 | −0.033 |
-| probGRU | — | 0.288 | 0.278 | 0.427 | 0.431 | — | — | 0.427 |
-| GRU-aggregate | 0.233 | — | — | — | — | 0.422 | 0.422 | — |
-| CNN (map) | 0.011 | — | — | — | — | 0.374 | 0.370 | — |
-| flatten (map) | −0.002 | — | — | — | — | 0.331 | 0.328 | — |
-| probGRU + CNN | — | — | — | — | — | — | — | 0.414 |
-| probGRU + flatten | — | — | — | — | — | — | — | 0.393 |
+| model | ActionSense | `d256 none` | `d256 class` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
+|---|---|---|---|---|---|---|---|---|---|---|
+| AR | 0.254 | 0.131 | 0.131 | 0.214 | 0.214 | 0.431 | 0.431 | 0.431 | 0.431 | 0.431 |
+| seasonal | 0.000 | −0.040 | −0.040 | −0.015 | −0.015 | −0.033 | −0.033 | −0.033 | −0.033 | −0.033 |
+| probGRU | — | −0.057 | −0.019 | 0.288 | 0.278 | 0.427 | 0.431 | — | — | 0.427 |
+| GRU-aggregate | 0.233 | — | — | — | — | — | — | 0.422 | 0.422 | — |
+| CNN (map) | 0.011 | — | — | — | — | — | — | 0.374 | 0.370 | — |
+| flatten (map) | −0.002 | — | — | — | — | — | — | 0.331 | 0.328 | — |
+| probGRU + CNN | — | — | — | — | — | — | — | — | — | 0.414 |
+| probGRU + flatten | — | — | — | — | — | — | — | — | — | 0.393 |
+| **R** (persistence difficulty) | 0.746 | 0.791 | 0.791 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 |
 
 ## CoPy_R
 
-| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|
-| AR | 0.194 | 0.171 | 0.171 | 0.476 | 0.476 | 0.476 | 0.476 | 0.476 |
-| seasonal | 0.000 | −0.016 | −0.016 | −0.009 | −0.009 | −0.009 | −0.009 | −0.009 |
-| probGRU | — | 0.221 | 0.227 | 0.472 | 0.472 | — | — | 0.472 |
-| GRU-aggregate | 0.175 | — | — | — | — | 0.469 | 0.469 | — |
-| CNN (map) | 0.045 | — | — | — | — | 0.424 | 0.419 | — |
-| flatten (map) | −0.051 | — | — | — | — | 0.407 | 0.408 | — |
-| probGRU + CNN | — | — | — | — | — | — | — | 0.430 |
-| probGRU + flatten | — | — | — | — | — | — | — | 0.446 |
+| model | ActionSense | `d256 none` | `d256 class` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
+|---|---|---|---|---|---|---|---|---|---|---|
+| AR | 0.194 | −0.032 | −0.032 | 0.171 | 0.171 | 0.476 | 0.476 | 0.476 | 0.476 | 0.476 |
+| seasonal | 0.000 | −0.073 | −0.073 | −0.016 | −0.016 | −0.009 | −0.009 | −0.009 | −0.009 | −0.009 |
+| probGRU | — | −0.218 | −0.192 | 0.221 | 0.227 | 0.472 | 0.472 | — | — | 0.472 |
+| GRU-aggregate | 0.175 | — | — | — | — | — | — | 0.469 | 0.469 | — |
+| CNN (map) | 0.045 | — | — | — | — | — | — | 0.424 | 0.419 | — |
+| flatten (map) | −0.051 | — | — | — | — | — | — | 0.407 | 0.408 | — |
+| probGRU + CNN | — | — | — | — | — | — | — | — | — | 0.430 |
+| probGRU + flatten | — | — | — | — | — | — | — | — | — | 0.446 |
+| **R** (persistence difficulty) | 0.658 | 0.715 | 0.715 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 |
 
 ## Hausdorff distance between forecast and truth curves
 
@@ -200,6 +203,28 @@ Lower is better; `x` is the ratio to persistence. Scaled per forecast so the
 axes are commensurate: time spans [0,1] over the horizon, value is divided by
 the truth's own standard deviation there. Unlike MSE this is not pointwise, so
 a flat forecast through an oscillation is charged roughly its amplitude.
+
+### `d256 none` — d256
+
+Frame-pooled, from the driver's own table rather than a report CSV, so it pairs with the skill above; the OpenTouch subsections below are per-clip.
+
+| model | F_R | CoPx_R | CoPy_R |
+|---|---|---|---|
+| ar | 2.694 (0.89x) | 2.427 (0.85x) | 2.628 (0.92x) |
+| persistence | 3.023 (1.00x) | 2.857 (1.00x) | 2.870 (1.00x) |
+| probgru | 3.022 (1.00x) | 2.646 (0.93x) | 2.959 (1.03x) |
+| seasonal | 3.065 (1.01x) | 2.872 (1.01x) | 2.905 (1.01x) |
+
+### `d256 class` — d256
+
+Frame-pooled, from the driver's own table rather than a report CSV, so it pairs with the skill above; the OpenTouch subsections below are per-clip.
+
+| model | F_R | CoPx_R | CoPy_R |
+|---|---|---|---|
+| ar | 2.694 (0.89x) | 2.427 (0.85x) | 2.628 (0.92x) |
+| persistence | 3.023 (1.00x) | 2.857 (1.00x) | 2.870 (1.00x) |
+| probgru | 3.071 (1.02x) | 2.570 (0.90x) | 2.914 (1.01x) |
+| seasonal | 3.065 (1.01x) | 2.872 (1.01x) | 2.905 (1.01x) |
 
 ### `d1_map2` — OpenTouch
 
@@ -369,4 +394,27 @@ pending:
   unattributed — `seq2seq_agg_recheck` closes that.
 
 **Until both land, the cross-sensor reversal is an observation and not a finding.**
+
+## d256 is ActionSense reprocessed, not a fourth collection
+
+The ICLR page presents `d256.zip` as its own dataset. The evidence says it is ActionSense,
+decimated 5x in time and cut into 16-frame sliding windows with paired video:
+
+* All 20 class strings match ActionSense's verbatim ("Slice a cucumber", "Get/replace items
+  from refrigerator/cabinets/drawers", ...).
+* The sensor suite is identical -- two tactile gloves, Myo EMG and accelerometer,
+  joint-position, both hand poses -- and the subject codes S01-S05 are the same.
+* Pairing recordings by label and taking the three classes where the counts match 1:1, the
+  length ratio over **15 independent recordings** is **4.948 +- 0.085**. Independently
+  collected recordings of the same activity do not come out to a constant 4.95x.
+* 6 Hz is 30 Hz / 5, and ActionSense is natively 30 Hz.
+
+This is inference from length ratios, not frame-level alignment. The check that would settle
+it: cross-correlate a d256 F(t) against the matching ActionSense F(t) decimated by 5 --
+same recording means correlation near 1 once aligned, since the rescaling to [0,1] changes
+amplitude but not shape. Not yet run.
+
+It matters for reading the tables. d256 and ActionSense are not independent evidence about
+tactile forecasting; they are the same recordings at two rates, under two protocols
+(leave-one-subject-out against a stratified split). Their agreement is not corroboration.
 
