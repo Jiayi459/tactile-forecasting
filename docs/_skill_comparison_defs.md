@@ -35,6 +35,34 @@ same clip set; a channel with no usable clip yields NaN rather than 0 or 1.
 $\mathrm{skill}=0$ ties persistence, $1$ is perfect, $<0$ is worse than assuming nothing
 changes.
 
+### The same name across the three datasets
+
+`skill` always means "against persistence" and never "against the mean" -- the mean is the
+denominator of $R^2$, which the report prints in a separate table and which is a different
+quantity. What does differ between the datasets is how the errors are averaged and which
+frames are counted:
+
+| | reference | averaging | force mask |
+|---|---|---|---|
+| OpenTouch, `opentouch_cv4*.csv` | persistence | frame-pooled | yes |
+| OpenTouch, `opentouch_report*.csv` | persistence | clip-balanced | yes |
+| OpenTouch $R^2$ | the scored subset's own mean | clip-balanced | yes |
+| ActionSense, `tactile_map` | persistence | frame-pooled per fold, then averaged over folds | **no** |
+| d256 | — | — | — |
+
+Two consequences worth carrying:
+
+- **OpenTouch and ActionSense skill are not computed over the same frames.** OpenTouch drops
+  frames below a force threshold (`masking.valid_mask`); ActionSense counts all of them. A
+  cross-sensor skill difference therefore includes a difference in which frames were scored.
+- **ActionSense computes in z-normalised residual space and OpenTouch in raw absolute units,
+  and that one does NOT matter.** Skill is a ratio, so a per-channel constant scale cancels
+  from numerator and denominator alike.
+
+**d256 has no skill number of any kind**, and cannot have one yet: it has no forecaster, and
+its sampling rate is not recoverable from the archive, so "a one-second horizon" is undefined
+there (`docs/model_comparability.md` §3).
+
 ### Hausdorff distance between forecast and truth curves
 
 One forecast, from one origin, in one channel, is treated as a **set** of $H$ points in

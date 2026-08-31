@@ -51,6 +51,34 @@ same clip set; a channel with no usable clip yields NaN rather than 0 or 1.
 $\mathrm{skill}=0$ ties persistence, $1$ is perfect, $<0$ is worse than assuming nothing
 changes.
 
+### The same name across the three datasets
+
+`skill` always means "against persistence" and never "against the mean" -- the mean is the
+denominator of $R^2$, which the report prints in a separate table and which is a different
+quantity. What does differ between the datasets is how the errors are averaged and which
+frames are counted:
+
+| | reference | averaging | force mask |
+|---|---|---|---|
+| OpenTouch, `opentouch_cv4*.csv` | persistence | frame-pooled | yes |
+| OpenTouch, `opentouch_report*.csv` | persistence | clip-balanced | yes |
+| OpenTouch $R^2$ | the scored subset's own mean | clip-balanced | yes |
+| ActionSense, `tactile_map` | persistence | frame-pooled per fold, then averaged over folds | **no** |
+| d256 | — | — | — |
+
+Two consequences worth carrying:
+
+- **OpenTouch and ActionSense skill are not computed over the same frames.** OpenTouch drops
+  frames below a force threshold (`masking.valid_mask`); ActionSense counts all of them. A
+  cross-sensor skill difference therefore includes a difference in which frames were scored.
+- **ActionSense computes in z-normalised residual space and OpenTouch in raw absolute units,
+  and that one does NOT matter.** Skill is a ratio, so a per-channel constant scale cancels
+  from numerator and denominator alike.
+
+**d256 has no skill number of any kind**, and cannot have one yet: it has no forecaster, and
+its sampling rate is not recoverable from the archive, so "a one-second horizon" is undefined
+there (`docs/model_comparability.md` §3).
+
 ### Hausdorff distance between forecast and truth curves
 
 One forecast, from one origin, in one channel, is treated as a **set** of $H$ points in
@@ -110,42 +138,42 @@ See SESSION_LOG 2026-08-22.
 
 ## F_R
 
-| model | ActionSense | `d256 none` | `d256 class` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|---|---|
-| AR | 0.200 | 0.101 | 0.101 | 0.148 | 0.148 | 0.367 | 0.367 | 0.367 | 0.367 | 0.367 |
-| seasonal | 0.000 | −0.047 | −0.047 | −0.019 | −0.019 | −0.038 | −0.038 | −0.038 | −0.038 | −0.038 |
-| probGRU | — | 0.002 | −0.027 | 0.203 | 0.207 | 0.386 | 0.383 | — | — | 0.386 |
-| GRU-aggregate | 0.181 | — | — | — | — | — | — | 0.360 | 0.360 | — |
-| CNN (map) | 0.138 | — | — | — | — | — | — | 0.333 | 0.330 | — |
-| flatten (map) | −0.042 | — | — | — | — | — | — | 0.273 | 0.269 | — |
-| probGRU + CNN | — | — | — | — | — | — | — | — | — | 0.356 |
-| probGRU + flatten | — | — | — | — | — | — | — | — | — | 0.322 |
+| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
+|---|---|---|---|---|---|---|---|---|
+| AR | 0.200 | 0.148 | 0.148 | 0.367 | 0.367 | 0.367 | 0.367 | 0.367 |
+| seasonal | 0.000 | −0.019 | −0.019 | −0.038 | −0.038 | −0.038 | −0.038 | −0.038 |
+| probGRU | — | 0.203 | 0.207 | 0.386 | 0.383 | — | — | 0.386 |
+| GRU-aggregate | 0.181 | — | — | — | — | 0.360 | 0.360 | — |
+| CNN (map) | 0.138 | — | — | — | — | 0.333 | 0.330 | — |
+| flatten (map) | −0.042 | — | — | — | — | 0.273 | 0.269 | — |
+| probGRU + CNN | — | — | — | — | — | — | — | 0.356 |
+| probGRU + flatten | — | — | — | — | — | — | — | 0.322 |
 
 ## CoPx_R
 
-| model | ActionSense | `d256 none` | `d256 class` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|---|---|
-| AR | 0.254 | 0.131 | 0.131 | 0.214 | 0.214 | 0.431 | 0.431 | 0.431 | 0.431 | 0.431 |
-| seasonal | 0.000 | −0.040 | −0.040 | −0.015 | −0.015 | −0.033 | −0.033 | −0.033 | −0.033 | −0.033 |
-| probGRU | — | −0.057 | −0.019 | 0.288 | 0.278 | 0.427 | 0.431 | — | — | 0.427 |
-| GRU-aggregate | 0.233 | — | — | — | — | — | — | 0.422 | 0.422 | — |
-| CNN (map) | 0.011 | — | — | — | — | — | — | 0.374 | 0.370 | — |
-| flatten (map) | −0.002 | — | — | — | — | — | — | 0.331 | 0.328 | — |
-| probGRU + CNN | — | — | — | — | — | — | — | — | — | 0.414 |
-| probGRU + flatten | — | — | — | — | — | — | — | — | — | 0.393 |
+| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
+|---|---|---|---|---|---|---|---|---|
+| AR | 0.254 | 0.214 | 0.214 | 0.431 | 0.431 | 0.431 | 0.431 | 0.431 |
+| seasonal | 0.000 | −0.015 | −0.015 | −0.033 | −0.033 | −0.033 | −0.033 | −0.033 |
+| probGRU | — | 0.288 | 0.278 | 0.427 | 0.431 | — | — | 0.427 |
+| GRU-aggregate | 0.233 | — | — | — | — | 0.422 | 0.422 | — |
+| CNN (map) | 0.011 | — | — | — | — | 0.374 | 0.370 | — |
+| flatten (map) | −0.002 | — | — | — | — | 0.331 | 0.328 | — |
+| probGRU + CNN | — | — | — | — | — | — | — | 0.414 |
+| probGRU + flatten | — | — | — | — | — | — | — | 0.393 |
 
 ## CoPy_R
 
-| model | ActionSense | `d256 none` | `d256 class` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|---|---|
-| AR | 0.194 | −0.032 | −0.032 | 0.171 | 0.171 | 0.476 | 0.476 | 0.476 | 0.476 | 0.476 |
-| seasonal | 0.000 | −0.073 | −0.073 | −0.016 | −0.016 | −0.009 | −0.009 | −0.009 | −0.009 | −0.009 |
-| probGRU | — | −0.218 | −0.192 | 0.221 | 0.227 | 0.472 | 0.472 | — | — | 0.472 |
-| GRU-aggregate | 0.175 | — | — | — | — | — | — | 0.469 | 0.469 | — |
-| CNN (map) | 0.045 | — | — | — | — | — | — | 0.424 | 0.419 | — |
-| flatten (map) | −0.051 | — | — | — | — | — | — | 0.407 | 0.408 | — |
-| probGRU + CNN | — | — | — | — | — | — | — | — | — | 0.430 |
-| probGRU + flatten | — | — | — | — | — | — | — | — | — | 0.446 |
+| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
+|---|---|---|---|---|---|---|---|---|
+| AR | 0.194 | 0.171 | 0.171 | 0.476 | 0.476 | 0.476 | 0.476 | 0.476 |
+| seasonal | 0.000 | −0.016 | −0.016 | −0.009 | −0.009 | −0.009 | −0.009 | −0.009 |
+| probGRU | — | 0.221 | 0.227 | 0.472 | 0.472 | — | — | 0.472 |
+| GRU-aggregate | 0.175 | — | — | — | — | 0.469 | 0.469 | — |
+| CNN (map) | 0.045 | — | — | — | — | 0.424 | 0.419 | — |
+| flatten (map) | −0.051 | — | — | — | — | 0.407 | 0.408 | — |
+| probGRU + CNN | — | — | — | — | — | — | — | 0.430 |
+| probGRU + flatten | — | — | — | — | — | — | — | 0.446 |
 
 ## Hausdorff distance between forecast and truth curves
 
@@ -153,28 +181,6 @@ Lower is better; `x` is the ratio to persistence. Scaled per forecast so the
 axes are commensurate: time spans [0,1] over the horizon, value is divided by
 the truth's own standard deviation there. Unlike MSE this is not pointwise, so
 a flat forecast through an oscillation is charged roughly its amplitude.
-
-### `d256 none` — d256
-
-Frame-pooled, from the driver's own table rather than a report CSV, so it pairs with the skill above; the OpenTouch subsections below are per-clip.
-
-| model | F_R | CoPx_R | CoPy_R |
-|---|---|---|---|
-| ar | 2.694 (0.89x) | 2.427 (0.85x) | 2.628 (0.92x) |
-| persistence | 3.023 (1.00x) | 2.857 (1.00x) | 2.870 (1.00x) |
-| probgru | 3.022 (1.00x) | 2.646 (0.93x) | 2.959 (1.03x) |
-| seasonal | 3.065 (1.01x) | 2.872 (1.01x) | 2.905 (1.01x) |
-
-### `d256 class` — d256
-
-Frame-pooled, from the driver's own table rather than a report CSV, so it pairs with the skill above; the OpenTouch subsections below are per-clip.
-
-| model | F_R | CoPx_R | CoPy_R |
-|---|---|---|---|
-| ar | 2.694 (0.89x) | 2.427 (0.85x) | 2.628 (0.92x) |
-| persistence | 3.023 (1.00x) | 2.857 (1.00x) | 2.870 (1.00x) |
-| probgru | 3.071 (1.02x) | 2.570 (0.90x) | 2.914 (1.01x) |
-| seasonal | 3.065 (1.01x) | 2.872 (1.01x) | 2.905 (1.01x) |
 
 ### `d1_map2` — OpenTouch
 
