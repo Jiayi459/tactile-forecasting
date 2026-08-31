@@ -59,9 +59,28 @@ Two consequences worth carrying:
   and that one does NOT matter.** Skill is a ratio, so a per-channel constant scale cancels
   from numerator and denominator alike.
 
-**d256 has no skill number of any kind**, and cannot have one yet: it has no forecaster, and
-its sampling rate is not recoverable from the archive, so "a one-second horizon" is undefined
-there (`docs/model_comparability.md` §3).
+**d256 has no skill number**, and the reason is worth stating precisely because the loose
+version of it is wrong. A skill number is COMPUTABLE there -- pick a horizon in frames, hold
+the last observation, take the ratio. What is not computable is a skill number belonging in
+this table, and there are three separate obstacles of quite different weight:
+
+1. **No forecaster exists.** `src/d256.py` reads the archive and `scripts/d256/` probes it;
+   nothing trains. This is work not yet done, not an impossibility.
+2. **The sampling rate is unknown and not recoverable from the archive.** Clips carry no
+   timestamps; only the relative 1:2:3 stride between the three signal groups is known. Every
+   number in this document is at a ONE-SECOND horizon, and one second cannot be located in a
+   stream whose rate nobody knows. A d256 column would be "skill at H frames" against
+   "skill at 1 s" elsewhere, which is not the same quantity. Resolving this needs the
+   ActionSense release or the authors, not more computation.
+3. **The split unit is forced and the obvious one leaks.** Neighbouring clips overlap 15/16,
+   so a clip-level random split puts near-duplicates on both sides. The sound unit is the
+   reconstructed recording, of which there are 94 -- and a recording is a SEGMENT found by
+   testing whether consecutive clips actually advance by one frame, not a directory: the
+   stream jumps inside cells, and splicing across a jump would train a forecaster on an
+   artefact. `scripts/d256/extract_d256_states.py` does this correctly; the point is that
+   the mistake is available and silent.
+
+Only (2) is a genuine barrier. It is also the one that no amount of care on our side removes.
 
 ### Hausdorff distance between forecast and truth curves
 
