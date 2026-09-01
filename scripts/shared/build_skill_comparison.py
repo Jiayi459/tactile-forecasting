@@ -135,6 +135,32 @@ def floor_R(path=FLOOR_CSV):
             for r in csv.DictReader(open(path))}
 
 
+AS_HD_CSV = "docs/actionsense/tactile_map_cv_seq2seq_agg_recheck.csv"
+
+
+def actionsense_hausdorff(path=AS_HD_CSV, history_s="10"):
+    """-> {(encoder, channel): (hausdorff, ratio_vs_persistence)}.
+
+    ActionSense stores it wide -- one `{channel}_hausdorff` column per channel plus a single
+    `hausdorff_ratio_vs_persistence` -- rather than as metric rows, so it needs its own reader.
+    Filtered to the longest history, matching what actionsense() does for skill, so the two
+    tables describe the same runs.
+    """
+    if not os.path.exists(path):
+        return {}
+    out = {}
+    for r in csv.DictReader(open(path)):
+        if str(r.get("history_s")) != history_s:
+            continue
+        enc = r.get("encoder", "?")
+        ratio = r.get("hausdorff_ratio_vs_persistence")
+        for c in CH:
+            v = r.get(f"{c}_hausdorff")
+            if v:
+                out[(enc, c)] = (float(v), float(ratio) if ratio else None)
+    return out
+
+
 def d256_hausdorff(path):
     """-> {(model, channel): (hausdorff, ratio_vs_persistence)} averaged over folds."""
     if not os.path.exists(path):
@@ -166,6 +192,7 @@ def main():
     a = ap.parse_args()
 
     AS = actionsense()
+    ASH = actionsense_hausdorff()
     FL = floor_R()
     D2 = {n: opentouch(p) for n, p in D256_RUNS if os.path.exists(p)}
     D2H = {n: d256_hausdorff(p) for n, p in D256_RUNS if os.path.exists(p)}
@@ -231,12 +258,29 @@ def main():
     # -- d256" heading immediately above this one, and two near-identically named sections made
     # the same metric on different sensors read as two different things. Skill puts all three
     # sensors in one table; this now matches.
-    if have or (D2H and any(D2H.values())):
+    if have or (D2H and any(D2H.values())) or ASH:
         L += ["## Hausdorff distance between forecast and truth curves", "",
               "Lower is better; `x` is the ratio to persistence. Scaled per forecast so the",
               "axes are commensurate: time spans [0,1] over the horizon, value is divided by",
               "the truth's own standard deviation there. Unlike MSE this is not pointwise, so",
               "a flat forecast through an oscillation is charged roughly its amplitude.", ""]
+        if ASH:
+            L += ["### ActionSense", "",
+                  "Longest history (10 s), the same runs the skill table above quotes. Stored "
+                  "wide in `tactile_map_cv_seq2seq_agg_recheck.csv`; the ratio there is a "
+                  "single per-run figure rather than per channel.", "",
+                  "| model | " + " | ".join(CH) + " | ratio vs persistence |",
+                  "|---" * (len(CH) + 2) + "|"]
+            for m in sorted({k[0] for k in ASH}):
+                cells = []
+                for c in CH:
+                    vr = ASH.get((m, c))
+                    cells.append(f"{vr[0]:.3f}" if vr else "—")
+                anyr = next((v[1] for k, v in ASH.items() if k[0] == m and v[1] is not None), None)
+                L.append(f"| {m} | " + " | ".join(cells) + " | "
+                         + (f"{anyr:.2f}x" if anyr is not None else "—") + " |")
+            L.append("")
+
         for n in d2names:
             if not D2H.get(n):
                 continue

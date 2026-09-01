@@ -204,6 +204,14 @@ axes are commensurate: time spans [0,1] over the horizon, value is divided by
 the truth's own standard deviation there. Unlike MSE this is not pointwise, so
 a flat forecast through an oscillation is charged roughly its amplitude.
 
+### ActionSense
+
+Longest history (10 s), the same runs the skill table above quotes. Stored wide in `tactile_map_cv_seq2seq_agg_recheck.csv`; the ratio there is a single per-run figure rather than per channel.
+
+| model | F_R | CoPx_R | CoPy_R | ratio vs persistence |
+|---|---|---|---|---|
+| aggregate | 2.413 | 2.193 | 2.308 | 0.81x |
+
 ### `d256 none` — d256
 
 Frame-pooled, from the driver's own table rather than a report CSV, so it pairs with the skill above; the OpenTouch subsections below are per-clip.
@@ -417,4 +425,36 @@ amplitude but not shape. Not yet run.
 It matters for reading the tables. d256 and ActionSense are not independent evidence about
 tactile forecasting; they are the same recordings at two rates, under two protocols
 (leave-one-subject-out against a stratified split). Their agreement is not corroboration.
+
+## ActionSense and d256 are the same recordings, and their skills still differ
+
+Frame-level cross-correlation settles the provenance: a 150-frame probe from a d256 recording
+matches exactly one of 299 ActionSense recordings at **0.995**, carrying the same label, while
+the runner-up reaches 0.943 (`scripts/shared/compare_d256_actionsense.py`). d256 is ActionSense
+repackaged. So running both is not two experiments, and their agreement is not corroboration.
+
+The skills nonetheless differ -- AR averages 0.216 on ActionSense against 0.067 on d256 -- and
+the reason is worth stating, because it is not model quality.
+
+**Not the sampling rate.** ActionSense decimated to 30 / 10 / 6 Hz, with and without an
+anti-aliasing filter, gives R = 0.605 / 0.605 / 0.604 / 0.602. R measures decorrelation over a
+fixed *wall-clock* second, so resampling does not move it, and the aliasing hypothesis this was
+written to test is refuted.
+
+**Segment length.** Cutting the same ActionSense signals into fixed windows and measuring R:
+
+| window | 10 s | 20 s | 40 s | 80 s | 160 s |
+|---|---|---|---|---|---|
+| R | 0.807 | 0.692 | 0.616 | 0.560 | 0.569 |
+
+d256's median recording is **12.9 s** and measures R = 0.717; ActionSense's is **22.0 s** and
+measures 0.649. Both land where the curve puts them. The mechanism is in the definition:
+R = E[(y[t+H]-y[t])²] / (2·Var), where the numerator is a fixed one-second change and the
+denominator is the variance *within* the segment. A short segment truncates the slow drift, so
+Var shrinks, so R rises -- and a higher R means less structure above persistence to win.
+
+So d256 scores lower largely because it was cut into shorter pieces. **The protocol difference
+is a separate, uncontrolled effect on top of this**: d256 holds out a subject, ActionSense
+splits by recording. Isolating it would take running d256 under a stratified-by-recording
+split, which has not been done.
 

@@ -8563,3 +8563,40 @@ URL 即 `1UPCkTTmPJGex2p3cJRnJHj4_A70sGQ8S` —— **正是我们下载的 `d256
 - 用户已裁定:**暂不改文档里的命名**(2026-09-01)。此项记录在案,待日后需要时再动。
 - 若确需 ICLR 2024 那篇的数据集(89 物体 / 16×16 / press-hold-squeeze),**须直接联系作者**
   `yichenl@mit.edu`;当前公开链接给不到。
+
+### 2026-09-01续2 — 【为何 ActionSense 的 skill 更高】答案是**分段长度**,不是采样率
+
+#### 一、用户的判断成立:两个数据集做预测确实是重复的
+逐帧比对已证实 d256 = ActionSense(0.995,299 候选中唯一)。
+**故"在两个数据集上各跑一遍"不是两个实验,两者一致也不构成互证。**
+
+#### 二、但 skill 不同(AR:AS 0.216 vs d256 0.067),差异来源已测清
+**排除采样率与混叠。** 把本地 ActionSense 的 30 Hz 数据分别降到 30/10/6 Hz,
+6 Hz 再分「直接抽取」与「FIR 抗混叠零相位抽取」两路,各自算 R:
+```
+30Hz H30  0.605 | 10Hz naive 0.605 | 6Hz naive 0.604 | 6Hz filtered 0.602
+```
+**四者几乎相同 ⇒ 我先前的"抽取未抗混叠导致 d256 更难预测"假设被推翻。**
+原因是 R 衡量**固定墙钟秒数**内的去相关,重采样不改变底层信号的 1 秒去相关。
+
+**确认是分段长度。** 把同一批 ActionSense 信号切成定长窗口再测 R:
+```
+窗口   10 s   20 s   40 s   80 s  160 s
+R     0.807  0.692  0.616  0.560  0.569
+```
+**d256 录制中位数 12.9 s → 实测 R 0.717;ActionSense 中位数 22.0 s → 实测 0.649。两者都落在曲线上。**
+机制在定义里:`R = E[(y[t+H]−y[t])²] / (2·Var)`,分子是固定 1 秒的变化,
+分母是**片段内**方差。**片段短 ⇒ 慢漂移被截断 ⇒ Var 小 ⇒ R 大 ⇒ persistence 之上可赢的余地小。**
+
+**⇒ d256 分数低,主要因为它被切成了更短的片段。**
+
+**尚未分离的第二个因素**:协议不同(d256 留一受试者 vs ActionSense 按录制分层)。
+**要隔离它,需用"按录制分层"的划分重跑 d256 一次。未做。**
+
+#### 三、`docs/skill_comparison.md`:Hausdorff 补齐三个传感器
+先前该节只有 d256(两臂)与 OpenTouch(`d1_map2`/`d1_pg`),**缺 ActionSense**。
+其 Hausdorff 存在 `tactile_map_cv_seq2seq_agg_recheck.csv`,是**宽表**
+(`{channel}_hausdorff` 列 + 单一 `hausdorff_ratio_vs_persistence`),
+与另两侧的 metric 行格式不同,故新增 `actionsense_hausdorff()` 专门读它,
+并按最长 history(10 s)过滤,**与该文档 skill 表引用的是同一批 run**。
+现该节按传感器分三组子节,ActionSense 的 ratio 标明是**每 run 一个**而非逐通道。
