@@ -8522,3 +8522,44 @@ Yichen Li 等(MIT CSAIL + NVIDIA)。逐项对照:
   当前 Drive 链接给不到。
 - 若继续用 d256,**建议在文档中改称 "ActionSense @ 6 Hz (d256 packaging)"**,
   以免后续读者把它当作第四个数据集。**此为命名决策,待用户裁定,未擅改。**
+
+### 2026-09-01续 — 【d256.zip 归属查明】它属于 ICCV 2025 的另一篇论文,不属于 ICLR 2024 那篇
+
+#### 一、先核我自己的下载路径 —— **没有错**
+重抓 `sites.google.com/view/iclr-submission-force-vision/`,列出全部链接:
+**页面上只有一个数据链接**,anchor `[Data]`、上下文 **"New Link"**,
+URL 即 `1UPCkTTmPJGex2p3cJRnJHj4_A70sGQ8S` —— **正是我们下载的 `d256.zip`**。
+另有 GEM 代码链接、两张 Drawing,无其他数据入口。NVIDIA 的论文页也只指回同一 PDF。
+⇒ **下载路径无误;矛盾出在链接指向的内容上。**
+
+#### 二、d256.zip 的真实归属:**ICCV 2025《MultiModal Action Conditioned Video Generation》**
+(Yichen Li & Antonio Torralba;arXiv 2510.02287;代码 `github.com/AntheaLi/MMVidSim`)
+
+证据链:
+1. **d256.zip = ActionSense**,已由逐帧互相关证实(0.9949,299 候选中唯一 >0.95)。
+2. **MMVidSim 的 README 明写**:"We use opensource *Action Sense* data from
+   `https://action-sense.csail.mit.edu`"。
+3. **该论文摘要列出的四种感官与 d256 的流一一对应**:
+   `proprioception → joint-position`、`kinesthesia → hand-pose`、
+   `force haptics → tactile-glove`、`muscle activation → myo-emg`。
+   **而 ICLR 2024 那篇的数据集只有 tactile + video + canonical image,没有这三样。**
+4. **时间线**:`d256.zip` **created 2024-11-15、modified 2025-04-20**,
+   而 ICLR 2024 会议在 2024 年 5 月。**该文件晚于论文发表半年**,却贴合 ICCV 2025 的周期。
+5. **文件属主 `yichenl@mit.edu` 是两篇论文共同的第一作者。**
+6. **数据形态贴合视频生成而非 ICLR 那篇**:256×256 视频、16 帧片段、双手全套可穿戴信号。
+
+#### 三、ICLR 2024 论文自己的数据集**并未公开可得**
+其 §3 描述:**16×16** 触觉栅格、**10 帧**序列、**64×64** 视频、
+**89 个物体实例**(剪刀/喷壶/订书机/夹子)、操作为 press/hold/squeeze、共 150,000 帧
+(引言又称 2,000,000 帧,**论文内部自相矛盾**)。
+**这些与 d256.zip 每一项都不同**,且遍查论文页、NVIDIA 页、OpenReview 均无第二个数据入口。
+⇒ **该数据集目前拿不到;项目页的 `[Data]` 链接("New Link")已被改指向后续工作的数据。**
+
+#### 四、对本项目的实际影响
+- **我们所有 d256 工作的对象,是 ActionSense 在 6 Hz 下的重新打包**,
+  正确的引用对象是 **ICCV 2025 那篇 + ActionSense 原始论文(DelPreto et al., 2022)**,
+  **不是 ICLR 2024 那篇**。
+- 结果本身不受影响,但**任何写作中若把它称作"ICLR force-vision 数据集"都会是错的**。
+- 用户已裁定:**暂不改文档里的命名**(2026-09-01)。此项记录在案,待日后需要时再动。
+- 若确需 ICLR 2024 那篇的数据集(89 物体 / 16×16 / press-hold-squeeze),**须直接联系作者**
+  `yichenl@mit.edu`;当前公开链接给不到。
