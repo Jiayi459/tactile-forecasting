@@ -8784,3 +8784,16 @@ ActionSense(0.649),按 `1 − 1/(2R)` 的**oracle** 上界分别是 0.303 / 0.52
 
 **代码改动**:`scripts/shared/probe_mean_baseline.py` 增加 `--csv/--sensor`(仅追加输出,
 不改任何计算)。**新增** `docs/mean_baseline.csv`(当前只有 actionsense 12 行)。
+
+### 2026-09-01续6 — 【我的疏漏】续5 的两次提交只在本地,未 push;已修
+
+用户在 CRC 上 `git pull` 后跑续5 给出的命令,得到
+`error: unrecognized arguments: --csv ... --sensor ...` —— 因为 `--csv/--sensor` 那次提交
+(`63b9e8a`)**从未推送到 origin**。续5 的记录写了"已提交",没写"已推送",而两条命令依赖后者。
+
+**状态核实**(非猜测):`git ls-remote origin main` = `cddc8f5`,
+`git merge-base --is-ancestor cddc8f5 HEAD` 为真 ⇒ 本地是 origin/main 的**直接后继,无分叉**,
+故 `git push origin main` 即可,不需 rebase 或 merge。已推送:`cddc8f5..63b9e8a`。
+
+**规程修正**:凡给出的命令需要用户先 `git pull`,本轮就必须先 push 并把 push 结果写进日志。
+"已提交"不等于"用户能拿到"。
