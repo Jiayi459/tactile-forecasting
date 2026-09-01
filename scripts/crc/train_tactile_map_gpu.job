@@ -27,12 +27,25 @@ conda activate tactile
 # CLI needs pyyaml/numpy/torch (torch has CUDA in this env); scoring deps are NOT needed here.
 python -c "import yaml" 2>/dev/null || pip install pyyaml --quiet
 
-# The raw pressure maps live in ~/actionsense/states after streaming; make them visible to the repo
-# data dir (state_N.npy + manifest.jsonl + splits.json are already committed there).
+# Everything the harness reads, not only the maps. This used to link clip_*.npy alone, on the
+# stated assumption that "state_N.npy + manifest.jsonl + splits.json are already committed
+# there" -- git tracks none of those three, so the job built a directory holding a hundred
+# symlinks and no index, then died 45 s later inside splits.py with a bare FileNotFoundError
+# (2026-09-01). Link the lot, then say so plainly if the index is still missing.
+SRC="$HOME/actionsense/states"
 mkdir -p data/actionsense_states
 n=0
-for f in "$HOME"/actionsense/states/clip_*.npy; do ln -sf "$f" data/actionsense_states/ && n=$((n+1)); done
-echo "linked $n clip_*.npy into data/actionsense_states/"
+for f in "$SRC"/clip_*.npy "$SRC"/state_*.npy "$SRC"/manifest.jsonl "$SRC"/splits.json; do
+    [ -e "$f" ] && ln -sf "$f" data/actionsense_states/ && n=$((n+1))
+done
+echo "linked $n files from $SRC into data/actionsense_states/"
+
+test -f data/actionsense_states/manifest.jsonl || {
+    echo "FATAL: data/actionsense_states/manifest.jsonl missing after linking from $SRC."
+    echo "  The harness reads the manifest to build splits, so nothing downstream can run."
+    echo "  Check that $SRC holds manifest.jsonl (and state_*.npy); it is NOT in git."
+    exit 1
+}
 
 python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
 
