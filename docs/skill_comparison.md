@@ -199,62 +199,75 @@ See SESSION_LOG 2026-08-22.
 
 ## Hausdorff distance between forecast and truth curves
 
-Lower is better; `x` is the ratio to persistence. Scaled per forecast so the
-axes are commensurate: time spans [0,1] over the horizon, value is divided by
-the truth's own standard deviation there. Unlike MSE this is not pointwise, so
-a flat forecast through an oscillation is charged roughly its amplitude.
+Laid out exactly like the skill tables above -- one section per channel, models
+down, sensors and runs across -- so a model can be followed along a row without
+re-learning a layout. LOWER is better, unlike skill.
 
-### ActionSense
+Scaled per forecast so the axes are commensurate: time spans [0,1] over the
+horizon, value is divided by the truth's own standard deviation there. Unlike
+MSE this is not pointwise, so a flat forecast through an oscillation is charged
+roughly its amplitude.
 
-Longest history (10 s), the same runs the skill table above quotes. Stored wide in `tactile_map_cv_seq2seq_agg_recheck.csv`; the ratio there is a single per-run figure rather than per channel.
+**`persistence` is a row here, not a zero.** Skill divides it out; Hausdorff does
+not, so the reference has to be visible for a number to mean anything. Read each
+column against its own persistence, never across columns: the three sensors do
+not present equally hard signals (see the R row in the skill tables).
 
-| model | F_R | CoPx_R | CoPy_R | ratio vs persistence |
-|---|---|---|---|---|
-| aggregate | 2.413 | 2.193 | 2.308 | 0.81x |
+Two estimators are mixed and cannot be compared cell to cell. d256 is
+frame-pooled from the driver's table, matching the skill above; OpenTouch is
+per-clip from its report; ActionSense is per-clip from its CV table at the
+longest history.
 
-### `d256 none` — d256
+**The ActionSense column is not readable on its own.** Its CV table carries only
+the `aggregate` encoder and NO persistence row, so there is no reference to
+divide by and the single number in that column cannot be interpreted the way the
+others can. What that arm does report is one run-level ratio,
+**0.81x persistence**, which is the only figure from it that
+compares to the others -- against d256's AR at 0.89x and OpenTouch's
+map_aggregate at 0.83x. Getting the column itself usable means re-running that
+arm with persistence scored, which has not been done.
 
-Frame-pooled, from the driver's own table rather than a report CSV, so it pairs with the skill above; the OpenTouch subsections below are per-clip.
+### Hausdorff — F_R
 
-| model | F_R | CoPx_R | CoPy_R |
-|---|---|---|---|
-| ar | 2.694 (0.89x) | 2.427 (0.85x) | 2.628 (0.92x) |
-| persistence | 3.023 (1.00x) | 2.857 (1.00x) | 2.870 (1.00x) |
-| probgru | 3.022 (1.00x) | 2.646 (0.93x) | 2.959 (1.03x) |
-| seasonal | 3.065 (1.01x) | 2.872 (1.01x) | 2.905 (1.01x) |
+| model | ActionSense | `d256 none` | `d256 class` | `d1_map2` | `d1_pg` |
+|---|---|---|---|---|---|
+| AR | — | 2.694 | 2.694 | 2.766 | 2.766 |
+| seasonal | — | 3.065 | 3.065 | 2.699 | 2.699 |
+| probGRU | — | 3.022 | 3.071 | — | 2.883 |
+| GRU-aggregate | 2.413 | — | — | 2.738 | — |
+| CNN (map) | — | — | — | 2.748 | — |
+| flatten (map) | — | — | — | 2.820 | — |
+| probGRU + CNN | — | — | — | — | 2.975 |
+| probGRU + flatten | — | — | — | — | 3.013 |
+| persistence | — | 3.023 | 3.023 | 3.301 | 3.301 |
 
-### `d256 class` — d256
+### Hausdorff — CoPx_R
 
-Frame-pooled, from the driver's own table rather than a report CSV, so it pairs with the skill above; the OpenTouch subsections below are per-clip.
+| model | ActionSense | `d256 none` | `d256 class` | `d1_map2` | `d1_pg` |
+|---|---|---|---|---|---|
+| AR | — | 2.427 | 2.427 | 2.558 | 2.558 |
+| seasonal | — | 2.872 | 2.872 | 2.396 | 2.396 |
+| probGRU | — | 2.646 | 2.570 | — | 2.669 |
+| GRU-aggregate | 2.193 | — | — | 2.552 | — |
+| CNN (map) | — | — | — | 2.594 | — |
+| flatten (map) | — | — | — | 2.649 | — |
+| probGRU + CNN | — | — | — | — | 2.705 |
+| probGRU + flatten | — | — | — | — | 2.764 |
+| persistence | — | 2.857 | 2.857 | 3.151 | 3.151 |
 
-| model | F_R | CoPx_R | CoPy_R |
-|---|---|---|---|
-| ar | 2.694 (0.89x) | 2.427 (0.85x) | 2.628 (0.92x) |
-| persistence | 3.023 (1.00x) | 2.857 (1.00x) | 2.870 (1.00x) |
-| probgru | 3.071 (1.02x) | 2.570 (0.90x) | 2.914 (1.01x) |
-| seasonal | 3.065 (1.01x) | 2.872 (1.01x) | 2.905 (1.01x) |
+### Hausdorff — CoPy_R
 
-### `d1_map2` — OpenTouch
-
-| model | F_R | CoPx_R | CoPy_R |
-|---|---|---|---|
-| ar | 2.766 (0.84x) | 2.558 (0.81x) | 2.418 (0.79x) |
-| cnn | 2.748 (0.83x) | 2.594 (0.82x) | 2.484 (0.81x) |
-| flatten | 2.820 (0.85x) | 2.649 (0.84x) | 2.511 (0.82x) |
-| map_aggregate | 2.738 (0.83x) | 2.552 (0.81x) | 2.425 (0.79x) |
-| persistence | 3.301 (1.00x) | 3.151 (1.00x) | 3.070 (1.00x) |
-| seasonal | 2.699 (0.82x) | 2.396 (0.76x) | 2.226 (0.73x) |
-
-### `d1_pg` — OpenTouch
-
-| model | F_R | CoPx_R | CoPy_R |
-|---|---|---|---|
-| ar | 2.766 (0.84x) | 2.558 (0.81x) | 2.418 (0.79x) |
-| persistence | 3.301 (1.00x) | 3.151 (1.00x) | 3.070 (1.00x) |
-| pg_cnn | 2.975 (0.90x) | 2.705 (0.86x) | 2.663 (0.87x) |
-| pg_flatten | 3.013 (0.91x) | 2.764 (0.88x) | 2.637 (0.86x) |
-| prob_gru | 2.883 (0.87x) | 2.669 (0.85x) | 2.566 (0.84x) |
-| seasonal | 2.699 (0.82x) | 2.396 (0.76x) | 2.226 (0.73x) |
+| model | ActionSense | `d256 none` | `d256 class` | `d1_map2` | `d1_pg` |
+|---|---|---|---|---|---|
+| AR | — | 2.628 | 2.628 | 2.418 | 2.418 |
+| seasonal | — | 2.905 | 2.905 | 2.226 | 2.226 |
+| probGRU | — | 2.959 | 2.914 | — | 2.566 |
+| GRU-aggregate | 2.308 | — | — | 2.425 | — |
+| CNN (map) | — | — | — | 2.484 | — |
+| flatten (map) | — | — | — | 2.511 | — |
+| probGRU + CNN | — | — | — | — | 2.663 |
+| probGRU + flatten | — | — | — | — | 2.637 |
+| persistence | — | 2.870 | 2.870 | 3.070 | 3.070 |
 
 ## The backbones side by side, one input at a time
 

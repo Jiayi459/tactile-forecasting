@@ -161,6 +161,16 @@ def actionsense_hausdorff(path=AS_HD_CSV, history_s="10"):
     return out
 
 
+def _as_ratio(path=AS_HD_CSV, history_s="10"):
+    """ActionSense's single run-level hausdorff_ratio_vs_persistence, or nan."""
+    if not os.path.exists(path):
+        return float("nan")
+    for r in csv.DictReader(open(path)):
+        if str(r.get("history_s")) == history_s and r.get("hausdorff_ratio_vs_persistence"):
+            return float(r["hausdorff_ratio_vs_persistence"])
+    return float("nan")
+
+
 def d256_hausdorff(path):
     """-> {(model, channel): (hausdorff, ratio_vs_persistence)} averaged over folds."""
     if not os.path.exists(path):
@@ -260,55 +270,60 @@ def main():
     # sensors in one table; this now matches.
     if have or (D2H and any(D2H.values())) or ASH:
         L += ["## Hausdorff distance between forecast and truth curves", "",
-              "Lower is better; `x` is the ratio to persistence. Scaled per forecast so the",
-              "axes are commensurate: time spans [0,1] over the horizon, value is divided by",
-              "the truth's own standard deviation there. Unlike MSE this is not pointwise, so",
-              "a flat forecast through an oscillation is charged roughly its amplitude.", ""]
-        if ASH:
-            L += ["### ActionSense", "",
-                  "Longest history (10 s), the same runs the skill table above quotes. Stored "
-                  "wide in `tactile_map_cv_seq2seq_agg_recheck.csv`; the ratio there is a "
-                  "single per-run figure rather than per channel.", "",
-                  "| model | " + " | ".join(CH) + " | ratio vs persistence |",
-                  "|---" * (len(CH) + 2) + "|"]
-            for m in sorted({k[0] for k in ASH}):
-                cells = []
-                for c in CH:
-                    vr = ASH.get((m, c))
-                    cells.append(f"{vr[0]:.3f}" if vr else "—")
-                anyr = next((v[1] for k, v in ASH.items() if k[0] == m and v[1] is not None), None)
-                L.append(f"| {m} | " + " | ".join(cells) + " | "
-                         + (f"{anyr:.2f}x" if anyr is not None else "—") + " |")
-            L.append("")
+              "Laid out exactly like the skill tables above -- one section per channel, models",
+              "down, sensors and runs across -- so a model can be followed along a row without",
+              "re-learning a layout. LOWER is better, unlike skill.", "",
+              "Scaled per forecast so the axes are commensurate: time spans [0,1] over the",
+              "horizon, value is divided by the truth's own standard deviation there. Unlike",
+              "MSE this is not pointwise, so a flat forecast through an oscillation is charged",
+              "roughly its amplitude.", "",
+              "**`persistence` is a row here, not a zero.** Skill divides it out; Hausdorff does",
+              "not, so the reference has to be visible for a number to mean anything. Read each",
+              "column against its own persistence, never across columns: the three sensors do",
+              "not present equally hard signals (see the R row in the skill tables).", "",
+              "Two estimators are mixed and cannot be compared cell to cell. d256 is",
+              "frame-pooled from the driver's table, matching the skill above; OpenTouch is",
+              "per-clip from its report; ActionSense is per-clip from its CV table at the",
+              "longest history.", "",
+              "**The ActionSense column is not readable on its own.** Its CV table carries only",
+              "the `aggregate` encoder and NO persistence row, so there is no reference to",
+              "divide by and the single number in that column cannot be interpreted the way the",
+              "others can. What that arm does report is one run-level ratio,",
+              f"**{_as_ratio():.2f}x persistence**, which is the only figure from it that",
+              "compares to the others -- against d256's AR at 0.89x and OpenTouch's",
+              "map_aggregate at 0.83x. Getting the column itself usable means re-running that",
+              "arm with persistence scored, which has not been done.", ""]
 
-        for n in d2names:
-            if not D2H.get(n):
-                continue
-            L += [f"### `{n}` — d256", "",
-                  "Frame-pooled, from the driver's own table rather than a report CSV, so it "
-                  "pairs with the skill above; the OpenTouch subsections below are per-clip.",
-                  "",
-                  "| model | " + " | ".join(CH) + " |", "|---" * (len(CH) + 1) + "|"]
-            for m in sorted({k[0] for k in D2H[n]}):
-                cells = []
-                for c in CH:
-                    vr = D2H[n].get((m, c))
-                    cells.append(f"{vr[0]:.3f} ({vr[1]:.2f}x)" if vr and vr[1] is not None
-                                 else (f"{vr[0]:.3f}" if vr else "—"))
-                L.append(f"| {m} | " + " | ".join(cells) + " |")
-            L.append("")
+        # Same column order and the same ROWS mapping the skill tables use, plus persistence,
+        # which skill omits because it is 0 by construction and Hausdorff cannot.
+        HD_ROWS = list(ROWS) + [("persistence", None, "persistence", "persistence")]
 
-        for n in have:
-            L += [f"### `{n}` — OpenTouch", "",
-                  "| model | " + " | ".join(CH) + " |", "|---" * (len(CH) + 1) + "|"]
-            for m in sorted({k[1] for k in RM[n] if k[0] == "hausdorff"}):
-                cells = []
-                for c in CH:
-                    v = RM[n].get(("hausdorff", m, c))
-                    r = RM[n].get(("hausdorff_ratio_vs_persistence", m, c))
-                    cells.append(f"{v:.3f} ({r:.2f}x)" if v is not None and r is not None
-                                 else "—")
-                L.append(f"| {m} | " + " | ".join(cells) + " |")
+        def hd_as(name, ch):
+            v = ASH.get((name, ch)) if name else None
+            return "—" if v is None else f"{v[0]:.3f}"
+
+        def hd_d2(run, name, ch):
+            v = D2H.get(run, {}).get((name, ch)) if name else None
+            return "—" if v is None else f"{v[0]:.3f}"
+
+        def hd_ot(run, name, ch):
+            v = RM.get(run, {}).get(("hausdorff", name, ch)) if name else None
+            if v is None:
+                return "—"
+            return f"{v[0]:.3f}" if isinstance(v, tuple) else f"{v:.3f}"
+
+        for ch in CH:
+            L += [f"### Hausdorff — {ch}", "",
+                  "| model | ActionSense | " + " | ".join(f"`{n}`" for n in d2names)
+                  + (" | " if d2names else "") + " | ".join(f"`{n}`" for n in have) + " |",
+                  "|---" * (len(have) + len(d2names) + 2) + "|"]
+            for label, asn, otn, d2n in HD_ROWS:
+                cells = ([hd_as(asn, ch)]
+                         + [hd_d2(n, d2n, ch) for n in d2names]
+                         + [hd_ot(n, otn, ch) for n in have])
+                if all(c == "—" for c in cells):
+                    continue
+                L.append(f"| {label} | " + " | ".join(cells) + " |")
             L.append("")
 
     PAIRS = (("prob_gru", "map_aggregate", "aggregate"),

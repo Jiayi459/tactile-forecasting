@@ -8600,3 +8600,29 @@ R     0.807  0.692  0.616  0.560  0.569
 与另两侧的 metric 行格式不同,故新增 `actionsense_hausdorff()` 专门读它,
 并按最长 history(10 s)过滤,**与该文档 skill 表引用的是同一批 run**。
 现该节按传感器分三组子节,ActionSense 的 ratio 标明是**每 run 一个**而非逐通道。
+
+### 2026-09-01续3 — Hausdorff 表改为与 skill 表同版式(通道为节,模型为行,数据集为列)
+
+**请求**:Hausdorff 用与 skill 完全相同的方式列表 —— 大类为 F/CoPx/CoPy,
+每类内模型作行、数据集作列。
+
+**改动**(`scripts/shared/build_skill_comparison.py`):
+原先 Hausdorff 按「数据集/run 分子节,每子节内模型作行、通道作列」,与 skill 表**转置关系相反**,
+读者要在两种版式间切换。现改为**逐通道一节**,复用 skill 表的同一 `ROWS` 映射与同一列顺序。
+
+**两处必须显式标注的差异,已写进正文:**
+1. **`persistence` 在这里是一行,不是 0。** skill 把它除掉了,Hausdorff 没有 ——
+   **没有参照,单个 Hausdorff 数值读不出任何东西。** 故为 `HD_ROWS` 追加 persistence 行
+   (skill 表按定义省略它)。并提示**只能在列内与本列的 persistence 比,不可跨列比**,
+   因为三个传感器的信号难度不同(见 skill 表的 R 行)。
+2. **混用了两种估计量**:d256 为 frame-pooled(与其 skill 同口径)、
+   OpenTouch 为 per-clip(report)、ActionSense 为 per-clip(CV 表,最长 history)。
+   **不可逐格对比。**
+
+**并暴露出一个既有缺口(此前被旧版式掩盖):**
+**ActionSense 那一列本身不可读。** 其 CV 表只含 `aggregate` 一个 encoder,
+**且没有 persistence 行** —— 没有分母,那个 2.413 无法与其他列同样解读。
+该臂唯一可横比的是一个 **run 级**比值 **0.81×persistence**
+(对照 d256 的 AR 0.89×、OpenTouch 的 map_aggregate 0.83×)。
+**要让该列真正可用,须重跑该臂并把 persistence 一并打分。未做。**
+旧版式下 ActionSense 自成一节、只有一行,这个缺口看不出来;换成同版式后它立刻显形。
