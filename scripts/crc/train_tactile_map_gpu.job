@@ -47,6 +47,7 @@ test -f data/actionsense_states/manifest.jsonl || {
     exit 1
 }
 
+echo "Host: $(hostname)  JOB_ID: ${JOB_ID:-NA}  started $(date)"
 python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
 
 # torch.use_deterministic_algorithms needs this before cuBLAS is reproducible on CUDA >= 10.2.
@@ -67,6 +68,7 @@ python -u scripts/actionsense/train_tactile_map.py \
     ${CSV:+--csv "$CSV"}
 
 echo ""
+echo "finished $(date)"
 echo "[done] 5-fold CV skill + coverage -> docs/actionsense/tactile_map_cv_results.csv"
 echo "Pull to local + plot:"
 echo "  scp -J jhao3@bastion.crc.nd.edu jhao3@crcfe01.crc.nd.edu:~/TouchAnything/docs/actionsense/tactile_map_cv_results.csv docs/"

@@ -8,6 +8,7 @@ Target is the RESIDUAL over persistence, so persistence == predicting residual 0
 from __future__ import annotations
 
 import os
+import time
 
 import numpy as np
 import torch
@@ -233,6 +234,10 @@ def cross_validate(cfg: Config, tm: dict, encoder: str, t_in: int, recs: list[in
     fold_of = rng.integers(0, folds, size=len(recs))
     skc, sks, cr, cc, hdc, hdr = [], [], [], [], [], []
     preds = {}                       # recording idx -> forecasts, filled only if requested
+    # Per-fold progress, flushed. Without it the log says nothing between the header and the
+    # summary line of a whole encoder x history combination, so a slow run and a hung one
+    # look identical -- the reason src/opentouch/prob_gru.py prints per epoch.
+    t0 = time.time()
     for f in range(folds):
         te = [recs[i] for i in range(len(recs)) if fold_of[i] == f]
         tr = [recs[i] for i in range(len(recs)) if fold_of[i] != f]
@@ -276,6 +281,12 @@ def cross_validate(cfg: Config, tm: dict, encoder: str, t_in: int, recs: list[in
         hdc.append(hd_ch); hdr.append(hd_ratio)
         if save_preds:
             preds.update(_per_recording(model, test_ds, tnorm, cfg.horizon))
+        el = time.time() - t0
+        done = len(skc)
+        print(f"    [{encoder} t_in={t_in}] fold {done}/{folds} | "
+              f"train {len(train_ds)} test {len(test_ds)} windows | "
+              f"meanSkill {float(np.mean(sk_ch)):+.3f} | "
+              f"{el:.0f}s elapsed, ~{el / done * (folds - done):.0f}s left", flush=True)
     return {"skill_ch": np.array(skc), "skill_step": np.array(sks),
             "coverage_raw": float(np.mean(cr)), "coverage_cal": float(np.mean(cc)),
             "hausdorff_ch": np.array(hdc), "hausdorff_ratio_ch": np.array(hdr),

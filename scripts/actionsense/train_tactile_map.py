@@ -63,6 +63,10 @@ def main():
     print(f"{'enc':8}{'hist':>5} | {'meanSkill':>10} {'covRaw':>7} {'covCal':>7}"
           f" | {'Hausdorff':>9}")
     print("-" * 42)
+    import time
+    t_all = time.time()
+    total = len(encoders) * len(histories)
+    k_done = 0
     for enc in encoders:
         for hist in histories:
             t_in = int(round(hist * fps))
@@ -93,6 +97,10 @@ def main():
                             *[f"{hd_m[j]:.4f}" for j in range(6)],
                             f"{float(np.nanmean(hdr_m)):.4f}"])
             fcsv.flush()
+            k_done += 1
+            el = time.time() - t_all
+            print(f"    [{k_done}/{total} combinations] {el / 60:.1f} min elapsed, "
+                  f"~{el / k_done * (total - k_done) / 60:.1f} min left", flush=True)
     fcsv.close()
     print(f"\n[csv] {args.csv}")
 
