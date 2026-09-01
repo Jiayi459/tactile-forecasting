@@ -47,6 +47,10 @@ def main():
     ap.add_argument("--window", type=int, default=None,
                     help="frames for the windowed mean (default: eval.min_history)")
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--csv", default=None,
+                    help="append rows [sensor,channel,baseline,skill,n_recordings,n_frames] "
+                         "here, so the numbers reach a document without being retyped")
+    ap.add_argument("--sensor", default=None, help="name for the --csv rows (default: config stem)")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -104,6 +108,21 @@ def main():
         print(f"  {k:14s} " + " ".join(f"{v:9.3f}" for v in sk))
     print(f"  {'(reference)':14s} " + " ".join(f"{0.0:9.3f}" for _ in names)
           + "   <- persistence, by definition")
+    if args.csv:
+        import csv as _csv
+        sensor = args.sensor or os.path.splitext(os.path.basename(args.config))[0]
+        new = not os.path.exists(args.csv)
+        with open(args.csv, "a", newline="") as fh:
+            w = _csv.writer(fh)
+            if new:
+                w.writerow(["sensor", "channel", "baseline", "skill",
+                            "n_recordings", "n_frames"])
+            for k in ("hist_mean", "hist_mean_w"):
+                sk = 1 - sse[k] / base
+                for c, v in zip(names, sk):
+                    w.writerow([sensor, c, k, round(float(v), 4), used, n])
+        print(f"  appended {2 * len(names)} rows -> {args.csv}")
+
     print("\n  positive => this trivial predictor beats persistence. Compare against the AR and")
     print("  probGRU skills in docs/skill_comparison.md: anything they do not clear is a")
     print("  baseline they should have been measured against.")

@@ -8713,3 +8713,74 @@ R11 (EgoTouch 旧线)预训练解锁未见物体的像素预报(LOTO +0.005 → 
 8. **下游探针 (§7b) 要不要做?**
 
 **本轮无代码改动,无实验运行。**
+
+### 2026-09-01续5 — 【mean-baseline 探针】ActionSense 全量实测,并**更正 08-30 记的那两个数**;另两个传感器已冒烟验证,待 CRC
+
+**请求**:把 08-30 留下的两条零成本命令(OpenTouch / d256 的 mean-baseline 探针)跑了。
+
+### 一、只有 ActionSense 能在本机跑,另两个必须上 CRC
+
+| config | `states_root` | 本机有? |
+|---|---|---|
+| `configs/actionsense/eval_harness.yaml` | `data/actionsense_states` | **有**(416 MB) |
+| `configs/d256/eval_harness.yaml` | `data/d256_states` | **无**(在 CRC 抽取,166 段) |
+| `configs/opentouch/eval_harness_d1.yaml` | `/users/jhao3/opentouch/cache_d1` | **无**(CRC 绝对路径) |
+
+且本机 `~/.ssh` 只有 NYU torch 的 config、**无 CRC key**,登录需密码/二次验证,非交互跑不了。
+**⇒ 后两条只能由用户在 CRC 上执行。**
+
+### 二、【更正】08-30 记的 `hist_mean -0.300 / hist_mean_w -0.157` **对不上任何一次可复现的输出**
+
+本机全量实跑(290 段 / 920,080 帧,H=10, window=40):
+```
+baseline        F_L    CoPx_L   CoPy_L     F_R    CoPx_R   CoPy_R
+hist_mean     -0.581   -0.666   -0.824   -0.980   -0.199   -0.498
+hist_mean_w   -0.443   -0.395   -0.384   -0.588   -0.034   -0.255
+```
+逐通道均值为 **−0.625 / −0.350**,不是 −0.300 / −0.157。脚本自 `e5d7ca1` **从未修改过**
+(`git log` 单条提交),故不是代码变更所致。试过 `--limit 60`(当时 R=0.585 的试跑规模)与
+`--limit 100`,**均无法复现**那两个数,也不是中位数或任何单通道值。
+**⇒ 08-30 的那两个标量是转抄的,来源不可复现,现予作废。** 论文引用须用上表。
+**结论方向不变且更强**:两个因果均值基线在**全部 6 个通道上都输给 persistence**,
+"平凡均值基线会赢过所有模型"的推算被推翻得更彻底(此前只有两个标量,现在是 6×2 个通道)。
+
+**这正是本项目一贯契约的用处**(`skill_comparison.md`:"每个数字都来自 CSV,从不转抄")——
+唯一一处手写进日志的标量,就是唯一一处对不上的。**故给探针补 `--csv/--sensor`**
+(与 `predictability_floor.py` 同接口),输出落到 `docs/mean_baseline.csv`,不再经人手。
+**290/299**:9 段因不足 `min_history=40 + H=10` 而无有效起点,属正常裁剪,非缺陷。
+
+### 三、另两个 config 已**端到端冒烟验证**,不会死在代码上
+
+上次六个 qsub 全死于我的 off-by-one,故这次先验。用合成 cache(层级与两侧真实 cache 相同:
+`state_{idx}.npy` + `manifest.jsonl`,`idx` 字段)覆写 `states_root` 后实跑:
+
+| config | 通道 | H | window | 结果 |
+|---|---|---|---|---|
+| `d256` | 6(`state` 为 (T,2,6)) | 6 | 24 | **跑通** |
+| `opentouch_d1` | 3(`state` 为 (T,1,6)) | 30 | 15 | **跑通** |
+
+逐项核对:`origins()` 的 `hi = T − H` 与探针的 `y[t+1:t+1+H]` 一致(t ≤ T−1−H),**无 off-by-one**;
+两侧 cache 的文件命名与 manifest schema 均与探针假设相符(`src/opentouch/dataset.py:37`、
+`scripts/d256/extract_d256_states.py:150`)。
+
+### 四、【读数时必须声明的一点】探针跑的是**全语料**,不是 TEST
+
+它是训练无关基线,不存在模型意义上的泄漏;但 AR/probGRU 的 skill 是 **TEST** 上的数,
+**两者的计分帧集合不同**。这与 `skill_comparison.md` 已警告的"OpenTouch 与 ActionSense 不在同一批帧上计分"
+是同一类问题。**对照时必须写明**,否则又是一次口径混用。
+
+### 五、待用户在 CRC 上执行(两条,零 GPU)
+
+```bash
+cd ~/TouchAnything && git pull
+python scripts/shared/probe_mean_baseline.py --config configs/d256/eval_harness.yaml \
+       --csv docs/mean_baseline.csv --sensor d256
+python scripts/shared/probe_mean_baseline.py --config configs/opentouch/eval_harness_d1.yaml \
+       --csv docs/mean_baseline.csv --sensor opentouch_d1
+```
+把终端输出与 `docs/mean_baseline.csv` 贴回即可。**预期**:两者 R(0.717 / 1.041)远高于
+ActionSense(0.649),按 `1 − 1/(2R)` 的**oracle** 上界分别是 0.303 / 0.520;
+但 AS 上因果实现与该上界**符号相反**,故**不作预测,以实测为准**——这正是 08-30 教训的执行。
+
+**代码改动**:`scripts/shared/probe_mean_baseline.py` 增加 `--csv/--sensor`(仅追加输出,
+不改任何计算)。**新增** `docs/mean_baseline.csv`(当前只有 actionsense 12 行)。

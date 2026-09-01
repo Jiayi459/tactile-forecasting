@@ -1,0 +1,13 @@
+sensor,channel,baseline,skill,n_recordings,n_frames
+actionsense,F_L,hist_mean,-0.5805,290,920080
+actionsense,CoPx_L,hist_mean,-0.6661,290,920080
+actionsense,CoPy_L,hist_mean,-0.8245,290,920080
+actionsense,F_R,hist_mean,-0.9798,290,920080
+actionsense,CoPx_R,hist_mean,-0.1993,290,920080
+actionsense,CoPy_R,hist_mean,-0.4981,290,920080
+actionsense,F_L,hist_mean_w,-0.4435,290,920080
+actionsense,CoPx_L,hist_mean_w,-0.3951,290,920080
+actionsense,CoPy_L,hist_mean_w,-0.3842,290,920080
+actionsense,F_R,hist_mean_w,-0.5884,290,920080
+actionsense,CoPx_R,hist_mean_w,-0.0342,290,920080
+actionsense,CoPy_R,hist_mean_w,-0.2545,290,920080
