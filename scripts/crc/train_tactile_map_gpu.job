@@ -65,6 +65,7 @@ python -u scripts/actionsense/train_tactile_map.py \
     ${BACKBONE:+--backbone "$BACKBONE"} \
     ${ENCODERS:+--encoders "$ENCODERS"} \
     ${HISTORIES:+--histories "$HISTORIES"} \
+    ${SAVE_PREDS:+--save-preds "$SAVE_PREDS"} \
     ${CSV:+--csv "$CSV"}
 
 echo ""
