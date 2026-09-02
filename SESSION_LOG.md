@@ -8797,3 +8797,138 @@ ActionSense(0.649),按 `1 − 1/(2R)` 的**oracle** 上界分别是 0.303 / 0.52
 
 **规程修正**:凡给出的命令需要用户先 `git pull`,本轮就必须先 push 并把 push 结果写进日志。
 "已提交"不等于"用户能拿到"。
+
+### 2026-09-02 — 【读 map 双骨干结果】用户那行汇总在**形状上对、在 skill 上会误导**;并预警**跑完也拿不到"完整 prediction"**
+
+**输入**:用户在 CRC 上用一段临时脚本比较 `docs/actionsense/probgru_map/cv_h3.csv` 与
+`docs/actionsense/seq2seq_map_recheck/cv_h3.csv`,得到唯一一行:
+
+```
+enc     skill S2S  skill pGRU   Δskill   HD S2S  HD pGRU     ΔHD
+cnn        0.0521      0.0374  -0.0146    2.513    2.629  +0.116   probGRU 形状更差
+```
+
+并说明:最新一轮 training 正在跑,跑完可看到完整的 prediction / skill / HD。
+
+### 〇、先说本轮的记录缺口(不是本轮造成的)
+
+`e5167ac`("ActionSense map arms, both backbones: 5-fold CV with Hausdorff",提交
+`docs/actionsense/{probgru_map,seq2seq_map_recheck}/cv.csv` 各 31 行)**在 SESSION_LOG 中没有任何条目**;
+`probgru_map` / `seq2seq_map_recheck` / `cv_h3` 三个名字全仓库 grep **只出现在这两个 CSV 的路径本身**,
+没有 job 命令、没有协议记录、没有 CSV↔运行的对应关系。
+**⇒ 这两条臂目前无法被复现,也无法被审阅。**本条先把能从数据本身读出的部分补上,
+无法从数据读出的部分列进 OPEN QUESTIONS,**不猜**。
+
+### 一、本机 `cv.csv` 与 CRC `cv_h3.csv` **数字对不上** —— 是新的一轮,不是同一份
+
+用本机已提交的 `cv.csv`(每文件 30 行 = `cnn` × history{1,3,10} × step{0.1…1.0})复算:
+
+| 读法 | S2S skill | pGRU skill | S2S HD | pGRU HD |
+|---|---|---|---|---|
+| 只取 history=3(10 行) | +0.0487 | +0.0399 | 2.508 | 2.614 |
+| 取全部 30 行 | +0.0506 | +0.0448 | 2.511 | 2.614 |
+| **用户 `cv_h3.csv`** | **+0.0521** | **+0.0374** | **2.513** | **2.629** |
+
+两种读法**都对不上**(pGRU skill 差 0.0025~0.0074,HD 差 0.015)。
+差幅**大于**本项目已测过的非确定性量级(job 文件里记的 OpenTouch map 臂同种子重跑 ≤ 4.9e-3 skill)。
+**⇒ `cv_h3.csv` 是另一次运行的产物**,可能改了 `EPOCHS`/`FOLDS`/`--histories`,也可能是别的。
+按本项目一贯口径,**在知道那次的 qsub 命令行之前,这两组数不得混用**。见 OPEN QUESTIONS Q1。
+
+### 二、【最重要】"probGRU skill 更差"**是第一步锚点造成的**,不是预报质量更差
+
+对已提交的 `cv.csv` 逐 forecast step 拆开(history=3 s,6 通道均值,Δ = pGRU − S2S):
+
+| step(s) | 0.1 | 0.2 | 0.3 | 0.4 | 0.5 | 0.6 | 0.7 | 0.8 | 0.9 | 1.0 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| S2S | .060 | .044 | .031 | .034 | .038 | .047 | .051 | .056 | .062 | .066 |
+| pGRU | **−.179** | −.012 | .035 | .057 | .070 | .077 | .082 | .086 | .090 | .094 |
+| Δ | **−0.239** | −0.056 | +0.004 | +0.023 | +0.032 | +0.030 | +0.031 | +0.030 | +0.029 | +0.028 |
+
+**probGRU 在 10 个 step 里赢 8 个**(0.3 s 起步步为正,稳定 +0.03);
+把 10 步平均成一个标量后之所以变负,**全部来自 t=0.1 s 那一格的 −0.179**。
+
+这与日志里已经查实的机制**逐字吻合**(2026-08-27/28 anchor 诊断、2026-08-28续2 §"必须点破"):
+Seq2Seq 预测**残差**再加到最后一次观测上 ⇒ 第一步天然≈persistence ⇒ skill≈0 而非负;
+probGRU 的 `mu[0]` 来自一个**自由 Linear 头**,不被约束在 `y[t]` 附近 ⇒ 第一步就带偏置。
+**⇒ 这是同一个 anchor 缺陷在第三条臂上的复现,是架构缺陷,不是"哪个模型预报得更准"。**
+
+**结论措辞必须改**:不能写"probGRU 在 ActionSense map 臂上 skill 更差",
+应写"**probGRU 的 1 步预测被自由输出头拖累;从 0.3 s 起它在每一个 horizon 上都更好**"。
+用户那行汇总把两件事压成了一个标量,**方向被单格反转**。
+
+### 三、形状(Hausdorff):R7 的**形状那一半复现了**,而且是单向的
+
+逐通道 × 3 个 history 共 18 格,**ΔHD 17/18 为正**(唯一例外 F_R@1 s,−0.011),
+幅度 +0.002 ~ +0.216 —— 与 OpenTouch `d1_map2` 记录的 **9/9 为正、+0.111~+0.227**
+落在同一区间。
+**⇒ "probGRU 形状更差"是跨传感器、跨输入、跨 history 稳定的,这一条可以写进论文。**
+
+### 四、【对 ICRA 规划 R7 的修订要求】"MSE 与形状系统性相反"**在本臂不成立**
+
+规划文档 R7 写的是"ΔHD 9/9 偏向 Seq2Seq;**点误差 9/9 偏向 probGRU**"。本臂:
+
+- 形状那一半:**复现**(17/18);
+- 点误差那一半:**不复现**——逐通道 Δskill(history=3)为
+  F_L **+0.014**、F_R **−0.032**、CoPx_L **−0.083**、CoPy_L **−0.095**、CoPx_R **+0.092**、CoPy_R **+0.051**,
+  **3 正 3 负**,并非一致偏向 probGRU。
+
+且模式不是 OpenTouch 上那个"F 通道反号"——这里是**左右臂反号**:
+左臂 F 赢 / 左臂 CoP 输,右臂 F 输 / 右臂 CoP 赢。
+另有一处值得单独查:**probGRU 的左臂 CoP skill 是负的,且随 history 单调恶化**
+(CoPx_L −0.018 → −0.059 → −0.063;CoPy_L −0.001 → −0.079 → −0.084,history 1→3→10 s),
+而 Seq2Seq 同通道稳定在 +0.02~+0.03。**"喂更长历史反而更差"需要解释,不能只报平均。**
+
+**⇒ R7 必须弱化为**:形状排序跨传感器不变;**点误差排序不跨传感器**,取决于口径与通道。
+按现有写法投出去,审稿人拿这张表即可推翻。
+
+### 五、【预警】这一轮跑完,**不会**得到"完整的 prediction"
+
+`scripts/actionsense/train_tactile_map.py:70-81`:
+
+```python
+for enc in encoders:
+    for hist in histories:
+        want = args.save_preds if (not args.histories or hist == histories[-1]) else None   # :75
+        ...
+        T.save_predictions({f"{args.backbone}_{enc}": cv["preds"]}, cfg, want, ...)          # :80
+```
+
+`save_predictions`(`src/actionsense/tactile_map/train.py:210-225`)对每个 recording 直接
+`np.savez_compressed(clip_{i}.npz, ...)` —— **整文件重写**,且 store 每次只带**一个** key。
+
+由此两点:
+
+1. **多 encoder 会互相覆盖。** 默认 sweep 是 `[aggregate, flatten, cnn]`
+   (`configs/actionsense/tactile_map.yaml`)。跑完后 npz 里只剩**最后一个 encoder** 的
+   `mu_*`/`sigma_*`,前两个被静默抹掉。而
+   `plot_opentouch_forecast_overlay.py:117` 正是靠 npz 里的多个 `mu_` key 才画得出对比。
+2. **`:75` 的判据与它上面那行注释相反。** 注释说"只给选定的 history 存,否则会互相覆盖";
+   代码却在**没给** `--histories` 时对**每个** history 都存(即必然互相覆盖),
+   给了 `--histories` 时才只存最后一个。**没给 = 全覆盖**,恰是注释想避免的情况。
+
+**若本轮 job 只跑单 encoder + 单 history**(例如 `ENCODERS=cnn,HISTORIES=3`),两点都不咬人,
+产出可用;**否则 npz 只会剩一个组合**,而 job 退出码仍是 0 —— 与 `2fd2360` 修的
+"训练照跑、CSV 照写、exit 0、只是目录没建出来"是同一种沉默失败。
+**这一点必须在 job 跑完前确认**,见 Q2。
+
+### 六、用户脚本本身的一处口径提醒(未触发,但会静默)
+
+`d[k].get(c, 0)` / `d[k].get(c+'_hd', 0)`:任一通道缺列时**按 0 计入均值**,
+skill 会被拉向 0、HD 会被拉低,且不报错。当前 6 通道齐全,未触发。
+同理 `set(pg) & set(s2)`:两侧 encoder 不一致时**静默取交集**,
+所以那张表只有 `cnn` 一行——**无法据此判断某一侧是否已有更多 encoder 跑完**。
+
+### OPEN QUESTIONS(阻塞下一步,等裁定)
+
+- **Q1** `cv_h3.csv` 那一轮的完整 qsub 命令行是什么(`EPOCHS`/`FOLDS`/`ENCODERS`/`HISTORIES`/`BACKBONE`/`CSV`/`SAVE_PREDS`)?
+  它与已提交的 `cv.csv` 差在哪?两组数能否并列报告?
+- **Q2** 正在跑的这一轮,`ENCODERS` 与 `HISTORIES` 各是什么?
+  若多于一个 encoder,是否要我**先修** `:75` 与 `save_predictions` 的覆盖问题(改为累积写入 / 按
+  `enc_hist` 分目录),以免跑完发现 npz 只剩一个组合?
+- **Q3** 是否要我把上面 §二/§三/§四 的复算落成脚本(如
+  `scripts/actionsense/compare_map_backbones.py`,输出 CSV + 表),
+  以免再出现"手写标量进日志、事后对不上"(2026-09-01续5 的教训)?
+- **Q4** R7 的修订要不要现在就写进 `docs/ICRA_PAPER_PLAN.md` 与 `docs/skill_comparison.md`?
+  (我倾向:等这一轮 3 个 encoder 齐了再改,一次改到位;但**若近 deadline,现在就该标注"点误差半边未复现"**。)
+
+**本轮无代码改动、无实验运行**;所有数字来自已提交的 `cv.csv` 复算,可逐行核对。

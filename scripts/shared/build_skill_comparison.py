@@ -96,6 +96,34 @@ def opentouch(path):
     return {k: sum(v) / len(v) for k, v in a.items()}
 
 
+AS_RUNS = [("Seq2Seq", "aggregate", "docs/actionsense/seq2seq_agg_recheck/cv.csv"),
+           ("Seq2Seq", "cnn", "docs/actionsense/seq2seq_map_recheck/cv_h3.csv"),
+           ("Seq2Seq", "flatten", "docs/actionsense/seq2seq_map_recheck/cv_h3.csv"),
+           ("probGRU", "aggregate", "docs/actionsense/probgru_agg/tactile_map_cv_probgru_agg.csv"),
+           ("probGRU", "cnn", "docs/actionsense/probgru_map/cv_h3.csv"),
+           ("probGRU", "flatten", "docs/actionsense/probgru_map/cv_h3.csv")]
+AS_CH = ["F_L", "CoPx_L", "CoPy_L", "F_R", "CoPx_R", "CoPy_R"]
+
+
+def as_run(path, encoder):
+    """-> (mean skill, mean Hausdorff) over the six channels, averaged over folds/steps."""
+    if not os.path.exists(path):
+        return None
+    sk, hd = [], []
+    for r in csv.DictReader(open(path)):
+        if r.get("encoder") != encoder:
+            continue
+        v = [float(r[f"{c}_skill"]) for c in AS_CH if r.get(f"{c}_skill")]
+        h = [float(r[f"{c}_hausdorff"]) for c in AS_CH if r.get(f"{c}_hausdorff")]
+        if v:
+            sk.append(sum(v) / len(v))
+        if h:
+            hd.append(sum(h) / len(h))
+    if not sk:
+        return None
+    return (sum(sk) / len(sk), sum(hd) / len(hd) if hd else float("nan"))
+
+
 def actionsense(root="docs/actionsense"):
     """The frozen harness for ar/seasonal, and the tactile_map CV at its longest history."""
     out = collections.defaultdict(list)
@@ -396,6 +424,34 @@ def main():
               "is ahead where the frames are and behind on the typical clip. Any claim about",
               "which backbone is better on F must name its convention; one that does not is",
               "not supported here.", ""]
+
+    rows_as = [(b, e, as_run(p, e)) for b, e, p in AS_RUNS]
+    if any(v for _, _, v in rows_as):
+        L += ["## ActionSense: both backbones, all three inputs", "",
+              "Mean over the six channels (two hands). Skill is frame-pooled per fold then",
+              "averaged over folds -- the only convention ActionSense computes -- so it is",
+              "the driver's, not the report's. Hausdorff is the same metric as everywhere",
+              "else. `—` is a run not yet made.", "",
+              "| backbone | input | mean skill | mean Hausdorff |",
+              "|---|---|---|---|"]
+        for b, e, v in rows_as:
+            L.append(f"| {b} | {e} | " + ("— | — |" if v is None
+                                          else f"{v[0]:.4f} | {v[1]:.3f} |"))
+        pair = {(b, e): v for b, e, v in rows_as if v}
+        deltas = [(e, pair[("probGRU", e)][1] - pair[("Seq2Seq", e)][1])
+                  for e in ("aggregate", "cnn", "flatten")
+                  if ("probGRU", e) in pair and ("Seq2Seq", e) in pair]
+        if deltas:
+            worse = sum(1 for _, d in deltas if d > 0)
+            L += ["",
+                  "**Hausdorff, probGRU minus Seq2Seq: " +
+                  ", ".join(f"{e} {d:+.3f}" for e, d in deltas) +
+                  f" -- probGRU is further from the truth in shape on {worse} of "
+                  f"{len(deltas)} inputs.**",
+                  "Read it beside the OpenTouch table above, where the same comparison is",
+                  "positive in all nine cells. Agreement across both sensors would make",
+                  "\"the one-shot head produces better-shaped forecasts\" an architectural",
+                  "fact rather than a property of one dataset.", ""]
 
     L += open("docs/_skill_comparison_notes.md").read().rstrip().split("\n") + [""]
     os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)

@@ -76,6 +76,10 @@ def main():
     ap.add_argument("--preds", default="runs/preds")
     ap.add_argument("--n-clips", type=int, default=3)
     ap.add_argument("--clips", help="explicit comma-separated clip indices")
+    ap.add_argument("--channels",
+                    help="comma-separated subset to draw, e.g. F_R,CoPx_R,CoPy_R. "
+                         "ActionSense has six (two hands) and OpenTouch three, so a "
+                         "figure-per-channel gives six files there unless restricted.")
     ap.add_argument("--band", action="store_true",
                     help="shade ±2σ where the model provides it (probGRU). Without it the "
                          "figure shows only the mean and understates what the model knows.")
@@ -114,10 +118,18 @@ def main():
 
     z0 = np.load(files[0], allow_pickle=True)
     chans = [str(c) for c in z0["channels"]]
+    if a.channels:
+        want = [c.strip() for c in a.channels.split(",")]
+        missing = [c for c in want if c not in chans]
+        if missing:
+            raise SystemExit(f"channels {missing} are not in this prediction set: {chans}")
+        chans = want
     models = sorted(k[3:] for k in z0.files if k.startswith("mu_"))
     H = z0[f"mu_{models[0]}"].shape[1]
 
-    for k, ch in enumerate(chans):
+    all_chans = [str(c) for c in z0["channels"]]
+    for ch in chans:
+        k = all_chans.index(ch)          # index into the arrays, not into the drawn subset
         tag, ylabel = LABELS.get(ch, (ch, ch))
         fig, axes = plt.subplots(len(models), len(files), squeeze=False, sharex="col",
                                  figsize=(3.6 * len(files), 2.2 * len(models)))
@@ -163,7 +175,11 @@ def main():
                             ax.plot(i2 / fps, m2[:, k], "--", color="tab:brown", lw=1.1,
                                     label=f"{m} ({a.compare_label})")
                 if ri == 0:
-                    ax.set_title(f"clip {os.path.basename(path)[5:-4]} — {z['action']}",
+                    # `action` is a label, not data: a prediction set without one should
+                    # still draw, titled by clip alone.
+                    act = str(z["action"]) if "action" in z.files else ""
+                    ax.set_title(f"clip {os.path.basename(path)[5:-4]}"
+                                 + (f" — {act}" if act else ""),
                                  fontsize=9)
                 if ci == 0:
                     ax.set_ylabel(f"{m}\n{ylabel}", fontsize=8)

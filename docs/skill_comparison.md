@@ -157,45 +157,45 @@ See SESSION_LOG 2026-08-22.
 
 ## F_R
 
-| model | ActionSense | `d256 none` | `d256 class` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|---|---|
-| AR | 0.200 | 0.101 | 0.101 | 0.148 | 0.148 | 0.367 | 0.367 | 0.367 | 0.367 | 0.367 |
-| seasonal | 0.000 | −0.047 | −0.047 | −0.019 | −0.019 | −0.038 | −0.038 | −0.038 | −0.038 | −0.038 |
-| probGRU | — | 0.002 | −0.027 | 0.203 | 0.207 | 0.386 | 0.383 | — | — | 0.386 |
-| GRU-aggregate | 0.181 | — | — | — | — | — | — | 0.360 | 0.360 | — |
-| CNN (map) | 0.138 | — | — | — | — | — | — | 0.333 | 0.330 | — |
-| flatten (map) | −0.042 | — | — | — | — | — | — | 0.273 | 0.269 | — |
-| probGRU + CNN | — | — | — | — | — | — | — | — | — | 0.356 |
-| probGRU + flatten | — | — | — | — | — | — | — | — | — | 0.322 |
-| **R** (persistence difficulty) | 0.655 | 0.750 | 0.750 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 |
+| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
+|---|---|---|---|---|---|---|---|---|
+| AR | 0.200 | 0.148 | 0.148 | 0.367 | 0.367 | 0.367 | 0.367 | 0.367 |
+| seasonal | 0.000 | −0.019 | −0.019 | −0.038 | −0.038 | −0.038 | −0.038 | −0.038 |
+| probGRU | — | 0.203 | 0.207 | 0.386 | 0.383 | — | — | 0.386 |
+| GRU-aggregate | 0.181 | — | — | — | — | 0.360 | 0.360 | — |
+| CNN (map) | 0.138 | — | — | — | — | 0.333 | 0.330 | — |
+| flatten (map) | −0.042 | — | — | — | — | 0.273 | 0.269 | — |
+| probGRU + CNN | — | — | — | — | — | — | — | 0.356 |
+| probGRU + flatten | — | — | — | — | — | — | — | 0.322 |
+| **R** (persistence difficulty) | 0.655 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 |
 
 ## CoPx_R
 
-| model | ActionSense | `d256 none` | `d256 class` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|---|---|
-| AR | 0.254 | 0.131 | 0.131 | 0.214 | 0.214 | 0.431 | 0.431 | 0.431 | 0.431 | 0.431 |
-| seasonal | 0.000 | −0.040 | −0.040 | −0.015 | −0.015 | −0.033 | −0.033 | −0.033 | −0.033 | −0.033 |
-| probGRU | — | −0.057 | −0.019 | 0.288 | 0.278 | 0.427 | 0.431 | — | — | 0.427 |
-| GRU-aggregate | 0.233 | — | — | — | — | — | — | 0.422 | 0.422 | — |
-| CNN (map) | 0.011 | — | — | — | — | — | — | 0.374 | 0.370 | — |
-| flatten (map) | −0.002 | — | — | — | — | — | — | 0.331 | 0.328 | — |
-| probGRU + CNN | — | — | — | — | — | — | — | — | — | 0.414 |
-| probGRU + flatten | — | — | — | — | — | — | — | — | — | 0.393 |
-| **R** (persistence difficulty) | 0.746 | 0.791 | 0.791 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 |
+| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
+|---|---|---|---|---|---|---|---|---|
+| AR | 0.254 | 0.214 | 0.214 | 0.431 | 0.431 | 0.431 | 0.431 | 0.431 |
+| seasonal | 0.000 | −0.015 | −0.015 | −0.033 | −0.033 | −0.033 | −0.033 | −0.033 |
+| probGRU | — | 0.288 | 0.278 | 0.427 | 0.431 | — | — | 0.427 |
+| GRU-aggregate | 0.233 | — | — | — | — | 0.422 | 0.422 | — |
+| CNN (map) | 0.011 | — | — | — | — | 0.374 | 0.370 | — |
+| flatten (map) | −0.002 | — | — | — | — | 0.331 | 0.328 | — |
+| probGRU + CNN | — | — | — | — | — | — | — | 0.414 |
+| probGRU + flatten | — | — | — | — | — | — | — | 0.393 |
+| **R** (persistence difficulty) | 0.746 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 |
 
 ## CoPy_R
 
-| model | ActionSense | `d256 none` | `d256 class` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|---|---|
-| AR | 0.194 | −0.032 | −0.032 | 0.171 | 0.171 | 0.476 | 0.476 | 0.476 | 0.476 | 0.476 |
-| seasonal | 0.000 | −0.073 | −0.073 | −0.016 | −0.016 | −0.009 | −0.009 | −0.009 | −0.009 | −0.009 |
-| probGRU | — | −0.218 | −0.192 | 0.221 | 0.227 | 0.472 | 0.472 | — | — | 0.472 |
-| GRU-aggregate | 0.175 | — | — | — | — | — | — | 0.469 | 0.469 | — |
-| CNN (map) | 0.045 | — | — | — | — | — | — | 0.424 | 0.419 | — |
-| flatten (map) | −0.051 | — | — | — | — | — | — | 0.407 | 0.408 | — |
-| probGRU + CNN | — | — | — | — | — | — | — | — | — | 0.430 |
-| probGRU + flatten | — | — | — | — | — | — | — | — | — | 0.446 |
-| **R** (persistence difficulty) | 0.658 | 0.715 | 0.715 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 |
+| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
+|---|---|---|---|---|---|---|---|---|
+| AR | 0.194 | 0.171 | 0.171 | 0.476 | 0.476 | 0.476 | 0.476 | 0.476 |
+| seasonal | 0.000 | −0.016 | −0.016 | −0.009 | −0.009 | −0.009 | −0.009 | −0.009 |
+| probGRU | — | 0.221 | 0.227 | 0.472 | 0.472 | — | — | 0.472 |
+| GRU-aggregate | 0.175 | — | — | — | — | 0.469 | 0.469 | — |
+| CNN (map) | 0.045 | — | — | — | — | 0.424 | 0.419 | — |
+| flatten (map) | −0.051 | — | — | — | — | 0.407 | 0.408 | — |
+| probGRU + CNN | — | — | — | — | — | — | — | 0.430 |
+| probGRU + flatten | — | — | — | — | — | — | — | 0.446 |
+| **R** (persistence difficulty) | 0.658 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 |
 
 ## Hausdorff distance between forecast and truth curves
 
@@ -229,45 +229,45 @@ arm with persistence scored, which has not been done.
 
 ### Hausdorff — F_R
 
-| model | ActionSense | `d256 none` | `d256 class` | `d1_map2` | `d1_pg` |
-|---|---|---|---|---|---|
-| AR | — | 2.694 | 2.694 | 2.766 | 2.766 |
-| seasonal | — | 3.065 | 3.065 | 2.699 | 2.699 |
-| probGRU | — | 3.022 | 3.071 | — | 2.883 |
-| GRU-aggregate | 2.413 | — | — | 2.738 | — |
-| CNN (map) | — | — | — | 2.748 | — |
-| flatten (map) | — | — | — | 2.820 | — |
-| probGRU + CNN | — | — | — | — | 2.975 |
-| probGRU + flatten | — | — | — | — | 3.013 |
-| persistence | — | 3.023 | 3.023 | 3.301 | 3.301 |
+| model | ActionSense | `d1_map2` | `d1_pg` |
+|---|---|---|---|
+| AR | — | 2.766 | 2.766 |
+| seasonal | — | 2.699 | 2.699 |
+| probGRU | — | — | 2.883 |
+| GRU-aggregate | 2.413 | 2.738 | — |
+| CNN (map) | — | 2.748 | — |
+| flatten (map) | — | 2.820 | — |
+| probGRU + CNN | — | — | 2.975 |
+| probGRU + flatten | — | — | 3.013 |
+| persistence | — | 3.301 | 3.301 |
 
 ### Hausdorff — CoPx_R
 
-| model | ActionSense | `d256 none` | `d256 class` | `d1_map2` | `d1_pg` |
-|---|---|---|---|---|---|
-| AR | — | 2.427 | 2.427 | 2.558 | 2.558 |
-| seasonal | — | 2.872 | 2.872 | 2.396 | 2.396 |
-| probGRU | — | 2.646 | 2.570 | — | 2.669 |
-| GRU-aggregate | 2.193 | — | — | 2.552 | — |
-| CNN (map) | — | — | — | 2.594 | — |
-| flatten (map) | — | — | — | 2.649 | — |
-| probGRU + CNN | — | — | — | — | 2.705 |
-| probGRU + flatten | — | — | — | — | 2.764 |
-| persistence | — | 2.857 | 2.857 | 3.151 | 3.151 |
+| model | ActionSense | `d1_map2` | `d1_pg` |
+|---|---|---|---|
+| AR | — | 2.558 | 2.558 |
+| seasonal | — | 2.396 | 2.396 |
+| probGRU | — | — | 2.669 |
+| GRU-aggregate | 2.193 | 2.552 | — |
+| CNN (map) | — | 2.594 | — |
+| flatten (map) | — | 2.649 | — |
+| probGRU + CNN | — | — | 2.705 |
+| probGRU + flatten | — | — | 2.764 |
+| persistence | — | 3.151 | 3.151 |
 
 ### Hausdorff — CoPy_R
 
-| model | ActionSense | `d256 none` | `d256 class` | `d1_map2` | `d1_pg` |
-|---|---|---|---|---|---|
-| AR | — | 2.628 | 2.628 | 2.418 | 2.418 |
-| seasonal | — | 2.905 | 2.905 | 2.226 | 2.226 |
-| probGRU | — | 2.959 | 2.914 | — | 2.566 |
-| GRU-aggregate | 2.308 | — | — | 2.425 | — |
-| CNN (map) | — | — | — | 2.484 | — |
-| flatten (map) | — | — | — | 2.511 | — |
-| probGRU + CNN | — | — | — | — | 2.663 |
-| probGRU + flatten | — | — | — | — | 2.637 |
-| persistence | — | 2.870 | 2.870 | 3.070 | 3.070 |
+| model | ActionSense | `d1_map2` | `d1_pg` |
+|---|---|---|---|
+| AR | — | 2.418 | 2.418 |
+| seasonal | — | 2.226 | 2.226 |
+| probGRU | — | — | 2.566 |
+| GRU-aggregate | 2.308 | 2.425 | — |
+| CNN (map) | — | 2.484 | — |
+| flatten (map) | — | 2.511 | — |
+| probGRU + CNN | — | — | 2.663 |
+| probGRU + flatten | — | — | 2.637 |
+| persistence | — | 3.070 | 3.070 |
 
 ## The backbones side by side, one input at a time
 
@@ -321,6 +321,28 @@ high-variance clips dominate it; the report weights every clip equally. probGRU
 is ahead where the frames are and behind on the typical clip. Any claim about
 which backbone is better on F must name its convention; one that does not is
 not supported here.
+
+## ActionSense: both backbones, all three inputs
+
+Mean over the six channels (two hands). Skill is frame-pooled per fold then
+averaged over folds -- the only convention ActionSense computes -- so it is
+the driver's, not the report's. Hausdorff is the same metric as everywhere
+else. `—` is a run not yet made.
+
+| backbone | input | mean skill | mean Hausdorff |
+|---|---|---|---|
+| Seq2Seq | aggregate | 0.1334 | 2.369 |
+| Seq2Seq | cnn | 0.0530 | 2.524 |
+| Seq2Seq | flatten | — | — |
+| probGRU | aggregate | 0.0660 | 2.624 |
+| probGRU | cnn | 0.0359 | 2.629 |
+| probGRU | flatten | — | — |
+
+**Hausdorff, probGRU minus Seq2Seq: aggregate +0.255, cnn +0.106 -- probGRU is further from the truth in shape on 2 of 2 inputs.**
+Read it beside the OpenTouch table above, where the same comparison is
+positive in all nine cells. Agreement across both sensors would make
+"the one-shot head produces better-shaped forecasts" an architectural
+fact rather than a property of one dataset.
 
 ## How to read it
 
