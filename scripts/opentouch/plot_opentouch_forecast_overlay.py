@@ -116,6 +116,29 @@ def main():
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    # Which models each clip actually carries. Merged sets are NOT uniform: baselines are
+    # exported for one frozen test split while a cross-validated arm covers every recording,
+    # so a clip can hold the neural arms and none of the baselines. Reading the model list
+    # off files[0], as this did, then silently drew a figure missing whole rows.
+    have = {}
+    for f in sorted(glob.glob(os.path.join(a.preds, "clip_*.npz"))):
+        z = np.load(f, allow_pickle=True)
+        have[f] = {k[3:] for k in z.files if k.startswith("mu_")}
+    every = set().union(*have.values()) if have else set()
+    full = [f for f in files if have.get(f, set()) == every]
+    if not full:
+        # No clip has all of them: fall back to the largest set any candidate does have, and
+        # name what is being dropped rather than quietly drawing fewer rows.
+        best = max((have.get(f, set()) for f in files), key=len, default=set())
+        full = [f for f in files if have.get(f, set()) == best]
+        print(f"WARNING: no clip carries all {len(every)} models; drawing the "
+              f"{len(best)} that these clips share. Missing here: "
+              f"{sorted(every - best)}")
+    elif len(full) < len(files):
+        print(f"note: {len(files) - len(full)} of {len(files)} candidate clips lack some "
+              f"model and were skipped so every row is populated")
+    files = full[:a.n_clips]
+
     z0 = np.load(files[0], allow_pickle=True)
     chans = [str(c) for c in z0["channels"]]
     if a.channels:

@@ -8932,3 +8932,134 @@ skill 会被拉向 0、HD 会被拉低,且不报错。当前 6 通道齐全,未�
   (我倾向:等这一轮 3 个 encoder 齐了再改,一次改到位;但**若近 deadline,现在就该标注"点误差半边未复现"**。)
 
 **本轮无代码改动、无实验运行**;所有数字来自已提交的 `cv.csv` 复算,可逐行核对。
+
+## 2026-09-02续 — 【trait 表对齐 OpenTouch】并发现:**冻结 harness 只打 slice/peel 两个动词**,对齐前 trait 对比在数学上不可算
+
+**请求**:(1) ActionSense 从未按 abrupt/smooth 分类分别跑过 skill;(2) 回顾 dataset,按文件名把
+action 分为 abrupt / smooth;(3) **保持和 OpenTouch 一样的分类方法**。
+
+### 一、核实(1):确实从未跑过 —— 而且原因是机械性的,不是没排上
+
+`src/actionsense/trait.py` 建于 2026-08-24,但**全仓库 grep:除它自己的测试外无人 import**
+(`tests/test_actionsense_trait.py` 是唯一引用);`docs/actionsense/` 下也没有任何按
+smooth/abrupt 拆分的产物。**⇒ 该表从建立起就没被任何打分路径用过。**
+
+**真正的原因在这里**:`configs/actionsense/eval_harness.yaml` 最后一行是
+
+```yaml
+actions: [slice, peel]
+```
+
+冻结 harness **只打 slice 与 peel**(实测 299 条录制中 75 条进入 split)。
+而 2026-08-24 的表里 **slice 与 peel 都是 SMOOTH** ⇒ **被打分的语料 100% 属于 smooth,
+abrupt 类为空** ⇒ trait 对比**不是没做,是当时算不出来**。
+这一点此前从未在日志里被点破,现予记录。
+
+### 二、执行(3):对齐 OpenTouch —— **只动两个动词**
+
+方法不变(rubric 只有一份,在 `src/opentouch/trait.py`,Layer 1 + R1/R2);变的是把
+ActionSense 每个动词**对齐到 OpenTouch 中结构对应的那个 action 的判定**。逐条核对 14 个动词,
+**其中 12 个本来就与对应项一致**,只有两个不一致:
+
+| 动词 | OT 对应 action | OT 判定 | AS 旧判定(08-24) | **新判定** |
+|---|---|---|---|---|
+| `slice` | `cutting` | ABRUPT [U]+ | SMOOTH [U]+ | **ABRUPT [U2]+** |
+| `clear` | `scooping` | ABRUPT [U]+ | SMOOTH [U]+ | **ABRUPT [U2]+** |
+| `peel` | `scraping` | **SMOOTH** [U] | SMOOTH [U]+ | **不变** |
+
+**`peel` 不动**——OpenTouch 把 `scraping` 判为 SMOOTH,所以"对齐"对它没有要求。
+这一点很关键:它正是对齐之后 smooth 类在被打分语料里**还剩下东西**的原因。
+
+**08-24 那条 [U] 裁定与 R1 的分歧,现由本次 [U2] 裁定消解**;旧裁定原文保留在文件头,
+供审阅比对,**不删**。
+
+**新增 `OT_CORRESPONDENT`**(14 个动词 → OpenTouch action)并由测试断言
+`trait_class(verb) == OT.trait_class(correspondent)` 逐条成立。
+**"和 OpenTouch 分类一致"从此是被测试强制的,不是 docstring 里的一句话**——两张表在不同文件,
+任一侧被改而另一侧的说明不改,是典型的静默漂移。
+
+### 三、执行(2):按文件名(manifest label 的动词)得到的分区
+
+**新增 `scripts/actionsense/actionsense_trait_partition.py` → `docs/actionsense/trait_partition.csv`。**
+**不手抄任何数字**(2026-09-01续5 的教训);窗口数用 harness 自己的 `origins()`,与打分同一定义。
+
+```
+verb        class   cont OT action      rec   frames  windows scoredRec scoredWin
+slice       abrupt  *    cutting         45    17036    14786        45     14786
+get         abrupt       picking up      30    18680    17180         0         0
+clear       abrupt  *    scooping        28     7273     5873         0         0
+get/replace abrupt       picking up      15     8756     8006         0         0
+open/close  abrupt  *    turning          9     1223      773         0         0
+open        abrupt  *    turning          6      872      572         0         0
+set         abrupt       placing          6     6661     6361         0         0
+stack       abrupt       placing          5     2028     1778         0         0
+load        abrupt       placing          5     6884     6634         0         0
+unload      abrupt       picking up       5     7800     7550         0         0
+clean       smooth       cleaning        60     6301     3361         0         0
+peel        smooth  *    scraping        30    15352    13852        30     13852
+spread      smooth       spreading       30     6093     4593         0         0
+pour        smooth       pouring         25     1707      486         0         0
+
+smooth   corpus: 145 rec /  22292 win   |   SCORED:  30 rec /  13852 win   verbs=['peel']
+abrupt   corpus: 154 rec /  69513 win   |   SCORED:  45 rec /  14786 win   verbs=['slice']
+```
+
+- **全语料**:145 smooth / 154 abrupt(旧表是 218 / 81)。**对齐后两类几乎均衡**,
+  统计功效远好于 OpenTouch 的 299 vs 2544。
+- **被打分语料**:**slice 45 条 / 14,786 窗(abrupt)vs peel 30 条 / 13,852 窗(smooth)**,
+  窗口数几乎 1:1。**trait 对比现在可算了。**
+- 冻结 split 的构成(实测):train peel 18 / slice 27、val peel 6 / slice 9、test peel 6 / slice 9
+  —— **三个 split 内两类都非空**,不需要重划分。
+- map 臂同样可分:本机 100 个 `clip_*.npy` = slice 45 + peel 30 + pour 25,
+  其中落在冻结 split 内的 **75 条恰好就是 slice+peel 全部**。⇒ **baseline 臂与 map 臂都能按 trait 拆。**
+
+### 四、【必须与任何 ActionSense trait 数字同时报告的三条限制】
+
+1. **每类只有一个动词 ⇒ trait 与动词身份完全混淆。**
+   ActionSense 上测到的任何 smooth/abrupt 差异,**同时就是 slice/peel 差异**,二者不可分离。
+   OpenTouch 的 G2 每类有多个动词,没有这个问题。**报告时必须写成"slice vs peel",
+   trait 解读只能作为诠释提出,不能作为被测量的东西。**
+2. **Layer-3 敏感性分析在被打分语料上是空的。** `slice` 与 `peel` **都在 CONTENTIOUS 里**
+   (前者切板冲击 vs 连续锯切,后者连续旋削 vs 离散刀法),剔除争议项后两类都空。
+   ⇒ "方向不依赖边界动作如何归类"这条保险**在 ActionSense 上买不到**。
+   (脚本会自己把这句打出来,不靠人记。)
+3. **skill-vs-persistence 在两类之间有结构性偏置。** 日志 2026-08-07(SESSION_LOG:2678-2681)
+   已经论证过:smooth ⇒ persistence 天然强 ⇒ 分母小 ⇒ **即使模型能力毫无差别,skill 也会显示
+   smooth 更低**。OpenTouch 的 G2 因此裁定(SESSION_LOG:2824)**主指标 = 类内 R²
+   (`1 − SSE_model/SSE_mean`)+ ΔR²;次要 = raw MSE/MAE;skill-vs-persistence 仅作诊断,
+   不参与推断**。**"保持和 OpenTouch 一样的方法"如果只对齐标签而不对齐指标,得到的将是一个
+   已知会自我证实的数**。见 Q2。
+
+### 五、纪律说明(为什么这不是事后改标签)
+
+`src/opentouch/trait.py` 的 HARD DISCIPLINE 条款禁止**因为看到结果而改类定义**。
+本次修订时 ActionSense **不存在任何按 trait 计算过的数字**(§一 的 grep 即证据),
+故"改在任何它可能被调参去迎合的结果之前"这一性质**仍然成立**,已逐字写进文件头。
+但必须同时承认:**是这次修订创造了这个测量的可能性**(§一),读者有权知道这一点,
+文件头也照此写了。08-24 的训练无关探针那条既有 qualification 不变,仍然适用。
+
+### 六、改动清单
+
+- `src/actionsense/trait.py`:`slice`/`clear` → ABRUPT [U2];新增 AMENDMENT 段(含旧裁定原文、
+  纪律说明、三条限制)、`OT_CORRESPONDENT` 表 + 断言。**CONTENTIOUS 集不变**
+  (Layer 3 量的是动作内部的实例差异,与跨传感器一致性无关)。
+- `tests/test_actionsense_trait.py`:删去"CONTENTIOUS 覆盖跨传感器分歧"一项(分歧已不存在),
+  新增三项:逐动词与 OT 对应项一致、被打分的两个动词落在**相反**的类、CONTENTIOUS 仍覆盖边界动作
+  且被打分语料的敏感性分析为空。
+- 新增 `scripts/actionsense/actionsense_trait_partition.py` + `docs/actionsense/trait_partition.csv`。
+- **`pytest tests/ -q`:84 passed, 6 skipped**(跳过的 6 项是本机 torch 装坏所致,既有问题)。
+
+### OPEN QUESTIONS
+
+- **Q1(阻塞打分)**:按 trait 拆开跑哪一臂?
+  (a) **baseline harness 臂**(persistence / AR / seasonal,零 GPU,本机可跑)——最便宜,且
+  AR 是 R6 里最强的模型;(b) **map CV 臂**(probGRU / Seq2Seq × cnn,要 GPU);(c) 两个都要。
+  **我建议先 (a)**:零成本、可立刻验证方向,再决定要不要花 GPU。
+- **Q2(阻塞结论)**:指标是否也照 OpenTouch 的 G2 裁定?即 **主指标 R²/ΔR²,skill 仅作诊断**?
+  若只报 skill,§四.3 那条结构性偏置会让"smooth 更难预报"这个结论无法与偏置区分。
+- **Q3**:是否要**分类别各自拟合**(smooth 一组、abrupt 一组独立拟合 AR),还是**pooled 训练后按类打分**?
+  OpenTouch 的 G2 裁定是**前者**(pooled 会把"训练分布"混进"trait"里,SESSION_LOG:2485-2499)。
+  ActionSense 这边两类样本量相当(14,786 vs 13,852 窗),**分别拟合是可行的**。
+- **Q4**:`clear` 改判影响的是**语料统计**而非任何既有数字(它不在 `actions` 过滤器内)。
+  是否要顺带把 `actions` 扩到更多动词,让 trait 对比不再是"单动词对单动词"(§四.1)?
+  **这会动冻结 config,是大事**,故不自作主张;不动的话 §四.1 的限制就是永久的。

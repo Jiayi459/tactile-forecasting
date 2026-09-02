@@ -34,13 +34,39 @@ def test_the_classes_share_the_rubric_constants():
     assert {T.trait_class(v) for v in CORPUS} == {OT.SMOOTH, OT.ABRUPT}
 
 
-def test_contentious_covers_the_cross_sensor_divergence():
-    """slice and clear are SMOOTH here and ABRUPT on OpenTouch under the same rubric (the
-    user's ruling, 2026-08-24). They must be contentious, so every result is reported with a
-    recomputation that drops them."""
-    assert T.trait_class("slice") == OT.SMOOTH and OT.trait_class("cutting") == OT.ABRUPT
-    assert T.is_contentious("slice") and T.is_contentious("clear")
+def test_every_verb_agrees_with_its_opentouch_correspondent():
+    """The user's ruling of 2026-09-02: ActionSense is classified the same way OpenTouch is.
+
+    Stated as a test rather than as prose because the failure mode is silent -- the two
+    tables live in different files, and a verdict edited on one side would otherwise leave
+    the docstring claiming an agreement that no longer holds. This is the assertion that
+    `slice` -> abrupt (= `cutting`) and `clear` -> abrupt (= `scooping`) exist to satisfy.
+    """
+    for verb, ot_action in T.OT_CORRESPONDENT.items():
+        assert T.trait_class(verb) == OT.trait_class(ot_action), (
+            f"{verb!r} is {T.trait_class(verb)} here but its OpenTouch correspondent "
+            f"{ot_action!r} is {OT.trait_class(ot_action)}")
+
+
+def test_the_two_verbs_the_harness_scores_land_in_opposite_classes():
+    """configs/actionsense/eval_harness.yaml scores `slice` and `peel` and nothing else.
+
+    Under the superseded 2026-08-24 table both were SMOOTH, so the abrupt class on the scored
+    corpus was EMPTY and no trait contrast could be computed at all -- which is why none ever
+    was. This test pins the property the amendment bought; if a future edit collapses the two
+    back into one class, every ActionSense trait result silently becomes uncomputable again.
+    """
+    assert T.trait_class("slice") == OT.ABRUPT
+    assert T.trait_class("peel") == OT.SMOOTH
+
+
+def test_contentious_still_covers_the_boundary_actions():
+    """Layer 3 is about within-action variability, so the alignment did not shrink it. Both
+    scored verbs are contentious, so the sensitivity analysis is empty on the scored corpus
+    -- asserted here so the limitation is visible in the tests, not only in the docstring."""
+    assert T.is_contentious("slice") and T.is_contentious("clear") and T.is_contentious("peel")
     assert T.CONTENTIOUS <= set(T.TRAIT_CLASS)
+    assert not (({"slice", "peel"}) - T.CONTENTIOUS)
 
 
 def test_partition_accounts_for_every_recording():

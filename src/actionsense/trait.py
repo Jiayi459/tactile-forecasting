@@ -15,27 +15,62 @@ trait class. One honest qualification: a training-free predictability probe over
 actions already exists (docs/actionsense/predictability_by_category*.csv), so this audit had
 to stand on the physical rubric alone. It is written to be checkable as such.
 
-A KNOWN CROSS-SENSOR DIVERGENCE, RECORDED IN ADVANCE
-====================================================
-`slice` and `clear` are SMOOTH here, while OpenTouch's table has the structurally
-corresponding `cutting` and `scooping` as ABRUPT. The rubric's own R1 uses cutting as its
-worked example -- "a knife striking the cutting board ... is what forces `cutting` ->
-abrupt" -- so the divergence is real and is NOT an application of R1 as written. It stands
-because it is the user's explicit ruling of 2026-08-24, marked [U] below, and this file
-records the user's rulings verbatim rather than re-deriving them.
+AMENDMENT 2026-09-02 -- ALIGNED TO OpenTouch's VERDICTS [U2]
+===========================================================
+THE ORIGINAL DIVERGENCE, RECORDED HERE VERBATIM SO THE CHANGE IS AUDITABLE. As committed on
+2026-08-24 this table had `slice` and `clear` as SMOOTH, while OpenTouch's table has the
+structurally corresponding `cutting` and `scooping` as ABRUPT. That was the user's explicit
+ruling of 2026-08-24, and it diverged from the rubric's own R1, whose worked example is a
+knife: "a knife striking the cutting board ... is what forces `cutting` -> abrupt".
 
-Both are therefore placed in CONTENTIOUS, which is what that subset is for: every G2 result
-is reported alongside a recomputation with the contentious actions dropped. If the direction
-survives, no conclusion depends on how these two were assigned; if it does not, the
-disagreement is exactly what needs reporting. Any cross-sensor comparison of a G2 result must
-state this divergence, because a smooth-vs-abrupt contrast means something different on the
-two sensors while it stands.
+THE USER'S NEW RULING (2026-09-02): "保持和 opentouch 一样的分类 abrupt 和 smooth 方法" --
+keep ActionSense's classification identical to OpenTouch's. Applying it moves `slice` ->
+ABRUPT (= `cutting`) and `clear` -> ABRUPT (= `scooping`). `peel` STAYS SMOOTH: its
+OpenTouch correspondent is `scraping`, which that table rules SMOOTH [U], so alignment does
+not touch it. Those are the only two entries the amendment changes; the other twelve already
+agreed with their correspondents.
+
+WHY THIS IS NOT A POST-HOC RELABELLING. The HARD DISCIPLINE clause of the rubric forbids
+editing a class definition in response to a measured outcome. No ActionSense number has ever
+been computed by trait class: as of this amendment `src/actionsense/trait.py` is imported by
+nothing but its own test (checked by grep across the repo, 2026-09-02), and no artifact in
+docs/actionsense/ is broken down by smooth/abrupt. The amendment is therefore still made
+BEFORE any result it could be tuned to, which is the property the pre-registration exists to
+establish. The training-free probe qualification below is unchanged and still applies.
+
+WHAT THE AMENDMENT COSTS, STATED PLAINLY. The frozen harness scores two verbs
+(`actions: [slice, peel]` in configs/actionsense/eval_harness.yaml). Under the 2026-08-24
+table both were SMOOTH, so a trait contrast on the scored corpus was not merely unmeasured
+but ARITHMETICALLY IMPOSSIBLE -- one class was empty. Under this amendment the same corpus
+splits slice (ABRUPT) vs peel (SMOOTH). That makes the contrast computable, and it also
+means the amendment is what creates the measurement: a reader is entitled to know that, and
+to know that the direction of the eventual result was not consulted, only its existence.
+
+A LIMITATION THE AMENDMENT CANNOT REMOVE. On the scored corpus each class then holds exactly
+ONE verb, so trait class and verb identity are perfectly confounded: any smooth-vs-abrupt
+difference measured on ActionSense is equally a slice-vs-peel difference. OpenTouch's G2 had
+many verbs per class and does not have this problem. Any ActionSense trait number must be
+reported as "slice vs peel", with the trait reading offered as interpretation rather than as
+what was measured.
+
+CONTENTIOUS IS UNCHANGED BY THE AMENDMENT. Membership there is about variability across
+typical instances of an action (Layer 3), not about cross-sensor agreement, and the
+instance-level ambiguity of `slice`, `clear`, `peel`, `open` and `open/close` is the same
+after alignment as before. Note that on the scored corpus BOTH verbs are contentious, so the
+Layer-3 sensitivity analysis is empty there and cannot be run; that is a limitation to report
+beside the primary number, not a reason to shrink the contentious set.
 
 PROVENANCE
 ==========
   [U] the user's explicit ruling, 2026-08-24 (recorded verbatim, not re-derived)
+  [U2] the user's ruling of 2026-09-02: match OpenTouch's verdict for the corresponding
+       action (see the AMENDMENT section); supersedes the [U] verdict it replaces
   [R] derived by applying the rubric in src/opentouch/trait.py
   +   also in CONTENTIOUS (Layer 3)
+
+Every entry names the OpenTouch action it corresponds to. OT_CORRESPONDENT below makes that
+mapping machine-checkable, so "classified the same way as OpenTouch" is enforced by a test
+rather than asserted in a docstring.
 
 VOCABULARY COMPLETENESS
 =======================
@@ -61,19 +96,21 @@ TRAIT_CLASS: dict[str, str] = {
     "pour":        SMOOTH,   # [R] the sustained tilt IS the action; the grasp of the jug is
                              #     preparatory and excluded by R2. Matches the rubric's own
                              #     ruling on `pouring`.
-    "peel":        SMOOTH,   # [U]+ the blade leaves the surface into air rather than striking
-                             #     anything, so R1 finds no impact; structurally this is the
-                             #     rubric's `scraping`, which it classes smooth. CONTENTIOUS
-                             #     because a stroke's engage/disengage is a contact-surface
-                             #     change and some participants peel in discrete strokes
-                             #     rather than continuous rotation.
-    "slice":       SMOOTH,   # [U]+ DIVERGES FROM R1 AND FROM OpenTouch's `cutting` (abrupt).
-                             #     See the header. Contentious by construction.
-    "clear":       SMOOTH,   # [U]+ DIVERGES FROM OpenTouch's `scooping` (abrupt), which the
-                             #     rubric names as forced by R1 when the tool strikes the
-                             #     bowl. See the header. Contentious by construction.
+    "peel":        SMOOTH,   # [U]+ = OpenTouch `scraping` (smooth). The blade leaves the
+                             #     surface into air rather than striking anything, so R1
+                             #     finds no impact. CONTENTIOUS because a stroke's
+                             #     engage/disengage is a contact-surface change and some
+                             #     participants peel in discrete strokes rather than
+                             #     continuous rotation. Unchanged by the 2026-09-02
+                             #     amendment: OpenTouch already rules this class smooth.
 
     # -- ABRUPT ---------------------------------------------------------------------------
+    "slice":       ABRUPT,   # [U2]+ = OpenTouch `cutting` (abrupt): "刀每次下压到砧板是一次
+                             #      impact,锯切动作里刀刃反复脱离/重新咬合材料". This is R1's
+                             #      own worked example. Was SMOOTH until 2026-09-02.
+    "clear":       ABRUPT,   # [U2]+ = OpenTouch `scooping` (abrupt): utensil-container
+                             #      collisions under R1, plus the grasp/release of what is
+                             #      cleared. Was SMOOTH until 2026-09-02.
     "get":         ABRUPT,   # [R] the grasp is constitutive (R2): remove it and nothing was
                              #     retrieved. Opening a drawer or door adds a second one.
     "get/replace": ABRUPT,   # [R] as `get`, with a release as well.
@@ -89,11 +126,36 @@ TRAIT_CLASS: dict[str, str] = {
 }
 
 CONTENTIOUS: frozenset[str] = frozenset({
-    # verdict varies across typical instances of the action, or (slice/clear) diverges from
-    # the same rubric's verdict on the corresponding OpenTouch action
+    # verdict varies across typical instances of the action (Layer 3). Membership is about
+    # that variability, not about cross-sensor agreement, so the 2026-09-02 alignment did not
+    # change it: a sawing stroke that never lifts, a peel done in discrete strokes and a cap
+    # unscrewed in one sustained rotation are all still real instances.
     "slice", "clear", "peel", "open", "open/close",
 })
 assert CONTENTIOUS <= set(TRAIT_CLASS), "CONTENTIOUS must only name audited actions"
+
+# The OpenTouch action each ActionSense verb corresponds to. This is the whole content of the
+# user's 2026-09-02 ruling: the two tables must agree wherever they describe the same physical
+# action, so the correspondence is stated once, here, and asserted in tests rather than being
+# left as prose that can drift away from the table beneath it.
+OT_CORRESPONDENT: dict[str, str] = {
+    "clean":       "cleaning",
+    "spread":      "spreading",
+    "pour":        "pouring",
+    "peel":        "scraping",
+    "slice":       "cutting",
+    "clear":       "scooping",
+    "get":         "picking up",
+    "get/replace": "picking up",   # + a `placing` on the return leg; both are ABRUPT
+    "open":        "turning",      # twist-off cap
+    "open/close":  "turning",
+    "set":         "placing",
+    "stack":       "placing",
+    "load":        "placing",
+    "unload":      "picking up",
+}
+assert set(OT_CORRESPONDENT) == set(TRAIT_CLASS), \
+    "every audited verb needs the OpenTouch action it is aligned to"
 
 
 def trait_class(action: str | None) -> str:

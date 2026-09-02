@@ -1,0 +1,15 @@
+verb,trait_class,contentious,opentouch_correspondent,recordings,frames_10hz,windows,scored_recordings,scored_windows
+slice,abrupt,1,cutting,45,17036,14786,45,14786
+get,abrupt,0,picking up,30,18680,17180,0,0
+clear,abrupt,1,scooping,28,7273,5873,0,0
+get/replace,abrupt,0,picking up,15,8756,8006,0,0
+open/close,abrupt,1,turning,9,1223,773,0,0
+open,abrupt,1,turning,6,872,572,0,0
+set,abrupt,0,placing,6,6661,6361,0,0
+stack,abrupt,0,placing,5,2028,1778,0,0
+load,abrupt,0,placing,5,6884,6634,0,0
+unload,abrupt,0,picking up,5,7800,7550,0,0
+clean,smooth,0,cleaning,60,6301,3361,0,0
+peel,smooth,1,scraping,30,15352,13852,30,13852
+spread,smooth,0,spreading,30,6093,4593,0,0
+pour,smooth,0,pouring,25,1707,486,0,0

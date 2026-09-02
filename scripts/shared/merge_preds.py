@@ -85,6 +85,19 @@ def main():
     print(f"merged {len(per_clip)} clips x {len(models)} models -> {a.out}")
     print("  " + ", ".join(models))
 
+    # Sources need not cover the same clips -- baselines are exported for one frozen test
+    # split while a cross-validated arm covers every recording -- and a clip holding only
+    # some of the models draws a figure with rows missing and nothing said. Report it here,
+    # where the asymmetry is created.
+    full = sum(1 for arrs in per_clip.values()
+               if {k[3:] for k in arrs if k.startswith("mu_")} == set(models))
+    if full < len(per_clip):
+        print(f"  NOTE: only {full}/{len(per_clip)} clips carry all {len(models)} models; "
+              f"the rest are partial. Per source:")
+        for d, pre in srcs:
+            n = len(glob.glob(os.path.join(d, "clip_*.npz")))
+            print(f"    {n:5d} clips  {d}" + (f"  (prefix {pre})" if pre else ""))
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
