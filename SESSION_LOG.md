@@ -9349,3 +9349,28 @@ separates offline sensor correction from train-fold normalization and causal rol
 - Final d256 search in `main.tex`: no matches.
 - No commit or push. Unrelated experiment-script changes and untracked per-action files were not
   modified.
+
+### 2026-09-05 — CRC 作业"5 分钟就没了"的根因:我给了命令却从未推代码
+
+**用户报告**:qsub 只跑了 5 分钟就结束。
+**根因(我的过失,已确认)**:上一轮我交付了 `qsub -v SCOPE=corpus,...` 并让用户 `git pull`,
+但那四个改动**从头到尾没有 commit、没有 push**——`git log origin/main..HEAD` 为空,
+文件仍是 `M`/`??`。CRC 上 `git pull` 拿到的是旧代码:
+- 旧 `scripts/crc/train_tactile_map_gpu.job` **没有 `${SCOPE:+--scope "$SCOPE"}`**,
+  UGE 把 `SCOPE=corpus` 作为普通环境变量传入后**无人读取**;
+- 旧 `scripts/actionsense/train_tactile_map.py` **没有 `--scope` 参数**。
+故该次运行落在 `T.recordings(cfg)` = **冻结的 75 条 slice+peel**,而非 299 条。
+
+**这个失效模式比崩溃更危险**:aggregate 臂很小,GPU 上 5 分钟跑完 60 epoch × 5 折是**正常完成**
+而非失败。产物目录名为 `..._corpus`、内容却是冻结范围,**不会报任何错**。若未察觉,后续
+per-action 表会被安静地建立在 2 个动作上,并被当作 14 个动作的结果解读。
+
+**教训(写给未来的自己)**:交付"请在别处运行"的命令时,**推送是交付的一部分,不是后续步骤**。
+命令与它依赖的代码必须同时到位,否则等于交付了一个静默走错分支的配置。
+
+**修复**:补测试(`test_corpus_recordings_ignores_the_action_filter`,钉住不读
+`cfg.raw["actions"]` 且丢弃无 state 文件的录音)→ `pytest tests/ -q` **137 passed** →
+提交并推送 `cb53d58`。`main.tex`(非我创建)未包含在提交内。
+
+**重跑前必须先删旧产物**:`runs/as_preds_*_corpus/` 里现存的是 75 条冻结范围的预测;
+`score_preds_per_action.py` 会把目录下所有 `clip_*.npz` 一并读入,新旧混装将无声地污染结果。
