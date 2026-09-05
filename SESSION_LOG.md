@@ -9393,3 +9393,39 @@ per-action 表会被安静地建立在 2 个动作上,并被当作 14 个动作�
 
 **并对该规则做了自检(dogfooding)**:执行其要求的两条命令,确认 `CLAUDE.md` 为唯一待提交项、
 无未推送提交,然后提交并推送。`main.tex`(非我创建)照旧不纳入。
+
+### 2026-09-05续2 — 用户追问"history 只跑了 3s 吗";核实后确认 3s 正确,但理由与我当初的不同
+
+**事实**:是,因为 qsub 里写了 `HISTORIES=3`;配置默认 sweep 是 `[1,3,10]`。**我当初随手定的 3s,
+未做任何核实。** 现补上依据。
+
+**依据一(弱):已有结果里 history 影响很小,且两个 backbone 偏好相反**
+(aggregate 臂,mean_skill 对 10 个 forecast step 取平均):
+| history | seq2seq_agg_recheck | probgru_agg_e150 | probgru_agg |
+|---|---|---|---|
+| 1s | +0.1208 | **+0.0786** | +0.0576 |
+| 3s | +0.1370 | +0.0700 | **+0.0702** |
+| 10s | **+0.1423** | +0.0703 | **+0.0702** |
+跨度 0.009–0.021,而 ICRA_PAPER_PLAN 方法论第 8 条给出的复现噪声底约 **5e-3**。故 3s 既非
+seq2seq 最优(10s)也非 probGRU-e150 最优(1s),但差异仅为噪声的 2–4 倍。
+
+**依据二(强,且是决定性的):补零会系统性地惩罚短片段动作,直接污染 per-action 排名。**
+`AggWindows._window` 对不足 `t_in` 的窗口**左侧补零**。按 manifest 实测(T//3 → 10 Hz):
+| history | t_in | 短于 t_in 的录音比例 |
+|---|---|---|
+| **3s** | 30 帧 | **全部 14 个动作皆为 0%** |
+| 10s | 100 帧 | `pour` **96%**、`clean` 40%、`open/close` 33%、`clear` 18%;全库 19% |
+`pour` 中位仅 **65 帧(6.5 s)**。10s history 下它 96% 的窗口几乎全是零,却照常参与打分,
+**per-action 排名会退化为片段长度的函数**。这恰好会摧毁本次分析的目标。
+**结论:3s 是唯一对全部 14 个动作都无补零的候选,必须保留;10s 在 per-action 分析中不可用。**
+
+**一个操作性硬约束(影响"要不要补跑")**:
+[train_tactile_map.py:75](scripts/actionsense/train_tactile_map.py#L75)
+`want = args.save_preds if (not args.histories or hist == histories[-1]) else None`
+——**一个作业只为列表最后一个 history 存预测**。故 `HISTORIES=1,3,10` 只会得到 10s 的 preds
+(恰是最差选择)。history 敏感性检查必须拆成独立作业 + 独立 `--save-preds` 目录。
+**建议:暂不补跑**(差异仅 2–4 倍噪声底,不值双倍机时);若要补,补 **1s**,**不要补 10s**。
+
+**顺带发现的小瑕疵(不阻塞)**:该行注释称其防止"每个长度覆盖上一个",但 `--histories` 未给时
+`not args.histories` 为真,实际每个长度都会写一遍并互相覆盖。最终产物仍是最后一个 history 的
+完整集合,故不影响正确性,只是白写两轮且注释与行为不符。
