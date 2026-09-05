@@ -1,0 +1,64 @@
+#!/bin/bash
+# UGE job: per-epoch train/val/test loss curves for the F/CoP forecaster -> overfitting check.
+#
+# Companion to scripts/crc/train_tactile_map_gpu.job. That job runs the 5-fold CV, which keeps no
+# per-epoch history; this one trains ONE 70/15/15 split by recording and logs NLL + MSE every
+# epoch, which is the only way a curve exists at all. Cheap: the aggregate arm is a
+# Linear(6->64) + GRU(64) + two Linear heads.
+#
+# Submit from repo root after `git pull` and `mkdir -p logs`. One job per (backbone x history):
+#   qsub -v ENCODERS=aggregate,BACKBONE=seq2seq,SCOPE=corpus,HISTORY=3 scripts/crc/loss_curve_gpu.job
+#   qsub -v ENCODERS=aggregate,BACKBONE=probgru,SCOPE=corpus,HISTORY=1 scripts/crc/loss_curve_gpu.job
+# OUT defaults to docs/actionsense/loss_curve_<backbone>_<scope>_h<history>s.png, so four jobs
+# cannot overwrite one another and no OUT needs to be passed.
+# NOTE: no inline comments on #$ lines -- UGE treats the rest of the line as the argument.
+#$ -M jhao3@nd.edu
+#$ -m abe
+#$ -q gpu
+#$ -l gpu_card=1
+#$ -pe smp 4
+#$ -N loss_curve
+#$ -cwd
+#$ -o logs/
+#$ -e logs/
+
+set -euo pipefail
+conda activate tactile
+
+python -c "import yaml" 2>/dev/null || pip install pyyaml --quiet
+
+# Link everything the harness reads, not only the maps -- the aggregate arm needs state_*.npy
+# and manifest.jsonl, and git tracks none of the four. Same step, and the same failure it was
+# written to prevent, as train_tactile_map_gpu.job.
+SRC="$HOME/actionsense/states"
+mkdir -p data/actionsense_states
+n=0
+for f in "$SRC"/clip_*.npy "$SRC"/state_*.npy "$SRC"/manifest.jsonl "$SRC"/splits.json; do
+    [ -e "$f" ] && ln -sf "$f" data/actionsense_states/ && n=$((n+1))
+done
+echo "linked $n files from $SRC into data/actionsense_states/"
+
+test -f data/actionsense_states/manifest.jsonl || {
+    echo "FATAL: data/actionsense_states/manifest.jsonl missing after linking from $SRC."
+    echo "  Every scope reads the manifest -- SCOPE=corpus enumerates it directly."
+    exit 1
+}
+
+echo "Host: $(hostname)  JOB_ID: ${JOB_ID:-NA}  started $(date)"
+python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
+export CUBLAS_WORKSPACE_CONFIG=:4096:8
+
+python -m pytest tests/ -q
+
+python -u scripts/actionsense/plot_tactile_map_loss_curve.py \
+    --history "${HISTORY:-3}" --epochs "${EPOCHS:-60}" \
+    ${ENCODERS:+--encoders "$ENCODERS"} \
+    ${BACKBONE:+--backbone "$BACKBONE"} \
+    ${SCOPE:+--scope "$SCOPE"} \
+    ${CAP:+--cap "$CAP"} \
+    ${OUT:+--out "$OUT"}
+
+echo ""
+echo "finished $(date)"
+echo "Pull to local:"
+echo "  scp -J jhao3@bastion.crc.nd.edu 'jhao3@crcfe01.crc.nd.edu:~/TouchAnything/docs/actionsense/loss_curve_*.png' docs/actionsense/"

@@ -9350,6 +9350,41 @@ separates offline sensor correction from train-fold normalization and causal rol
 - No commit or push. Unrelated experiment-script changes and untracked per-action files were not
   modified.
 
+## 2026-09-05 — Section 5 outline and manuscript length audit (planning only)
+
+**User request:** Design a concise but complete Section 5 that links the Section 4 protocol to the
+Section 6 results, then identify where the full manuscript should be shortened for the ICRA six-page
+main-text budget. Do not weaken Section 5 merely to save space; provide the outline before editing.
+
+### Recommended architecture
+
+- Rename the section from `Models and Rationale` to `Models`; rationale is expressed through the
+  scientific role of each contrast rather than in the heading.
+- Use three subsections: (5.1) Reference Forecasts, (5.2) Neural Temporal Forecasters, and (5.3)
+  Representation-Controlled Variants. Integrate training/selection into these subsections rather
+  than creating a short fourth methods fragment.
+- Align the Results order with H1--H4: reference forecasts and intrinsic predictability; decoder and
+  metric interaction; input representation; action context. H4 has no Section 5 counterpart because
+  action class is an evaluation stratum, not a model.
+- Correct two current manuscript inaccuracies when Section 5 is drafted: Seq2Seq emits Gaussian
+  mean/log-variance and is not deterministic (`src/actionsense/tactile_map/models.py:56-76`); ProbGRU
+  always contains an action embedding in the implemented architecture (`:79-118` and
+  `src/opentouch/prob_gru.py:249-281`), so it is not merely an optional ablation detail.
+
+### Length audit
+
+Approximate body counts before bibliography: Introduction 932; Related Work 193; Section 3 748;
+Section 4 1,197; Section 5 208; Results 722; Discussion 237; Limitations 161; Conclusion 83. The
+manuscript has ten floats (one Introduction figure, one data table, one model figure, five Results
+tables, and two Results figures). The principal savings should come from compressing Sections 1/3/4,
+merging Discussion with Limitations, and reducing/merging Results floats; Section 5 should expand to
+roughly 420--500 words to become methodologically complete.
+
+### OPEN QUESTIONS
+
+- None blocking for the outline. No TeX content was changed in this planning pass; await user
+  approval before rewriting Sections 5/6 or performing the proposed global compression.
+
 ### 2026-09-05 — CRC 作业"5 分钟就没了"的根因:我给了命令却从未推代码
 
 **用户报告**:qsub 只跑了 5 分钟就结束。
@@ -9429,3 +9464,210 @@ seq2seq 最优(10s)也非 probGRU-e150 最优(1s),但差异仅为噪声的 2–4
 **顺带发现的小瑕疵(不阻塞)**:该行注释称其防止"每个长度覆盖上一个",但 `--histories` 未给时
 `not args.histories` 为真,实际每个长度都会写一遍并互相覆盖。最终产物仍是最后一个 history 的
 完整集合,故不影响正确性,只是白写两轮且注释与行为不符。
+
+## 2026-09-05 — Section 5 drafting after outline approval
+
+**User approval and scope:** The user approved the three-part Section 5 outline and explicitly
+requested that only Section 5 be completed now. Section 6 restructuring and manuscript-wide
+compression remain deferred until separate instructions.
+
+### Implementation plan
+
+1. Rename `Models and Rationale` to `Models`; express the rationale through each comparison's
+   scientific role rather than the section title.
+2. Replace the list-style draft with three subsections: `Reference Forecasts`, `Neural Temporal
+   Forecasters`, and `Representation-Controlled Variants`.
+3. Link the three contrasts to H1--H3 and back to the fixed data/evaluation protocol in Section 4,
+   without editing Section 6.
+4. Correct the architecture figure text and caption so Seq2Seq is probabilistic and ProbGRU's action
+   embedding is not described as optional.
+5. Validate LaTeX parsing, labels/references, section boundaries, and the final Section 5 word count.
+
+### Implementation constraints established from code
+
+- Seq2Seq uses a per-frame encoder, GRU history summary, and joint $H$-step Gaussian mean/log-variance
+  heads; it predicts a residual over the last observed state (`src/actionsense/tactile_map/models.py:56-76`,
+  `src/opentouch/tactile_map.py:102-121`).
+- ProbGRU always uses an eight-dimensional action embedding, autoregressive mean feedback, absolute
+  Gaussian outputs, and clamped log variance (`src/actionsense/tactile_map/models.py:79-118`,
+  `src/opentouch/prob_gru.py:250-281`).
+- Flatten and CNN can be described as a controlled spatial-encoder comparison when their backbone is
+  fixed. Physical moments versus raw maps is not a strict single-variable ablation because input
+  dimensionality and preprocessing also change; the manuscript must state that boundary.
+- Model training runs for the configured epoch budget and retains the best validation checkpoint. It
+  should not be called patience-based early stopping.
+
+### OPEN QUESTIONS
+
+- None. The user resolved the prior checkpoint by approving the outline and authorizing the TeX edit.
+
+### Completed changes
+
+- Replaced the original five-item list in `main.tex:200-214` with a 432-word Section 5 organized as
+  the three approved subsections. The opening explicitly connects the fixed Section 4 protocol to
+  the H1--H3 model contrasts.
+- `Reference Forecasts` now distinguishes persistence, train-fitted seasonal repetition with causal
+  fallback, and validation-order-selected recursive AR, without repeating the metric definitions
+  from Section 3.
+- `Neural Temporal Forecasters` now accurately describes probabilistic joint-horizon residual
+  Seq2Seq and action-conditioned autoregressive absolute ProbGRU. It also states why the comparison
+  is diagnostic rather than a single-factor decoder ablation.
+- `Representation-Controlled Variants` distinguishes moments, flattened maps, and CNN maps; only the
+  matched flatten--CNN contrast is called an isolation of spatial inductive bias.
+- Corrected both figure placeholders and the caption: Seq2Seq is Gaussian/probabilistic, and the
+  ProbGRU action embedding is mandatory in the implemented model.
+- Section 6 and all manuscript-wide compression targets were deliberately left untouched.
+
+### Validation
+
+- `pandoc --from=latex --to=native main.tex --output=/dev/null`: exit 0.
+- Section 5 prose before the figure: 432 words, within the agreed 420--500-word target.
+- Required headings and `sec:data` / `fig:model_architectures` reference targets are present.
+- Searches found none of the superseded phrases `Models and Rationale`, `deterministic residual`,
+  `optional action embedding`, or `validation-selected period` in the manuscript.
+- No LaTeX engine is installed locally, so exact page rendering remains an Overleaf check.
+- No commit or push. `main.tex` remains untracked and `SESSION_LOG.md` remains modified; unrelated
+  worktree changes were not touched.
+
+### 2026-09-05续3 — 四个 run 的成果输出:计划 + 一个既有脚本已损坏的发现
+
+**用户要求**:四个 run(backbone {seq2seq, probGRU} × history {1s, 3s})全部跑完,要:
+(1) test set 上类似 OpenTouch 的 forecast 图;(2) R²/skill/Hausdorff 汇总表 → `skill_comparison.md`;
+(3) per-action 结果 → `per_action_metrics.md`,与 OpenTouch 对应内容并列;(4) loss curve(优先现有脚本)。
+
+**现状盘点(逐脚本核实)**
+
+| 交付物 | 工具 | 状态 |
+|---|---|---|
+| forecast 图 | `scripts/opentouch/plot_opentouch_forecast_overlay.py` | **可直接用,无需改动**。它读 `--save-preds` 目录,而 ActionSense 的 `save_predictions` docstring 明写 "in the OpenTouch overlay format"——当初就是为此设计的 |
+| per-action 表 | `scripts/shared/score_preds_per_action.py` | **可直接用**(本轮已冒烟验证) |
+| R²/skill/HD 汇总 | 各 run 的 `cv_*.csv` + 评分器 | 可直接用 |
+| loss curve | `scripts/actionsense/plot_tactile_map_loss_curve.py` | **已损坏,见下** |
+
+**注意**:`scripts/actionsense/plot_forecast_overlay.py` **不适用**——它走 `action_dynamics` 旧流水线
+(fast 分量 R³ 目标)且会重新训练,与本次 harness/tactile_map 的 run 不是同一个模型。
+
+**`plot_tactile_map_loss_curve.py` 的三处问题(前两处是既有 bug,与本次需求无关也会崩)**
+1. **解包数不符,必崩**。`MapWindows.__getitem__` 现返回 **4 项**
+   (x, aid, last, y;data.py:154 的注释说明这是为避免"长度随 flag 变化"的形状事故),
+   而脚本第 39 行仍是 `for x, y in DataLoader(ds, ...)` → `ValueError: too many values to unpack`。
+   **已实测确认返回 4 项。** 该脚本写于 4 项改动之前,此后未同步。
+2. **aggregate 分支喂错数据**。循环遍历 `tmc["sweep"]["encoders"]` = `[aggregate, flatten, cnn]`,
+   但三者共用同一个 `MapWindows`(2×32×32);`AggEncoder` 期望 (B,t_in,6) → 形状不符。
+   即修好第 1 点,`aggregate` 仍然跑不了——**而本次要的正是 aggregate 臂**。
+3. **不支持本次需要的两个轴**:`build_model(enc, ...)` 未传 `backbone` → 只能建 Seq2Seq,
+   无法画 probGRU;且 `T.recordings` 写死冻结范围,无 `--scope corpus`。
+
+**拟议修法(待用户裁定后再动手)**:最小改动、沿用该脚本既有设计(单次 70/15/15 split 的过拟合诊断图,
+与 `plot_fcop_loss_curve.py` 同构),不改成读 CV 历史(那需要重跑 CV):
+(a) 按 4 项解包,前向统一走 `T._call(model, x, aid, last, cfg.horizon)`;
+(b) 按 encoder 选数据集——aggregate → `AggWindows`,flatten/cnn → `MapWindows`(镜像 `cross_validate`);
+(c) 新增 `--backbone`(probgru 时 `residual=False` + 从 TRAIN 建 action vocab,同 `cross_validate`)、
+    `--scope`、`--encoders`;
+(d) 本地 CPU 冒烟(aggregate 臂单 split,可行),再交 CRC 命令。
+
+**OPEN QUESTIONS**
+- **OQ-R1 数据怎么过来?** preds 在 CRC,我在本地。估算每个 run 约 30 MB(290×~100KB),四个约 120 MB。
+  **建议 scp 回本地**——两份文档要反复修订,留在 CRC 只能盲发命令。
+- **OQ-R2 loss curve 的修复范围**是否按上述 (a)–(d) 执行?它超出"优先现有脚本"的字面含义,
+  因为现有脚本对 aggregate 臂**从来没能跑通**。
+
+**未实现任何一项,等用户裁定。**
+
+## 2026-09-05 — Detailed Section 6 architecture (planning only)
+
+**User request:** Refine the Results outline so its subsections are complete, logically ordered, and
+matched to Section 5. Do not draft or edit Section 6 yet.
+
+### Recommended structure
+
+Use one short Results preamble followed by four subsections and an unnumbered synthesis paragraph:
+
+1. `Reference Forecasts and Predictability Beyond Persistence` (H1; matches Section 5.1)
+2. `Architecture Choice Across Evaluation Axes` (H2; matches Section 5.2)
+3. `Physical Moments versus Tactile Maps` (H3; matches Section 5.3)
+4. `Action-Level Predictability` (H4; action is an evaluation stratum rather than a Section 5 model)
+5. `\paragraph{Predictability synthesis.}` only; do not create a fragmented fifth subsection.
+
+Every subsection should use the same internal reporting order: reference/difficulty context where
+needed, absolute pointwise accuracy (`R^2`), gain over persistence (skill), trajectory shape
+(Hausdorff ratio), then a one-sentence hypothesis verdict. Pointwise and shape metrics therefore
+remain cross-cutting axes instead of being isolated in a standalone metric-results subsection.
+
+### Subsection functions and transitions
+
+- **6.1:** Establish the denominator before crediting a learned model. Report corpus/channel
+  persistence difficulty, then persistence -> seasonal naive -> AR under one scorer, and finally
+  locate neural gains relative to that ladder. Seasonal-naive's possible MSE/shape reversal is the
+  transition to H2: model ranking depends on the evaluation axis.
+- **6.2:** Compare Seq2Seq and ProbGRU first under pointwise metrics and then Hausdorff, followed by
+  horizon/forecast-curve evidence for level recovery versus temporal evolution. Treat the complete
+  architecture packages as complementary, not a pure decoder ablation, because rollout, anchoring,
+  and action conditioning change together. Keep variance calibration to one short diagnostic
+  paragraph rather than a separate subsection.
+- **6.3:** Hold the temporal family fixed and compare moment, CNN, and flatten inputs per target
+  channel. The matched CNN--flatten contrast addresses spatial inductive bias; moment--map is a
+  broader representation comparison. Report primary common-scorer results first and any
+  estimator-mismatched ActionSense replication as descriptive until regenerated.
+- **6.4:** Make individual actions primary. Rank by absolute `R^2` first, then report exact skill and
+  action-level Hausdorff as complementary quantities, because a high skill can result from weak
+  persistence rather than high absolute forecastability. Only afterward test whether the
+  smooth/abrupt grouping explains `Rdiff`, skill, or shape. Report clip counts/eligibility and avoid
+  numerical ranking across the two sensor corpora.
+- **Synthesis:** Answer the overarching RQ in 70--90 words: how much performance comes from
+  persistence, whether learned gain is mainly level or evolution, and where remaining horizon
+  headroom lies. Robotics implications remain in Discussion.
+
+### Float plan
+
+Target four Results floats rather than the current seven: (1) one two-panel main table for pointwise
+and Hausdorff model results; (2) one combined representative-forecast/horizon figure; (3) one compact
+representation table; (4) one sorted per-action figure with smooth/abrupt annotations and clip counts.
+The full action table can live in the repository/supplement. Report the two corpus-level `Rdiff`
+values in prose rather than a dedicated two-row table. Fold the ceiling into the horizon panel or
+the synthesis; do not retain a standalone ceiling table. Keep calibration values in prose.
+
+### Evidence integrity constraints before drafting
+
+- Do not combine the existing ActionSense frozen baseline and neural-sweep numbers as a paired
+  ranking: their test assignments and estimators differ (`main.tex:187,198`).
+- Current `docs/per_action_metrics.md` has OpenTouch per-action `R^2`, but its displayed skill is
+  derived after channel averaging and is not the exact harness aggregate; current action-level
+  Hausdorff is absent. Those values must be regenerated from saved per-clip predictions before they
+  occupy the formal 6.4 skill/shape slots.
+- The four full-corpus ActionSense runs (Seq2Seq/ProbGRU x 1/3 s) are still external/pending in the
+  latest workflow record. Section 6.4 should not be numerically drafted until their predictions are
+  imported, old frozen-scope archives are excluded, and the shared scorer produces exact per-action
+  outputs.
+- Do not interpret `Seq2Seq vs ProbGRU` as a single-factor decoder experiment; Section 5 already
+  records the differences in persistence anchoring and action conditioning.
+
+### Word allocation
+
+Results preamble 25--35 words; 6.1 140--170; 6.2 180--220; 6.3 130--160; 6.4 170--210;
+synthesis 70--90. Total target: approximately 715--885 words before captions, with the lower end
+preferred after numbers are available.
+
+### OPEN QUESTIONS
+
+- No blocker for approving the architecture. Drafting 6.4 is contingent on the pending ActionSense
+  prediction archives and exact shared-scorer outputs. Await user approval before editing Section 6.
+
+**OQ-R1/R2 裁定(用户,2026-09-05)**:R1 = scp 回本地;R2 = 按 (a)–(d) 全修,并另给 CRC 作业脚本。
+
+**已实现**
+- `scripts/actionsense/plot_tactile_map_loss_curve.py` **重写**,三处缺陷全修:
+  (1) 四项解包,前向统一走 `T._call`;(2) `datasets_for()` 按 encoder 选数据集
+  ——aggregate → `AggWindows`,flatten/cnn → `MapWindows`(镜像 `cross_validate`);
+  (3) 新增 `--backbone`(probgru 时 `residual=False` + 从 TRAIN 建 action vocab)、`--scope`、
+  `--encoders`;`--out` 默认按 `backbone_scope_h<history>s` 命名,四个配置不会互相覆盖。
+- **本地冒烟(实测,非纸面)**:corpus 范围、aggregate 臂、2 epoch,
+  seq2seq@3s 与 probgru@1s 均跑通并出图;`clips tr/va/te=209/44/46`、
+  `windows train=64897`、**`vocab=14`**(14 个动作组全部进入 embedding 词表,
+  因 `action_vocab` 的 `min_count=3` 而最小组有 5 条录音)。`pytest tests/ -q` → **137 passed**。
+- 新增 `scripts/crc/loss_curve_gpu.job`(仿 `train_tactile_map_gpu.job`:同样的 symlink 步骤与
+  manifest FATAL 检查、同样的 pytest 关卡与 `CUBLAS_WORKSPACE_CONFIG`),透传
+  ENCODERS/BACKBONE/SCOPE/HISTORY/EPOCHS/CAP/OUT。
+
+**仍待 preds 到本地**:forecast 图、per-action 表、`skill_comparison.md` 与
+`per_action_metrics.md` 的更新。
