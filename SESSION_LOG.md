@@ -9063,3 +9063,289 @@ abrupt   corpus: 154 rec /  69513 win   |   SCORED:  45 rec /  14786 win   verbs
 - **Q4**:`clear` 改判影响的是**语料统计**而非任何既有数字(它不在 `actions` 过滤器内)。
   是否要顺带把 `actions` 扩到更多动词,让 trait 对比不再是"单动词对单动词"(§四.1)?
   **这会动冻结 config,是大事**,故不自作主张;不动的话 §四.1 的限制就是永久的。
+
+### 2026-08-25续 — 问答:probGRU 与 Seq2Seq 的预测过程(input/output)逐行澄清
+
+**命名重叠(需长期记住)**:"probGRU" 指两份实现——
+[action_dynamics.py:142](src/actionsense/action_dynamics.py#L142)(fast 目标 R³、hidden=48、自建
+因果特征)与 [tactile_map/models.py:79](src/actionsense/tactile_map/models.py#L79)(harness raw
+目标 R⁶、hidden=64、可插 frame_encoder)。**架构逐行相同**,差别只在目标与预处理。
+`docs/model_diagram.png` 画的是前者。
+
+**Seq2Seq(models.py:56)**:输入仅 `x (B,t_in,6)`;`_call` 走 `model(x)`(train.py:47)。
+`AggEncoder → GRU → 取 h[-1] (B,64) → 两个 Linear(64→H·C=60) → reshape (B,10,6)`。
+**H·C=60 个数全是同一个 64 维向量的仿射像**——这是它向均值收缩的结构原因,与 5.5 节
+"predict-mean 也能拿 +0.40" 是同一现象。解码器前向 **1 次**;`H` 烘焙进权重形状,**不可改**。
+输出语义 = **残差**,persistence = 全 0(train.py:134)。
+
+**ProbGRU(models.py:79)**:输入 **三件** `x`、`aid`、`y_last=z[t]`(data.py:145)。
+`enc` 末态作 decoder **初值**(之后每步被覆写);`dec = nn.GRU(n_out, hidden)` —— 输入维是
+**n_out 不是 d**;`e = emb(aid)` 在 **head 处**与解码状态 concat(不进 GRU 输入);
+`inp = mu.unsqueeze(1)` 回喂**均值而非采样**。前向 **H 次串行**;`t_out` 是循环上界,**可改 H**。
+输出语义 = **绝对值**,persistence = `repeat(y_last,H)`(train.py:135)。
+
+**三个有后果的结论(已当面告知用户)**
+1. **残差 vs 绝对不是装饰**:残差头输出 0 即精确复现 persistence,是白送的先验;ProbGRU 没有。
+   models.py:87-90 自承此事并称为跨传感器可比性刻意保留。**故两者的 skill 数字不是同起点的**,
+   任何把 Seq2Seq 与 ProbGRU 的 skill 并列的表都必须标注这一点。
+2. **ProbGRU 的 σ 不是轨迹级预测分布**:回喂均值,不确定性未在 rollout 中传播;coverage@2σ 是
+   逐点覆盖率;`calibrate_sigma` 只是事后标量缩放。
+3. σ 的定义在两处一致:`σ = exp(0.5·lv)`(train.py:131);`lv∈[-6,4]` ⇒ `σ∈[0.050, 7.39]`。
+
+## 2026-09-04 — ICRA manuscript Introduction revision (approved for implementation)
+
+**User decision:** The user approved writing the collaboratively revised Introduction into the TeX manuscript. The agreed framing is constructive rather than self-negating: observed forecasting performance conflates intrinsic persistence and learned predictive gain; pointwise gain is then diagnosed as future-level recovery versus trajectory-level evolution. Human tactile literature is used only to motivate predictive closed-loop control, not as evidence that a robotic predictor succeeds.
+
+### Implementation plan
+
+1. Preserve `/Users/haojiayi/Downloads/main (1).tex` as the immutable uploaded source and create `/Users/haojiayi/TouchAnything/main.tex` as the working/downloadable manuscript.
+2. Replace only the Introduction text and contribution list with the user-approved argument chain: why touch, why the problem is now tractable, perception/reaction to prediction, full-hand forecasting difficulty, evaluation decomposition, research question/method/contributions.
+3. Add bibliography entries for every newly cited work (Kappassov 2015; Johansson and Flanagan 2009; Yuan et al. 2017; Sundaram et al. 2019; Tian et al. 2019; Nunes et al. 2020). Preserve all existing citations and the rest of the manuscript.
+4. Run a citation-key consistency check and compile with the available IEEE LaTeX toolchain. Inspect warnings/errors and revise only problems introduced by this change.
+5. Deliver `main.tex` (and a compiled PDF if compilation succeeds) for manual upload to Overleaf; do not commit or push unless separately requested.
+
+### OPEN QUESTIONS
+
+- **None blocking.** The user explicitly approved the revised Introduction. The no-Overleaf-Premium workflow established earlier determines the artifact location and manual-upload handoff. No existing result, method, table, or conclusion text is authorized for revision in this step.
+
+### Implementation result
+
+- Created `main.tex` from the exact uploaded source `/Users/haojiayi/Downloads/main (1).tex`; both files had SHA-256 `a964bb10010bfb88db79b84eb867c00417df616e845b2ca342b269e0fe1949f1` before editing. The Downloads source remains untouched.
+- Replaced only `Introduction` prose and its four contribution bullets. The new chain is: tactile contact value → enabling hardware → perception/reaction to prediction → full-hand dynamics difficulty → decomposition of apparent predictability → tactile-only research question and protocol.
+- The central claim now treats positive skill as genuine information beyond copy-last, then uses trajectory-shape evaluation to ask whether that gain extends beyond future-level recovery. It does **not** claim that skill plus Hausdorff proves the underlying physical dynamics.
+- Added six cited bibliography entries: `kappassov2015tactile`, `johansson2009coding`, `yuan2017gelsight`, `sundaram2019glove`, `tian2019manipulation`, and `nunes2020benchmarking`. All citation keys in `main.tex` have corresponding `\bibitem` entries.
+- Validation: `pandoc --from=latex --to=native main.tex --output=/dev/null` completed with exit code 0. No LaTeX engine (`latexmk`, `pdflatex`, `xelatex`, `lualatex`, or `tectonic`) is installed on this machine, so a rendered-PDF compile could not be performed locally; Overleaf remains the final IEEEtran compile check.
+- No commit or push was made. Pre-existing uncommitted `SESSION_LOG.md` content was preserved; this entry was appended.
+
+### 2026-09-04 — 按动作导出 skill / Hausdorff:请求的表有三分之三做不出来,已如实记录
+
+**用户要求**:从 OpenTouch 与 ActionSense 全部动作的预测结果看,哪个动作 skill 最高、hd 最低;
+按动作类型导出 skill 与 Hausdorff,在 docs 建新 md,由高到低排序。
+
+**核查结论(逐文件核实,非推测)**——四项里只有一项存在:
+| 请求 | 状态 |
+|---|---|
+| OpenTouch per-action R² | **存在**。`opentouch_report.py:277` 写 `scope="action"` 行,仅 n≥30 的动作,**只有 metric="R2"** |
+| OpenTouch per-action skill | **未导出**,但可由 R² **精确**推出(见下) |
+| OpenTouch per-action Hausdorff | **不存在**。`hausdorff_table` 汇总全部 clip,只在 `scope="overall"` 落盘 |
+| ActionSense per-action 任何指标 | **不存在**。harness 限定 `actions: [slice, peel]`;21 个 csv 中只有 `trait_partition.csv` 带 verb 列,而它是 clip 计数分区表,无任何指标列 |
+
+**为什么不能重算 Hausdorff**:`opentouch_report.py` 本来就逐 clip 遍历,加一个按动作分组是小改动,
+但它需要 `runs/preds/clip_*.npz`;**本机 `runs/` 为空,全仓库 `clip_*.npz` 计数为 0**。这是评分作业
+不是训练作业——拿到那批 npz 即可无 GPU 完成。**在拿到之前不编造该表。**
+
+**skill 的推导是精确的,不是近似**:`aggregate.clip_equal_ratio`(aggregate.py:226)是
+**clip-balanced 均值之比** `mean_k(sse_k/n_k) / mean_k(den_k/n_k)`,且 `ok` 只依赖 `n_valid`
+不依赖模型,分母 class-mean 对同一 `rows` 也相同。记 Mbar 为该均值:
+`R2_m = 1 − Mbar(m)/D`、`R2_p = 1 − Mbar(p)/D` ⇒ `skill = 1 − (1−R2_m)/(1−R2_p)`。
+**唯一 caveat 已写进文档并在列名上标星**:导出的 per-action R² 已对三通道取过均值
+(`opentouch_report.py:275 .per_channel.mean()`),故该式给出的是**分母加权的聚合 skill**,
+**不等于** `aggregate.skill()` 的逐通道再平均。文中一律记作 `skill*`,禁止当作 harness 原生 skill 引用。
+
+**产物**:`scripts/shared/export_per_action_metrics.py` → `docs/per_action_metrics.md`
+(数字全部由脚本生成,不手抄;ActionSense 的"不存在"结论也由脚本每次重新扫描 header 生成)。
+
+**最重要的发现:两个指标给出的冠军完全不同,且原因可量化。**
+- probGRU 臂:R² 冠军 **turning 0.3781**;`skill*` 冠军 **sliding 0.4748**。
+- Seq2Seq 臂:R² 冠军 **turning 0.3633**;`skill*` 冠军 **picking up 0.4550**。
+- Spearman(`skill*`, R²) = **+0.29 / −0.55**;Spearman(`skill*`, R²_persistence) = **−0.42 / −0.74**。
+**即 `skill*` 主要在追踪 persistence 在该动作上有多差,而不是模型有多好。** skill 榜首是基线崩得最
+狠的动作(sliding 的 R²_persistence = −0.288,全表最低),不是被预测得最好的动作。这与
+ICRA_PAPER_PLAN 方法论第 4 条"先选定基线再相信数字"、以及 P3 是同一机制。**故本文档按 R² 排序**,
+并与 `aggregate.skill` 的自述"diagnostic only … does not participate in inference"
+(aggregate.py:286)一致。
+
+**一致性交叉检验(说明抽取没抽错)**:导出的 corpus-wide Hausdorff 表里 `seasonal` 形状最好
+(HD mean 2.440),而它是唯一在 MSE 上输给 persistence 的模型——与 ICRA_PAPER_PLAN R7 记录的
+现象完全吻合。
+
+**未提交。** 待用户确认;若能提供 `runs/preds/`,可补 per-action Hausdorff 与逐通道 skill。
+
+### 2026-09-04续 — 用户纠正:不要本地跑,改交付 CRC 命令;并质疑"ActionSense 只冻结 slice+peel"
+
+**用户质疑**:"什么叫 actionsense 只冻结了 slice and peel,预测是在所有动作上面跑的啊?"
+**核实结果:原判断成立,三处独立证据**——
+1. `data/actionsense_states/splits.json` 总计 **75** 条(train45/val15/test15),按标签数只有
+   **slice 45 + peel 30**,其余 0。
+2. [splits.py:35](src/actionsense/eval_harness/splits.py#L35) `eligible_recordings` 以
+   `label.lower().startswith(cfg.raw["actions"])` 过滤,而该字段 = `[slice, peel]`。
+3. **决定性:项目自己的审计表** `docs/actionsense/trait_partition.csv` 的 `scored_recordings`
+   列——slice 45、peel 30,**其余 12 个动词全为 0**;`scored_windows` 同理。注意 `clean` 有
+   **60 条录音**(全语料库最多)却 scored **0**。这不是推断,是仓库记录。
+
+**但用户的直觉指向两个我上一条没讲清的真实差异(已当面补充)**:
+- **OpenTouch 恰恰相反**:`configs/opentouch/eval_harness.yaml:70` 是 `actions: []`,注释
+  "Train on the full corpus (all ~2,958 clips)"。**OpenTouch 的预测确实跑在所有动作上**——
+  这正是我导出的表里 OpenTouch 有 13 个动作而 ActionSense 一个都没有的原因。两个语料库在这一点上是反的。
+- **`action_dynamics.py` 的 v2 probGRU 不走 harness**:`--actions` 是自由 CLI 参数(默认
+  `Slice,Peel`),PROJECT_CONCLUSIONS 5.4 记录了 "Pooling four actions" 的运行。那条流水线确实
+  跑过四个动作,但目标是 fast 分量 R³,与 harness 的 raw R⁶ 不可并列。
+
+**用户第二条指示:不要本地跑,把命令写好由用户在 CRC 跑。** 已 `pkill` 全部本地训练进程,删除
+空的半成品 CSV 与 `runs/`。此前本地起过两个作业(冻结范围 seq2seq;全语料库 seq2seq→probgru
+串行),均已终止,**未产生任何被采信的数字**。
+
+**本轮交付的代码(全部已冒烟验证,非纸面)**
+1. `src/actionsense/tactile_map/train.py::corpus_recordings` —— 枚举 manifest 里全部有 state
+   文件的录音(**299**)。docstring 写明这是 exploratory:群体变了、Norm 变了、CV 折变了,
+   **不得与 harness 数字同表**。不改冻结配置:`cross_validate` 直接收 `recs`,
+   `cfg.raw["actions"]` 只被 splits.py 读。
+2. `scripts/actionsense/train_tactile_map.py --scope {frozen,corpus}`;aggregate 臂只读
+   state_*.npy,故 corpus 时 `require_maps=False`(只有 100 条有 map)。
+3. `scripts/crc/train_tactile_map_gpu.job` 增加 `SCOPE` 透传(该脚本本就透传
+   BACKBONE/ENCODERS/HISTORIES/SAVE_PREDS/CSV)。
+4. **`scripts/shared/score_preds_per_action.py` —— 一个评分器服务两个传感器。** 读
+   `clip_*.npz`;R²/skill **直接 import `src.opentouch.aggregate`**(clip-balanced,
+   class-mean 基准),Hausdorff 用 `src.shape_metrics.hausdorff_scaled`,均不重实现,
+   因此不会与既有定义漂移。persistence 由 `y[origin]` 重复 H 步**合成**(npz 只存学习臂)。
+   **CoP masking 的诚实限制已写进 docstring**:harness 的阈值是逐折 TRAIN 拟合的,而 preds
+   目录不记录折归属,故只提供 `--mask none`(默认)与 `--mask corpus`(transductive),
+   **两者都不是 harness 协议**,输出里也照写。
+   Hausdorff 的绝对/残差之争不存在:该指标按真值逐 horizon 的 sd 缩放,减去共同锚点 y[t]
+   既不改 sd 也不改距离——已在 docstring 论证。
+
+**冒烟验证链(三步,全通)**:合成 npz → 评分器出表;去掉 action 字段 + `--manifest` 回退 +
+`--mask corpus` → 数值与前者一致;**真实**运行 `--scope corpus --backbone probgru --epochs 1
+--folds 2` → 保存 290 条录音预测 → 评分器输出 **14 个动作组**的 R²/skill/HD/HD-ratio 排序表。
+(1 epoch 的数值无意义,验证的是管线形状,而非结果。)
+
+**未跑正式数字。** 命令已交付用户在 CRC 执行。
+
+## 2026-09-04 — Section 3 restructuring (approved for implementation)
+
+**User decision:** The user approved revising the Section 3 subtopics according to the immediately preceding outline decision: one overarching research question plus four hypothesis groups covering reference forecasters, model--metric interaction, target/representation, and action context.
+
+### Implementation plan
+
+1. Rename Section 3 so its scope is formulation plus evaluation questions, rather than a mixture of hypotheses and implementation details.
+2. Consolidate Section 3 into three subsections: (3.1) causal forecasting task and target state, (3.2) decomposition of tactile predictability, and (3.3) research question and four evaluation hypotheses.
+3. Preserve the mathematical definitions of force, CoP, persistence difficulty, class-specific $R^2$, persistence-relative skill, and Hausdorff ratio, while clarifying that model predictability is a two-axis profile (pointwise gain and trajectory shape), not a scalar sum.
+4. Move operational details displaced from Section 3 (history selection, channel construction, normalization, first differences, CoP masking, and smooth/abrupt label construction) into Section 4 without changing their scientific content.
+5. Keep the hypotheses prospective in wording and explicitly distinguish the frozen action-class hypothesis from non-preregistered organizing hypotheses, so the manuscript does not misrepresent result-informed comparisons as preregistration.
+6. Validate LaTeX parsing, labels/references, and citation-key consistency; do not change result values or make new empirical claims.
+
+### OPEN QUESTIONS
+
+- **None blocking.** The user explicitly approved the topic structure. The agreed terminology resolves the main ambiguities: $F/c^x/c^y$ are target channels, moment/raw-map inputs are representations, AR is a fitted non-neural reference model, and skill plus Hausdorff are complementary evaluation axes rather than an additive score.
+
+### Implementation result
+
+- Renamed Section 3 to `Problem Formulation and Evaluation Questions` and reduced it to three logically ordered subsections: `Causal Forecasting Task and Target State`, `Decomposing Tactile Predictability`, and `Research Question and Evaluation Hypotheses`.
+- Section 3 now explicitly separates the forecast target ($F,c^x,c^y$) from the input representation (moment history, flattened map, or CNN-encoded map). It defines the one-second causal task before introducing evaluation.
+- Recast evaluation as a nested profile: $\Rdiff$ measures intrinsic persistence; class-specific $R^2$ supplies absolute future-state context; $S_{\mathrm{pers}}$ measures pointwise gain beyond continuation; the Hausdorff ratio measures trajectory-shape fidelity. Skill and Hausdorff are complementary axes and are not combined into one scalar.
+- Added one overarching research question and four hypothesis groups: H1 reference structure (persistence/seasonal/AR versus neural models), H2 model--metric interaction (ProbGRU versus Seq2Seq), H3 target and input representation (force/CoP and moment/CNN/flatten), and H4 action context (per-action heterogeneity plus smooth/abrupt grouping).
+- Added the integrity qualification that H1--H3 organize result-informed comparisons and are not claimed as preregistered, whereas the H4 smooth/abrupt partition was fixed before its outcome analysis.
+- Moved operational details into Section 4 under `Corpora, Targets, and Input Representations` and `Splits, Action Groups, Aggregation, and Uncertainty`. No numerical result was changed.
+- Updated the Abstract and Fig. 1 placeholder/caption only where necessary to keep the metric hierarchy consistent. Updated two Results references from the old H1/H2 numbering to H4.
+- Validation passed: Pandoc parsed the LaTeX with exit code 0; every citation has a bibliography item; every bibliography item is cited; and every `ref`/`eqref` target exists. No local LaTeX engine is installed, so rendered IEEEtran compilation remains an Overleaf check.
+- No commit or push was made. Pre-existing worktree changes in training scripts and per-action analysis files were not modified by this manuscript edit.
+
+## 2026-09-04 — Section 4 code-grounded rewrite and removal of d256 (approved)
+
+**User decisions:**
+
+1. The paper will not use any d256 data, result, or conclusion. d256 is to be ignored rather than retained as a protocol variant.
+2. Section 4 should implement the Section 3 task on real data and must be grounded in a line-by-line check of the repository code for preprocessing, representations, windows, splits, aggregation, and statistical inference.
+3. The approved Section 4.2 title is `Causal Preprocessing and Representation Construction`: `Data Preprocessing` is too broad and hides the representation comparison, while `Representation Arms` is unnecessarily implementation-specific.
+4. After answering the title question, the user authorized direct modification of `main.tex`.
+
+### Implementation plan
+
+1. Audit the complete ActionSense and OpenTouch paths that implement raw-data loading, baseline correction, physical-state construction, representation inputs, causal windows, data splits, masking, metric aggregation, bootstrap inference, and action grouping. Treat comments/configs as claims to verify against executable code and tests, not as sufficient evidence by themselves.
+2. Rewrite Section 4 as four logically ordered subsections: (4.1) corpora and generalization scope, (4.2) causal preprocessing and representation construction, (4.3) rolling-origin windows and held-out splits, and (4.4) evaluation units and statistical inference.
+3. Keep metric definitions and scientific hypotheses in Section 3, model-specific architecture/loss detail in Section 5, and numerical effects/interpretation in Results. Section 4 will contain protocol definitions only.
+4. Remove every d256 reference, number, comparison, and limitation from `main.tex`; update any dataset/protocol counts and surrounding claims made inconsistent by that removal. Do not delete d256 code or repository data.
+5. Preserve ActionSense/OpenTouch claims only when supported by the audited implementation. Where the two datasets use different pipelines or generalization units, state the difference rather than implying a single identical protocol.
+6. Run LaTeX parsing, label/reference checks, citation-key checks, and a final search for d256 mentions. No commit or push unless separately requested.
+
+### OPEN QUESTIONS
+
+- **None blocking.** The user resolved the dataset scope and authorized the edit. The title and four-subsection structure are fixed for this pass.
+
+### 2026-09-04续2 — 评分器交付前的两个真 bug(自查发现并修复)
+
+用户问"等 qsub 跑完直接跑评分就行吧"。核对交付路径时发现 `score_preds_per_action.py` 有两处
+**会在 OpenTouch 上直接崩或静默出错**的缺陷,已修并重新冒烟:
+
+1. **persistence 重复计入**。OpenTouch 的 `run_opentouch_exploratory.save_predictions`
+   ([:487](scripts/opentouch/run_opentouch_exploratory.py#L487))**已经写了 `mu_persistence`**
+   (`EV.MODELS` 含 persistence/seasonal/ar),而我又无条件合成一份,同一 clip 被 append 两次
+   → 堆叠行数与 ytrue 失配。改为 `arms.setdefault(PERS, pers)`:**npz 里有就用存的,没有才重建**
+   (ActionSense 只存学习臂,需要重建)。
+2. **`--mask corpus` 的力通道锚点错**。原式 `max(force_idx, key=lambda f: f <= c)` 在
+   ActionSense 的 `(0,3)` 上,c=4/5(CoPx_R/CoPy_R)两个候选的 key 都是 True,`max` 返回首个
+   → 错锚到**左手** F_L。改为 `max(f for f in fidx if f <= c)`,并新增 `force_channels()`
+   **从通道名推导**力通道(F 开头),与两个 harness 配置的 `force_idx` 一致:
+   ActionSense (0,3)、OpenTouch (0,);锚点表 {0:0,1:0,2:0,3:3,4:3,5:3} 已验证。
+
+**另一个有利发现**:OpenTouch 的 npz **自带 `action` 字段**
+(`action=rows.get(i,{}).get("action","")`),所以 OpenTouch 评分**不需要 `--manifest`**,
+也就不依赖本机没有的 `data/opentouch_states/manifest.jsonl`。
+
+**重新冒烟(两种传感器形状)**:C=6 无存储 persistence + `--mask corpus` → 6 行;
+C=3 含 `mu_persistence`+`mu_ar` → 9 行(ar / model / persistence),未再重复计入。
+
+**遗留的前置条件(已告知用户)**:OpenTouch 的 per-action Hausdorff 依赖 CRC 上 d1_pg 那次
+`--save-preds` 写出的 `runs/preds/clip_*.npz` **是否仍然存在**;若已清理,则需重跑该 run
+才能出表(评分本身不需要 GPU)。
+
+## 2026-09-04 — Section 4 code-grounded rewrite (implementation result)
+
+### Title correction after executable-code audit
+
+The provisional title `Causal Preprocessing and Representation Construction` was rejected after
+inspection of the actual data paths. The implemented sensor corrections are not uniformly causal:
+
+- ActionSense calls `physical_state.clip_states()` when writing `state_N.npy`
+  (`scripts/actionsense/probe_actionsense.py:228`); its default subtracts each taxel's fifth
+  percentile over the complete recording (`src/actionsense/physical_state.py:59-80`).
+- OpenTouch D1 estimates a per-shard taxel median and one-sided MAD scale from up to 20,000 sampled
+  frames, then subtracts `base + sigma` (`src/opentouch/baseline.py:50-56,100-130`). The corrected
+  cache is produced before fold construction (`scripts/opentouch/opentouch_apply_baseline.py:48-82`).
+
+Section 4.2 is therefore titled **`Preprocessing and Representation Construction`**. The text
+separates offline sensor correction from train-fold normalization and causal rolling windows.
+
+### Verified protocol facts written into `main.tex`
+
+- **Scope:** d256 was removed from the entire manuscript, including the abstract/method count,
+  Related Work, the data table, persistence-difficulty results, and Limitations. A final exact search
+  found no `d256`/`D256` occurrence in `main.tex`; no d256 code or artifacts were deleted.
+- **Corpora:** the local ActionSense manifest has 299 recordings. Its frozen harness split contains
+  75 Slice/Peel recordings (45/15/15, stratified action--object). The frozen OpenTouch report scores
+  2,843 clips; its code groups 26 shards into 12 locations and rotates location blocks through four
+  test folds (`src/opentouch/splits.py:40-52,113-169`). Neither manifest supports a participant-
+  disjoint claim.
+- **Representations:** ActionSense target moments are complete-recording-percentile corrected, then
+  downsampled to 10 Hz. Its map path independently uses a causal first-10-frame taxel mean, `log1p`
+  compression, and a train-only global scalar normalization (`src/actionsense/tactile_map/data.py:
+  72-114`). OpenTouch D1 target moments use the per-shard median/noise correction. Its map loader uses
+  per-shard input calibration, including held-out shard frames under `baseline_scope=shard`, followed
+  by train-only map scaling (`src/opentouch/tactile_map.py:142-272`). This input calibration is
+  transductive and is labelled as such.
+- **Windows and splits:** every origin receives `Y[:t+1]` and targets `Y[t+1:t+1+H]`
+  (`src/actionsense/eval_harness/baselines/base.py:44-64`). ActionSense uses 10 Hz, H=10, a 40-frame
+  origin floor, and 1/3/10 s learned histories. Its frozen baseline split and its five-fold neural
+  representation sweep do not share identical test assignments. OpenTouch uses 30 Hz, H=30, a
+  15-frame origin floor, 1/2/3 s histories, and four location folds.
+- **Aggregation:** the OpenTouch report uses a ratio of equal-clip mean MSEs, not pooled SSE and not
+  a mean of per-clip ratios (`src/opentouch/aggregate.py:174-245,270-289`). Hausdorff is computed per
+  origin, standardized by that truth horizon's SD, averaged within clip and then across clips; the
+  report does not pass a low-force CoP mask to it (`scripts/opentouch/opentouch_report.py:114-142`).
+- **Inference:** the formal smooth--abrupt intervals use 2,000 independent clip-level resamples of
+  the two disjoint classes (`scripts/opentouch/opentouch_report.py:227-246`). Although the bootstrap
+  module supports strata, the report call supplies none; the manuscript therefore does not call the
+  implemented analysis action-stratified. `bootstrap_paired()` has no reporting-script caller, so no
+  paired model-comparison CI is claimed.
+- **Estimator mismatch disclosed:** ActionSense's frozen baseline harness is frame-pooled with its
+  train-derived CoP mask, while `src/actionsense/tactile_map/train.py::evaluate` is frame-pooled and
+  unmasked. Section 4 states that those neural results are descriptive until regenerated under a
+  common scorer; it does not mislabel them clip-balanced.
+
+### Validation
+
+- `pandoc --from=latex --to=native main.tex --output=/dev/null`: exit 0.
+- Citation keys and `ref`/`eqref` targets are complete.
+- Final d256 search in `main.tex`: no matches.
+- No commit or push. Unrelated experiment-script changes and untracked per-action files were not
+  modified.

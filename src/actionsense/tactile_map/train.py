@@ -31,6 +31,31 @@ def recordings(cfg: Config, require_maps: bool = True) -> list[int]:
     return D.available_idxs(cfg, allrec) if require_maps else allrec
 
 
+def corpus_recordings(cfg: Config, require_maps: bool = False) -> list[int]:
+    """EVERY recording in the manifest that has a state file -- the full 299-recording corpus,
+    not the frozen slice+peel split `recordings()` returns.
+
+    EXPLORATORY ONLY, and the distinction is not cosmetic. The frozen harness scores
+    `actions: [slice, peel]` (configs/actionsense/eval_harness.yaml:51) = 75 recordings, and
+    every number in docs/actionsense/ was produced on that population with a Norm fitted to it.
+    Widening the population changes the normalization, the class mean, and the CV folds, so
+    results from this function must never be placed in the same table as harness numbers.
+    Nothing here mutates the config: `cross_validate` takes `recs` directly and never reads
+    cfg.raw["actions"] (only splits.py does), so the frozen protocol is untouched.
+    """
+    import json
+    root = cfg.abspath("states_root")
+    idxs = []
+    with open(os.path.join(root, "manifest.jsonl")) as fh:
+        for line in fh:
+            if line.strip():
+                i = int(json.loads(line)["idx"])
+                if os.path.exists(os.path.join(root, f"state_{i}.npy")):
+                    idxs.append(i)
+    idxs = sorted(idxs)
+    return D.available_idxs(cfg, idxs) if require_maps else idxs
+
+
 def _dataset(cfg, tm, t_in, idxs, mnorm, tnorm, aids=None, residual=True):
     maps, tgts = D.load_raw(cfg, idxs, tm["baseline_frames"])
     return D.MapWindows(D.normalize(maps, mnorm), {i: tnorm.z(t) for i, t in tgts.items()},

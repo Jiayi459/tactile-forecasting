@@ -170,3 +170,35 @@ def test_real_map_loads_if_available():
     hcfg = load_config()
     m = D.load_map(hcfg, idx, baseline_frames=10)
     assert m.ndim == 4 and m.shape[1:] == (2, 32, 32) and np.all(m >= 0)
+
+
+# --- (x) --scope corpus: the FULL corpus, and provably not the frozen slice+peel split ---
+def test_corpus_recordings_ignores_the_action_filter(tmp_path):
+    """`corpus_recordings` must return every recording that has a state file, whatever its verb.
+
+    The safety argument for `--scope corpus` is that widening the population cannot disturb the
+    frozen protocol, because this path never consults cfg.raw["actions"] (only splits.py does).
+    That is asserted here rather than trusted: a manifest holding `clean` and `pour` comes back
+    whole even with the frozen filter present in the config. The recording with no state file is
+    dropped at enumeration, so a later load cannot fail on a file that was never there.
+    """
+    import json
+    from src.actionsense.tactile_map import train as T
+
+    root = str(tmp_path)
+    rows = [{"idx": 0, "label": "Slice a cucumber", "T": 50},
+            {"idx": 1, "label": "Clean a plate", "T": 50},
+            {"idx": 2, "label": "Pour water", "T": 50},
+            {"idx": 3, "label": "Peel a potato", "T": 50}]
+    with open(os.path.join(root, "manifest.jsonl"), "w") as fh:
+        for r in rows:
+            fh.write(json.dumps(r) + "\n")
+    for i in (0, 1, 2):                       # idx 3 deliberately has NO state file
+        np.save(os.path.join(root, f"state_{i}.npy"), np.zeros((50, 2, 6), np.float32))
+
+    cfg = make_cfg(root=root)
+    cfg.raw["actions"] = ["slice", "peel"]    # the frozen filter, which this path must ignore
+
+    got = T.corpus_recordings(cfg)
+    assert got == [0, 1, 2], got              # clean + pour kept; the state-less idx 3 dropped
+    assert 1 in got and 2 in got, "the action filter leaked into the corpus enumeration"

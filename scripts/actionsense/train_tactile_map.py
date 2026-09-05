@@ -37,6 +37,11 @@ def main():
                     help="write one clip_<idx>.npz per recording, in the layout "
                          "scripts/opentouch/plot_opentouch_forecast_overlay.py reads, so the "
                          "same overlay plotter serves both sensors")
+    ap.add_argument("--scope", default="frozen", choices=["frozen", "corpus"],
+                    help="frozen = the harness's slice+peel split (75 recordings, comparable "
+                         "to every existing result); corpus = all 299 manifest recordings "
+                         "across 14 action groups (EXPLORATORY -- different population, "
+                         "different Norm, not comparable to harness numbers)")
     ap.add_argument("--csv", default="docs/actionsense/tactile_map_cv_results.csv")
     args = ap.parse_args()
 
@@ -49,9 +54,14 @@ def main():
     histories = [float(h) for h in args.histories.split(",")] if args.histories \
         else tmc["sweep"]["histories_s"]
     fps = cfg.fps
-    recs = T.recordings(cfg, require_maps=True)
+    # the aggregate arm reads state_*.npy only, so it does not need a map to exist
+    need_maps = any(e != "aggregate" for e in (args.encoders.split(",") if args.encoders
+                                               else tmc["sweep"]["encoders"]))
+    recs = (T.corpus_recordings(cfg, require_maps=need_maps) if args.scope == "corpus"
+            else T.recordings(cfg, require_maps=True))
     ch = cfg.channels
-    print(f"harness fps={fps:.0f} horizon={cfg.horizon}  {len(recs)} map recordings  "
+    print(f"harness fps={fps:.0f} horizon={cfg.horizon}  scope={args.scope}  "
+          f"{len(recs)} recordings  "
           f"encoders={encoders} histories(s)={histories}  folds={args.folds} epochs={tm['epochs']}\n")
 
     os.makedirs(os.path.dirname(args.csv), exist_ok=True)
