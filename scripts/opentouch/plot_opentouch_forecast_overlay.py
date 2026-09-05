@@ -151,9 +151,19 @@ def main():
     H = z0[f"mu_{models[0]}"].shape[1]
 
     all_chans = [str(c) for c in z0["channels"]]
+    # LABELS was written for OpenTouch, which instruments ONE hand, so it shortens F_R to "F".
+    # On a two-glove set that silently produces forecast_F.png (right hand, unmarked) next to
+    # forecast_F_L.png, which reads as "the force" beside "a variant of it". Keep the short tag
+    # only where there is one hand to be confused about; OpenTouch's filenames are unchanged.
+    two_handed = any(str(c).endswith("_L") for c in all_chans)
+    sensor = {"actionsense": "ActionSense"}.get(str(z0["tag"]) if "tag" in z0.files else "",
+                                                "OpenTouch")
     for ch in chans:
         k = all_chans.index(ch)          # index into the arrays, not into the drawn subset
         tag, ylabel = LABELS.get(ch, (ch, ch))
+        if two_handed:
+            tag = ch
+            ylabel = f"{ylabel} [{ch}]" if ch in LABELS else ch
         fig, axes = plt.subplots(len(models), len(files), squeeze=False, sharex="col",
                                  figsize=(3.6 * len(files), 2.2 * len(models)))
         for ri, m in enumerate(models):
@@ -212,10 +222,16 @@ def main():
                 # its handles from axes[0][0], so it named only the alphabetically first
                 # model and the whole plot read as if it showed that one model alone.
                 if ci == 0:
-                    ax.legend(fontsize=6, loc="upper right")
+                    # loc="best" rather than a fixed corner, and a translucent frame: on
+                    # ActionSense the force channels rise through the top-right, where a
+                    # fixed opaque legend hid the last third of the first clip's signal.
+                    ax.legend(fontsize=6, loc="best", framealpha=0.65)
                 ax.grid(alpha=.25)
                 ax.tick_params(labelsize=7)
-        fig.suptitle(f"OpenTouch {tag}: real vs rolling 1 s forecast, one model per row",
+        # The sensor comes from the saved `tag`, not from this script's name: ActionSense's
+        # save_predictions writes the same npz format, so the figure was captioned "OpenTouch"
+        # over ActionSense data until 2026-09-05.
+        fig.suptitle(f"{sensor} {tag}: real vs rolling 1 s forecast, one model per row",
                      fontsize=11)
         fig.tight_layout(rect=(0, 0, 1, 0.97))
         out = f"{a.out_prefix}_{tag}.png"

@@ -9671,3 +9671,34 @@ preferred after numbers are available.
 
 **仍待 preds 到本地**:forecast 图、per-action 表、`skill_comparison.md` 与
 `per_action_metrics.md` 的更新。
+
+### 2026-09-05续4 — 四个 run 的成果输出:一条驱动命令 + forecast plotter 的三处 ActionSense 缺陷
+
+**用户指示**:四个 loss-curve job 也跑完了;要 forecast 图 / per-action 表 / R²·skill·HD 汇总 /
+loss curve 的全部内容,**在 CRC 上跑完 push 到 GitHub**,再由用户 pull 结果与预测到本地。
+
+**新增 `scripts/crc/score_and_plot_runs.sh`**——无 GPU、不重训,只读 `--save-preds` 的产物,
+故放登录节点而非队列。用 glob 发现 `runs/as_preds_*/`,**因此不需要知道每个 run 叫什么**
+(用户第四个 run 的目录名我始终不知道)。每个 run 产出
+`docs/actionsense/per_action/<run>.{csv,md}` 与 `docs/actionsense/forecast/<run>_<chan>.png`。
+
+**`plot_opentouch_forecast_overlay.py` 的三处缺陷(用合成 ActionSense preds 实测发现并修复)**
+1. **双手文件名不对称,且右手无手别标记**。`LABELS` 为单手的 OpenTouch 而写,把 `F_R` 简称为
+   `F`;左手 `F_L` 走 `LABELS.get` 的回退保留原名。结果是 `..._F.png`(实为右手)与
+   `..._F_L.png` 并列,读者会理解为"总的力"与"它的一个变体"。修法:检测到任一 `_L` 通道即
+   判定为双手传感器,此时**不缩写**,并给 y 轴标签追加 `[通道名]`。**OpenTouch 的文件名不变**
+   (它没有 `_L` 通道)。
+2. **标题写死 "OpenTouch"**。ActionSense 的 `save_predictions` 写同一套 npz 格式,于是
+   ActionSense 的图一直被标成 OpenTouch。改为读 npz 里的 `tag` 字段判定传感器。
+3. **图例遮挡数据**。`loc="upper right"` 固定角 + 不透明底,而 ActionSense 的力通道正是从
+   右上方上升;实测中 clip 0 后三分之一的信号被完全盖住,**看起来像是预测在中途断掉**——
+   我一度按数据 bug 去查,核对后确认 y 覆盖 0–25.9 s、预测覆盖 4.1–25.0 s,长度均正确。
+   改为 `loc="best"` + `framealpha=0.65`。
+
+**验证**:用合成 ActionSense 形状 preds(C=6、含 sigma、4 条录音)跑通整条驱动链,
+六张图按 `_F_L/_F_R/_CoPx_L/_CoPx_R/_CoPy_L/_CoPy_R` 对称命名;`pytest tests/ -q` → **137 passed**。
+
+**与用户意图的一处冲突,已在脚本输出中写明**:用户希望把预测也 push 到 GitHub,但 `/runs/`
+**被 .gitignore 明确排除**,注释为 "Training outputs / job logs (rsynced back from CRC)"——
+即仓库既定策略就是预测走 rsync 不入 git。四个 run 约 120 MB 二进制,入 git 将**永久**留在历史里。
+脚本因此只建议提交小产物(png/csv/md),并打印 rsync 命令供取回预测。**最终由用户裁定。**
