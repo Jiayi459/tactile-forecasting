@@ -75,14 +75,57 @@ def actions_from_manifest(path):
     return out
 
 
-def gather(preds_dir, manifest=None):
-    """Read every clip into the (N,H,C) stacks aggregate.clip_stats wants, plus per-clip
-    Hausdorff. Returns None if the directory holds nothing scoreable."""
-    paths = sorted(glob.glob(os.path.join(preds_dir, "clip_*.npz")))
+def scan(preds_dir):
+    """-> (paths, {path: set(model names)}). One cheap pass, so coverage is known BEFORE any
+    stacking.
+
+    Model coverage is not uniform in practice, and assuming it was is what broke this script
+    on 2026-09-05: baselines are exported for one frozen test split while a cross-validated
+    arm covers every recording, so a clip can carry the neural arm and none of the baselines
+    (the same asymmetry plot_opentouch_forecast_overlay.py already had to learn). Stacking
+    blindly produced preds['seasonal'] with 4,967 rows against a ytrue of 28,694 and a bare
+    ValueError from clip_stats.
+    """
+    paths = sorted(glob.glob(os.path.join(preds_dir, "clip_*.npz")),
+                   key=lambda q: int(os.path.basename(q)[5:-4]))
     if not paths:
         raise SystemExit(f"no clip_*.npz under {preds_dir}")
-    fallback = actions_from_manifest(manifest) if manifest else {}
+    have = {}
+    for q in paths:
+        z = np.load(q, allow_pickle=True)
+        have[q] = {k[3:] for k in z.files if k.startswith("mu_")}
+    return paths, have
 
+
+def choose(have, want=None):
+    """-> (models, kept_paths, every, common).
+
+    Every scored model must exist on every scored clip. Scoring a model on the clips it
+    happens to cover, next to another model on a different set, would put two numbers with
+    different populations in the same column -- which is exactly the comparison this table
+    exists to make. So either the models shrink (default: those present everywhere) or the
+    clips do (--models pins the set and drops clips that lack any of them).
+    """
+    every = sorted(set().union(*have.values())) if have else []
+    common = sorted(set.intersection(*have.values())) if have else []
+    models = [m.strip() for m in want.split(",")] if want else common
+    if not models:
+        raise SystemExit(
+            f"no model is present on every clip, so nothing can be scored on one population.\n"
+            f"  models seen anywhere: {every}\n"
+            f"  pick a subset with --models, e.g. --models {every[0] if every else 'NAME'}")
+    unknown = [m for m in models if m not in every]
+    if unknown:
+        raise SystemExit(f"models {unknown} appear in no clip; available: {every}")
+    kept = sorted((q for q, s in have.items() if set(models) <= s),
+                  key=lambda q: int(os.path.basename(q)[5:-4]))
+    return models, kept, every, common
+
+
+def gather(paths, models, manifest=None):
+    """Read the chosen clips into the (N,H,C) stacks aggregate.clip_stats wants, plus per-clip
+    Hausdorff. Only `models` are read, so every stack has identical length by construction."""
+    fallback = actions_from_manifest(manifest) if manifest else {}
     yts, ids, acts, chans = [], [], {}, ()
     per_model, hd_rows = {}, {}
     for p in paths:
@@ -104,7 +147,7 @@ def gather(preds_dir, manifest=None):
         # store learned arms only. Synthesizing a second copy alongside the stored one appended
         # each clip twice and desynchronized the stacks from ytrue -- so take the stored one
         # when it is there, and only rebuild it when it is not.
-        arms = {m: mu[sel] for m, mu in mus.items()}
+        arms = {m: mus[m][sel] for m in models}
         arms.setdefault(PERS, pers)
         for m, arr in arms.items():
             per_model.setdefault(m, []).append(arr)
@@ -115,7 +158,7 @@ def gather(preds_dir, manifest=None):
                         for m, arr in arms.items()}
 
     if not yts:
-        raise SystemExit(f"{preds_dir}: every clip was too short for its horizon")
+        raise SystemExit("every chosen clip was too short for its horizon")
     ytrue = np.concatenate(yts, 0)
     preds = {m: np.concatenate(v, 0) for m, v in per_model.items()}
     chans = chans or tuple(f"ch{i}" for i in range(ytrue.shape[-1]))
@@ -148,8 +191,18 @@ def build_mask(ytrue, mode, chans, pct=5):
     return mask
 
 
-def score(preds_dir, label, mask_mode, manifest, min_clips):
-    ytrue, ids, preds, acts, hd_rows, chans = gather(preds_dir, manifest)
+def score(preds_dir, label, mask_mode, manifest, min_clips, want_models=None):
+    paths, have = scan(preds_dir)
+    models, kept, every, common = choose(have, want_models)
+    print(f"  {len(paths)} clips; models seen: {every}")
+    if len(kept) < len(paths):
+        print(f"  scoring {len(kept)} clips that carry all of {models}; "
+              f"{len(paths) - len(kept)} dropped for missing one")
+    dropped = sorted(set(every) - set(models))
+    if dropped:
+        print(f"  NOT scored (absent from some clip): {dropped} — "
+              f"pass --models to pin them instead and drop the clips they miss")
+    ytrue, ids, preds, acts, hd_rows, chans = gather(kept, models, manifest)
     st = aggregate.clip_stats(ytrue, build_mask(ytrue, mask_mode, chans), ids, preds, chans)
     models = [m for m in sorted(preds) if m != PERS]
 
@@ -206,12 +259,17 @@ def main():
                     help="CoP masking; see the module docstring before quoting CoP numbers")
     ap.add_argument("--manifest", default=None,
                     help="jsonl to read actions from, when the npz does not carry them")
+    ap.add_argument("--models", default=None,
+                    help="comma list to score. Default: the models present on EVERY clip. "
+                         "Pinning a model that only some clips carry drops the others, so "
+                         "every number in the table still comes from one population.")
     ap.add_argument("--min-clips", type=int, default=1,
                     help="drop actions with fewer recordings than this (OpenTouch uses 30)")
     a = ap.parse_args()
 
     label = a.label or os.path.basename(a.preds.rstrip("/"))
-    rows, models, chans, n_acts = score(a.preds, label, a.mask, a.manifest, a.min_clips)
+    rows, models, chans, n_acts = score(a.preds, label, a.mask, a.manifest,
+                                       a.min_clips, a.models)
     os.makedirs(a.out, exist_ok=True)
     stem = os.path.join(a.out, os.path.basename(a.preds.rstrip("/")))
 

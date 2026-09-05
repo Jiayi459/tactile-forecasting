@@ -25,6 +25,39 @@ mkdir -p "$OUT_TABLE" "$OUT_PLOT"
 if [ "$#" -gt 0 ]; then DIRS=("$@"); else DIRS=(runs/as_preds_*/); fi
 [ -e "${DIRS[0]}" ] || { echo "FATAL: no runs/as_preds_*/ found. Did --save-preds write here?"; exit 1; }
 
+# INVENTORY FIRST. /runs/ is gitignored and survives between jobs, so a stale directory from
+# an earlier, differently-scoped run sits here looking exactly like a fresh one. Printing the
+# recording count, the action count and the model list up front makes a wrong scope obvious
+# before an hour of scoring: the corpus scope is ~290 recordings over 14 actions, the frozen
+# slice+peel split is 75 over 2.
+echo "=================================================================="
+echo "INVENTORY -- check the counts before trusting anything below"
+echo "=================================================================="
+for d in "${DIRS[@]}"; do
+    d="${d%/}"
+    $PY - "$d" <<'PYINV'
+import glob, os, sys, collections, numpy as np
+d = sys.argv[1]
+fs = sorted(glob.glob(os.path.join(d, "clip_*.npz")))
+if not fs:
+    print(f"  {os.path.basename(d):34s} EMPTY"); raise SystemExit
+acts, models = collections.Counter(), collections.Counter()
+for f in fs:
+    z = np.load(f, allow_pickle=True)
+    acts[str(z["action"]) if "action" in z.files else ""] += 1
+    for k in z.files:
+        if k.startswith("mu_"):
+            models[k[3:]] += 1
+z0 = np.load(fs[0], allow_pickle=True)
+tag = str(z0["tag"]) if "tag" in z0.files else "?"
+print(f"  {os.path.basename(d):34s} {len(fs):4d} recordings  {len(acts):2d} actions  "
+      f"tag={tag}  C={len(z0['channels'])}")
+print(f"      models: " + ", ".join(f"{m}({n}/{len(fs)})" for m, n in sorted(models.items())))
+print(f"      actions: " + ", ".join(f"{a or '?'}({n})" for a, n in acts.most_common()))
+PYINV
+done
+echo ""
+
 for d in "${DIRS[@]}"; do
     d="${d%/}"
     run="$(basename "$d")"

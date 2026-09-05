@@ -9702,3 +9702,36 @@ loss curve 的全部内容,**在 CRC 上跑完 push 到 GitHub**,再由用户 pu
 **被 .gitignore 明确排除**,注释为 "Training outputs / job logs (rsynced back from CRC)"——
 即仓库既定策略就是预测走 rsync 不入 git。四个 run 约 120 MB 二进制,入 git 将**永久**留在历史里。
 脚本因此只建议提交小产物(png/csv/md),并打印 rsync 命令供取回预测。**最终由用户裁定。**
+
+### 2026-09-05续5 — CRC 首次运行暴露两件事:评分器的覆盖假设错了,且 runs/ 里有陈旧目录
+
+**用户报告**:`bash scripts/crc/score_and_plot_runs.sh` 在第一个目录 `as_preds_all` 上崩溃,
+`ValueError: preds['seasonal'] shape (4967,10,6) != ytrue shape (28694,10,6)`;
+并质疑"为什么只有 75 recording"。
+
+**问题一:模型覆盖不均匀(我的 bug)。** `score_preds_per_action.gather` 假设每个 clip 都带全部
+模型。实际不然——**baselines 只在冻结 TEST split 上导出,而交叉验证的臂覆盖每一条录音**,
+所以一个 clip 可以只有神经臂而没有任何 baseline。`plot_opentouch_forecast_overlay.py` 的注释
+**早就记过这条**("Merged sets are NOT uniform ... a clip can hold the neural arms and none of
+the baselines"),我写评分器时没有沿用该教训。缺模型的 clip 仍然把行加进 `ytrue`,却不向
+`per_model['seasonal']` 追加,于是两者行数不等 → `clip_stats` 抛错。
+**修法(新增 `scan()` + `choose()`)**:先做一次廉价预扫描得到 `{clip: 模型集合}`,再二选一——
+默认取**每个 clip 都有的模型**(保全部 clip,丢 baselines),或 `--models` 钉住模型集合
+(保模型,丢缺它们的 clip)。**两者都保证所有列出自同一群体**;若各模型各按自己覆盖的 clip 计分,
+同一张表里的两个数字就会来自不同群体,而那正是这张表存在的意义所在。丢弃了什么一律打印。
+
+**问题二:`as_preds_all` 只有 75 条录音——用户的怀疑是对的。**
+75 正是冻结 slice+peel 的数量(45+30),而 corpus 范围应为 ~290。且该目录名不是我给过的任何一个,
+它还带 `seasonal`/`ar` 等 baselines,而 `train_tactile_map.py --save-preds` **只写学习臂**
+(`{f"{backbone}_{enc}": cv["preds"]}`)——**故 `as_preds_all` 不可能是本次四个 run 的产物**。
+**根因几乎可以确定是:`/runs/` 被 gitignore,在 CRC 上跨作业留存,早先实验的目录仍在原地,
+而我的 glob `runs/as_preds_*/` 把它们一并扫了进来。** 已请用户运行新增的清单确认。
+
+**修法(前置清单)**:驱动脚本在处理前先为每个目录打印**录音数 / 动作数 / tag / 通道数 /
+每个模型的覆盖 `n/总数` / 动作分布**。`ar(2/6)` 这样的写法让覆盖不均一眼可见;
+`75 recordings 2 actions` 与 `290 recordings 14 actions` 的区别也在第一屏就暴露,
+不必等评分跑完。**动机与 2026-09-05 那次"静默跑错范围"完全相同:失效模式不报错才是真危险。**
+
+**验证**:构造"6 个 clip、其中只有 2 个带 seasonal/ar"的 fixture **精确复现该崩溃**,
+修复后默认路径保全 6 个 clip 并说明丢弃了 ar/seasonal;`--models seasonal,ar,...` 路径改为
+保 3 个模型、丢 4 个 clip,同样明说。`pytest tests/ -q` → 137 passed。
