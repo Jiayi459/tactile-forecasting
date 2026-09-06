@@ -344,6 +344,59 @@ positive in all nine cells. Agreement across both sensors would make
 "the one-shot head produces better-shaped forecasts" an architectural
 fact rather than a property of one dataset.
 
+## ActionSense at corpus scope: probGRU falls below persistence, Seq2Seq does not
+
+Same driver, same convention as the table above -- skill frame-pooled per fold then averaged
+over folds, Hausdorff the same metric as everywhere else. What changes is the **population**:
+290 recordings over 14 actions instead of the frozen 75 over slice+peel. Aggregate input only;
+the map arms cannot run at this scope, because 100 of 299 recordings have a raw map and they
+would silently be scored on a different, smaller set. Source:
+`docs/actionsense/results/corpus-aggregate/`.
+
+| backbone | history | mean skill | mean Hausdorff | HD ratio vs persistence | coverage raw/cal |
+|---|---|---|---|---|---|
+| Seq2Seq | 3 s | **+0.145** | **2.436** | 0.83 | 0.94 / 0.95 |
+| Seq2Seq | 1 s | +0.137 | 2.432 | 0.83 | 0.95 / 0.95 |
+| probGRU | 3 s | **−0.309** | 2.596 | 0.88 | 0.94 / 0.95 |
+| probGRU | 1 s | −0.324 | 2.603 | 0.89 | 0.94 / 0.95 |
+
+**Widening the corpus costs probGRU 0.375 of skill and costs Seq2Seq nothing.** Against the
+frozen table above -- +0.0660 probGRU, +0.1334 Seq2Seq, same estimator -- probGRU crosses from
+beating persistence to losing to it, while Seq2Seq moves +0.133 → +0.145. The scopes are not
+strictly comparable (different `Norm`, different class mean, different folds), so the levels
+should not be subtracted; the **direction and its size** are the finding.
+
+The mechanism is already written down as methodological finding #1 in
+`docs/ICRA_PAPER_PLAN.md`: *residual-over-persistence parameterization is mandatory when
+persistence is strong*. Seq2Seq predicts the residual, so emitting zero reproduces persistence
+exactly and its skill has a floor at 0. probGRU predicts the absolute target and gets no such
+prior. On slice+peel -- two long, rhythmic actions -- that costs little. Across 14 actions,
+many of them short and abrupt, it costs 0.375. The corpus run is an independent confirmation
+of a rule that was previously inferred from EgoTouch pixels and the map arms.
+
+**Read Hausdorff, not skill, for the head-to-head.** The two backbones are not scored against
+the same reference: Seq2Seq's persistence is the zero forecast in residual space, probGRU's is
+persistence itself in absolute space, which at one step ahead is nearly unbeatable. Hausdorff
+is computed on residual curves for both and is invariant to the shared anchor, so it *is* a
+common yardstick. It says Seq2Seq, at both histories, and in **13 of 14 actions** individually
+(`docs/per_action_metrics.md` §4) -- the same direction as the nine-of-nine OpenTouch result.
+
+**A third estimator exists, and it is not the one in this table.** `cv_*.csv` stores skill per
+forecast step; averaging those ten values is *not* the frame-pooled number above, because
+step 1 has the smallest absolute MSE and therefore the least weight when pooling and equal
+weight when averaging. For probGRU at 3 s the per-step average is **−0.793** against the
+pooled **−0.309**, driven by a step-1 value of −4.25. Same sign here, but 2.6× the magnitude;
+the sign flip against the frozen table is the *population*, not the estimator. The pooled
+value is printed to the job log and never written to `cv_*.csv`, which is how the two came to
+be confused in the first place.
+
+**History does not matter, and the runs are deterministic.** 3 s versus 1 s moves skill by
+0.008 and Hausdorff by 0.004; per action the median |ΔR²| is 0.006. Both histories put `t_in`
+below the harness's `min_history = 40`, so neither ever zero-pads a window and the comparison
+carries no padding artefact. Two independent submissions of each Seq2Seq run returned
+**identical** numbers (+0.145 / 2.436 and +0.137 / 2.432), which establishes determinism given
+the frozen seed -- **not** a seed-to-seed noise floor, which was never measured here.
+
 ## How to read it
 
 **Down a column is safe; across the D1 boundary is not.** `raw` and `df` score an

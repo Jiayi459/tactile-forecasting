@@ -9956,3 +9956,45 @@ HD ratio vs persistence **0.829 / 0.828** 对 **0.884 / 0.886**。
 **已更新**:`docs/per_action_metrics.md` 新增第 4 节(ActionSense 四个 run 的 R²/HD 全表 +
 上述五条分析 + 冻结范围审计),由 `scripts/shared/export_per_action_metrics.py` **生成**而非手写;
 文档开头的状态表同步改为"ActionSense per-action 现已存在(corpus 范围),frozen 仍然没有且不可能有"。
+
+### 2026-09-06续 — 池化 skill 到手;对自己上一条归因的更正;`skill_comparison.md` 已补完
+
+**用户提供四个作业日志的汇总行**(池化估计量,与冻结表同约定):
+| run | history | 池化 skill | HD | ratio |
+|---|---|---|---|---|
+| seq2seq_corpus | 3s | **+0.145** | 2.436 | 0.83 |
+| seq2seq_corpus_h1 | 1s | +0.137 | 2.432 | 0.83 |
+| probgru_corpus | 3s | **−0.309** | 2.596 | 0.88 |
+| probgru_corpus_h1 | 1s | −0.324 | 2.603 | 0.89 |
+
+**更正我上一条的归因(重要)**。上一条写:"从 cv_*.csv 算出 −0.79,而冻结表是 +0.066,
+**它们是不同的估计量**"。拿到池化值后可以分解,该归因只对了一半:
+- **估计量效应**(同一 run):池化 −0.309 vs 逐步平均 −0.793 —— **同号**,2.6 倍量级;
+- **群体效应**(同一估计量):冻结 +0.066 vs corpus −0.309 —— **符号翻转在这里**。
+即"不要把两者并列"的结论成立,但"符号相反是估计量造成的"是错的,**符号相反是群体造成的**。
+逐步平均被 step-1 主导的机制仍然成立:step-1 的绝对 MSE 最小,池化时权重最低、逐步平均时权重相同。
+
+**核心新结论:扩大语料库让 probGRU 掉到 persistence 之下,而 Seq2Seq 纹丝不动。**
+probGRU +0.066 → **−0.309**(跨过 0);Seq2Seq +0.133 → **+0.145**。两个 scope 不严格可比
+(Norm/类均值/折都不同),故**不做差值**,但方向与量级是结论。
+**机制已有现成解释**:ICRA_PAPER_PLAN 方法论第 1 条"persistence 强时,residual 参数化是必需的"。
+Seq2Seq 预测残差,输出 0 即精确复现 persistence,skill 有 0 的地板;probGRU 预测绝对值,没有这个先验。
+在 slice+peel(两个长而有节律的动作)上代价很小;摊到 14 个动作(许多短促)上代价是 0.375。
+**这是该规则的一次独立确认**——此前的证据来自 EgoTouch 像素与 map 臂。
+
+**头对头请读 Hausdorff 而非 skill**:两个 backbone 的 persistence 参照不同(残差空间的零预测
+vs 绝对空间的 persistence,后者在 1 步上几乎不可战胜);Hausdorff 对两者都在残差曲线上计算,
+且对共同锚点不变,**是共同标尺**。它在两个 history 上、以及 **13/14** 个动作上都判 Seq2Seq 更优,
+方向与 OpenTouch 的 9/9 一致。
+
+**确定性检验(意外收获)**:日志里 `o1417969`/`o1417970` 是 seq2seq 两个 history 的**重跑**,
+与 `o1416830`/`o1416832` 的数字**逐位相同**(+0.145/2.436、+0.137/2.432)。
+这确立了**在冻结种子下的确定性**,**不是** seed-to-seed 噪声底——后者从未测过,
+故 history 那 0.008 的差不可据此称为"显著"。已在文档中如实区分。
+
+**已写入** `docs/skill_comparison.md` 新增一节("ActionSense at corpus scope: probGRU falls
+below persistence, Seq2Seq does not"),含上表、机制、Hausdorff 头对头、第三种估计量的警告、
+以及确定性 vs 噪声底的区分。
+
+**仍未修的小疏漏**:`train_tactile_map.py` 把池化的 `skill_ch` 只 print 不落盘,
+CSV 里只有逐步的 `skill_step`。下次仍要靠翻日志。已向用户提议加列,待裁定。
