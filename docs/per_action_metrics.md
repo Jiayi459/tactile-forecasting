@@ -126,26 +126,137 @@ forecasts; source tables in `docs/actionsense/results/corpus-aggregate/`.
 > against the same thing. **R² (against the class mean) and Hausdorff are common-denominator
 > and are the comparable columns.**
 
-Ranked by **R² of the first column**. R² is against the class mean and is comparable across backbones; **`skill` is not** — see the warning below. Hausdorff is **lower = better**.
 
-| # | action | n | R² seq2seq, 3 s | R² seq2seq, 1 s | R² probGRU, 3 s | R² probGRU, 1 s |
-|---:|---|---:|---:|---:|---:|---:|
-| 1 | slice | 45 | 0.7361 | 0.7327 | 0.7291 | 0.7292 |
-| 2 | peel | 30 | 0.6808 | 0.6753 | 0.6822 | 0.6711 |
-| 3 | spread | 30 | 0.6501 | 0.6515 | 0.6277 | 0.6216 |
-| 4 | clean | 55 | 0.6339 | 0.6391 | 0.4693 | 0.4723 |
-| 5 | clear | 28 | 0.6132 | 0.6125 | 0.6137 | 0.6085 |
-| 6 | set | 6 | 0.5966 | 0.5826 | 0.5752 | 0.5620 |
-| 7 | load | 5 | 0.5673 | 0.5617 | 0.5284 | 0.5439 |
-| 8 | get/replace | 15 | 0.5376 | 0.5312 | 0.5473 | 0.5331 |
-| 9 | get | 30 | 0.4960 | 0.4915 | 0.5147 | 0.5149 |
-| 10 | stack | 5 | 0.4625 | 0.4358 | 0.4723 | 0.4465 |
-| 11 | unload | 5 | 0.4531 | 0.4417 | 0.4755 | 0.4771 |
-| 12 | pour | 21 | 0.4137 | 0.4199 | 0.4378 | 0.4209 |
-| 13 | open/close | 9 | 0.3475 | 0.3258 | 0.3527 | 0.3467 |
-| 14 | open | 6 | 0.2594 | 0.2692 | 0.2682 | 0.2917 |
+### 4.1 Whole dataset
 
-| # | action | HD seq2seq, 3 s | HD seq2seq, 1 s | HD probGRU, 3 s | HD probGRU, 1 s |
+| run | R² | skill vs persistence | Hausdorff | HD ratio |
+|---|---:|---:|---:|---:|
+| seq2seq, 3 s | **0.7414** | +0.1276 | **2.419** | 0.830 |
+| seq2seq, 1 s | **0.7410** | +0.1243 | **2.408** | 0.826 |
+| probGRU, 3 s | **0.6374** | -0.7225 | **2.627** | 0.901 |
+| probGRU, 1 s | **0.6428** | -0.7203 | **2.629** | 0.902 |
+
+Persistence, for reference (same rows, same denominator):
+
+| run | R² of persistence |
+|---|---:|
+| seq2seq, 3 s | +0.6925 |
+| seq2seq, 1 s | +0.6925 |
+| probGRU, 3 s | +0.6925 |
+| probGRU, 1 s | +0.6925 |
+
+### 4.2 Per action, one table per run
+
+Every column each run's own `.md` carries, so this section replaces those four files rather than summarising them.
+
+#### seq2seq, 3 s
+
+| # | action | n | R² | skill vs pers | Hausdorff | HD ratio | R² persistence |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 1 | slice | 45 | **0.7361** | +0.1400 | 2.373 | 0.820 | +0.6873 |
+| 2 | peel | 30 | **0.6808** | +0.1910 | 2.361 | 0.811 | +0.6034 |
+| 3 | spread | 30 | **0.6501** | +0.1049 | 2.391 | 0.815 | +0.5907 |
+| 4 | clean | 55 | **0.6339** | +0.1099 | 2.343 | 0.809 | +0.5669 |
+| 5 | clear | 28 | **0.6132** | +0.1177 | 2.501 | 0.854 | +0.5544 |
+| 6 | set | 6 | **0.5966** | +0.1611 | 2.496 | 0.840 | +0.5012 |
+| 7 | load | 5 | **0.5673** | +0.1546 | 2.508 | 0.842 | +0.4855 |
+| 8 | get/replace | 15 | **0.5376** | +0.1583 | 2.435 | 0.831 | +0.4377 |
+| 9 | get | 30 | **0.4960** | +0.1651 | 2.442 | 0.830 | +0.3951 |
+| 10 | stack | 5 | **0.4625** | +0.2537 | 2.325 | 0.785 | +0.2710 |
+| 11 | unload | 5 | **0.4531** | +0.1821 | 2.440 | 0.825 | +0.3327 |
+| 12 | pour | 21 | **0.4137** | +0.0121 | 2.747 | 0.952 | +0.3967 |
+| 13 | open/close | 9 | **0.3475** | +0.1781 | 2.283 | 0.796 | +0.1916 |
+| 14 | open | 6 | **0.2594** | +0.1237 | 2.347 | 0.808 | +0.1419 |
+
+Highest R²: **slice** (0.7361). Lowest Hausdorff: **open/close** (2.283). They are not the same action.
+
+#### seq2seq, 1 s
+
+| # | action | n | R² | skill vs pers | Hausdorff | HD ratio | R² persistence |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 1 | slice | 45 | **0.7327** | +0.1322 | 2.368 | 0.818 | +0.6873 |
+| 2 | peel | 30 | **0.6753** | +0.1758 | 2.377 | 0.817 | +0.6034 |
+| 3 | spread | 30 | **0.6515** | +0.1004 | 2.368 | 0.808 | +0.5907 |
+| 4 | clean | 55 | **0.6391** | +0.1259 | 2.329 | 0.804 | +0.5669 |
+| 5 | clear | 28 | **0.6125** | +0.1168 | 2.510 | 0.857 | +0.5544 |
+| 6 | set | 6 | **0.5826** | +0.1391 | 2.503 | 0.842 | +0.5012 |
+| 7 | load | 5 | **0.5617** | +0.1437 | 2.495 | 0.838 | +0.4855 |
+| 8 | get/replace | 15 | **0.5312** | +0.1510 | 2.414 | 0.824 | +0.4377 |
+| 9 | get | 30 | **0.4915** | +0.1578 | 2.448 | 0.831 | +0.3951 |
+| 10 | unload | 5 | **0.4417** | +0.1638 | 2.464 | 0.833 | +0.3327 |
+| 11 | stack | 5 | **0.4358** | +0.2205 | 2.344 | 0.791 | +0.2710 |
+| 12 | pour | 21 | **0.4199** | +0.0208 | 2.649 | 0.918 | +0.3967 |
+| 13 | open/close | 9 | **0.3258** | +0.1546 | 2.268 | 0.791 | +0.1916 |
+| 14 | open | 6 | **0.2692** | +0.1315 | 2.309 | 0.795 | +0.1419 |
+
+Highest R²: **slice** (0.7327). Lowest Hausdorff: **open/close** (2.268). They are not the same action.
+
+#### probGRU, 3 s
+
+| # | action | n | R² | skill vs pers | Hausdorff | HD ratio | R² persistence |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 1 | slice | 45 | **0.7291** | +0.1153 | 2.552 | 0.882 | +0.6873 |
+| 2 | peel | 30 | **0.6822** | +0.1916 | 2.464 | 0.847 | +0.6034 |
+| 3 | spread | 30 | **0.6277** | -0.0162 | 2.494 | 0.851 | +0.5907 |
+| 4 | clear | 28 | **0.6137** | +0.1257 | 2.582 | 0.882 | +0.5544 |
+| 5 | set | 6 | **0.5752** | +0.0732 | 2.608 | 0.878 | +0.5012 |
+| 6 | get/replace | 15 | **0.5473** | +0.1790 | 2.490 | 0.849 | +0.4377 |
+| 7 | load | 5 | **0.5284** | +0.0775 | 2.699 | 0.906 | +0.4855 |
+| 8 | get | 30 | **0.5147** | +0.1947 | 2.563 | 0.871 | +0.3951 |
+| 9 | unload | 5 | **0.4755** | +0.2116 | 2.547 | 0.861 | +0.3327 |
+| 10 | stack | 5 | **0.4723** | +0.2678 | 2.416 | 0.816 | +0.2710 |
+| 11 | clean | 55 | **0.4693** | -0.9339 | 2.991 | 1.033 | +0.5669 |
+| 12 | pour | 21 | **0.4378** | +0.0488 | 2.700 | 0.936 | +0.3967 |
+| 13 | open/close | 9 | **0.3527** | +0.1835 | 2.429 | 0.847 | +0.1916 |
+| 14 | open | 6 | **0.2682** | +0.1335 | 2.442 | 0.840 | +0.1419 |
+
+Highest R²: **slice** (0.7291). Lowest Hausdorff: **stack** (2.416). They are not the same action.
+
+#### probGRU, 1 s
+
+| # | action | n | R² | skill vs pers | Hausdorff | HD ratio | R² persistence |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 1 | slice | 45 | **0.7292** | +0.1158 | 2.528 | 0.873 | +0.6873 |
+| 2 | peel | 30 | **0.6711** | +0.1644 | 2.471 | 0.849 | +0.6034 |
+| 3 | spread | 30 | **0.6216** | -0.0544 | 2.494 | 0.851 | +0.5907 |
+| 4 | clear | 28 | **0.6085** | +0.1036 | 2.642 | 0.902 | +0.5544 |
+| 5 | set | 6 | **0.5620** | +0.0323 | 2.670 | 0.899 | +0.5012 |
+| 6 | load | 5 | **0.5439** | +0.1093 | 2.666 | 0.895 | +0.4855 |
+| 7 | get/replace | 15 | **0.5331** | +0.1483 | 2.518 | 0.859 | +0.4377 |
+| 8 | get | 30 | **0.5149** | +0.1952 | 2.552 | 0.867 | +0.3951 |
+| 9 | unload | 5 | **0.4771** | +0.2123 | 2.580 | 0.873 | +0.3327 |
+| 10 | clean | 55 | **0.4723** | -0.9902 | 2.973 | 1.027 | +0.5669 |
+| 11 | stack | 5 | **0.4465** | +0.2361 | 2.476 | 0.836 | +0.2710 |
+| 12 | pour | 21 | **0.4209** | +0.0238 | 2.713 | 0.941 | +0.3967 |
+| 13 | open/close | 9 | **0.3467** | +0.1788 | 2.426 | 0.846 | +0.1916 |
+| 14 | open | 6 | **0.2917** | +0.1613 | 2.382 | 0.819 | +0.1419 |
+
+Highest R²: **slice** (0.7292). Lowest Hausdorff: **open** (2.382). They are not the same action.
+
+### 4.3 The same metric across all four runs
+
+**R²** — against the class mean, so **comparable across backbones**. Ranked by the first column.
+
+| # | action | seq2seq, 3 s | seq2seq, 1 s | probGRU, 3 s | probGRU, 1 s |
+|---:|---|---:|---:|---:|---:|
+| 1 | slice | 0.7361 | 0.7327 | 0.7291 | 0.7292 |
+| 2 | peel | 0.6808 | 0.6753 | 0.6822 | 0.6711 |
+| 3 | spread | 0.6501 | 0.6515 | 0.6277 | 0.6216 |
+| 4 | clean | 0.6339 | 0.6391 | 0.4693 | 0.4723 |
+| 5 | clear | 0.6132 | 0.6125 | 0.6137 | 0.6085 |
+| 6 | set | 0.5966 | 0.5826 | 0.5752 | 0.5620 |
+| 7 | load | 0.5673 | 0.5617 | 0.5284 | 0.5439 |
+| 8 | get/replace | 0.5376 | 0.5312 | 0.5473 | 0.5331 |
+| 9 | get | 0.4960 | 0.4915 | 0.5147 | 0.5149 |
+| 10 | stack | 0.4625 | 0.4358 | 0.4723 | 0.4465 |
+| 11 | unload | 0.4531 | 0.4417 | 0.4755 | 0.4771 |
+| 12 | pour | 0.4137 | 0.4199 | 0.4378 | 0.4209 |
+| 13 | open/close | 0.3475 | 0.3258 | 0.3527 | 0.3467 |
+| 14 | open | 0.2594 | 0.2692 | 0.2682 | 0.2917 |
+
+**Hausdorff** — lower is better; computed on residual curves for both backbones and invariant to the shared anchor, so also **comparable**.
+
+| # | action | seq2seq, 3 s | seq2seq, 1 s | probGRU, 3 s | probGRU, 1 s |
 |---:|---|---:|---:|---:|---:|
 | 1 | slice | 2.373 | 2.368 | 2.552 | 2.528 |
 | 2 | peel | 2.361 | 2.377 | 2.464 | 2.471 |
@@ -162,9 +273,9 @@ Ranked by **R² of the first column**. R² is against the class mean and is comp
 | 13 | open/close | 2.283 | 2.268 | 2.429 | 2.426 |
 | 14 | open | 2.347 | 2.309 | 2.442 | 2.382 |
 
-Skill against persistence, for completeness. **Comparable down a column, not across the backbone boundary**: Seq2Seq's reference is the zero forecast in residual space, probGRU's is persistence itself in absolute space.
+**Skill against persistence** — comparable *down* a column, **not across the backbone boundary**: Seq2Seq's reference is the zero forecast in residual space, probGRU's is persistence itself in absolute space.
 
-| # | action | skill seq2seq, 3 s | skill seq2seq, 1 s | skill probGRU, 3 s | skill probGRU, 1 s |
+| # | action | seq2seq, 3 s | seq2seq, 1 s | probGRU, 3 s | probGRU, 1 s |
 |---:|---|---:|---:|---:|---:|
 | 1 | slice | +0.1400 | +0.1322 | +0.1153 | +0.1158 |
 | 2 | peel | +0.1910 | +0.1758 | +0.1916 | +0.1644 |
@@ -181,7 +292,7 @@ Skill against persistence, for completeness. **Comparable down a column, not acr
 | 13 | open/close | +0.1781 | +0.1546 | +0.1835 | +0.1788 |
 | 14 | open | +0.1237 | +0.1315 | +0.1335 | +0.1613 |
 
-### What the ActionSense numbers say
+### 4.4 What the ActionSense numbers say
 
 **1. The ranking is a property of the action, not of the model.** Spearman between the four runs' R² orderings:
 
@@ -223,9 +334,11 @@ This matters for how the corpus-level result is read. probGRU's pooled skill ove
 | unload | -0.0224 | -0.1071 | +0.1821 | +0.2116 |
 | pour | -0.0241 | +0.0474 | +0.0121 | +0.0488 |
 
-**5. History is inert.** Median |R²(3 s) − R²(1 s)| = **0.0061**, at or below the ~5e-3 replicate noise floor recorded in `docs/ICRA_PAPER_PLAN.md`. Both histories sit under the harness's `min_history = 40`, so neither ever zero-pads a window; the comparison is clean, and it says the axis does not matter.
+**5. On the whole dataset, probGRU is below persistence on R² too — and R² has no reference ambiguity.** Persistence scores **0.6925** against the corpus mean; the arms score seq2seq, 3 s **0.7414**, seq2seq, 1 s **0.7410**, probGRU, 3 s **0.6374**, probGRU, 1 s **0.6428**. Both probGRU runs land *under* the trivial predictor, both Seq2Seq runs above it. Skill said the same thing but could be waved away as a reference mismatch between the backbones; R² shares one denominator with persistence and with the other arm, so it cannot. The one cell where Hausdorff also crosses its reference is probGRU on `clean`, at ratio **1.033** — the only value above 1.0 in the entire table, meaning a forecast worse-shaped than assuming nothing changes.
 
-### Frozen-harness audit (regenerated, not asserted)
+**6. History is inert.** Median |R²(3 s) − R²(1 s)| = **0.0061**, at or below the ~5e-3 replicate noise floor recorded in `docs/ICRA_PAPER_PLAN.md`. Both histories sit under the harness's `min_history = 40`, so neither ever zero-pads a window; the comparison is clean, and it says the axis does not matter.
+
+### 4.5 Frozen-harness audit (regenerated, not asserted)
 
 The tables above are the **corpus** scope. The **frozen** harness still carries no per-action forecast metric, and this is re-checked rather than asserted: scanned **35** CSVs under `docs/actionsense/`, of which **11** have an action/verb column.
 

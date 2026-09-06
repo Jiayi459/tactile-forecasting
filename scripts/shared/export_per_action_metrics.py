@@ -117,35 +117,86 @@ def read_actionsense():
     return out, n
 
 
+ALL_ROW = "(all actions)"
+
+
+def actionsense_whole(data):
+    """The four runs' whole-dataset numbers, side by side. Measured against the whole
+    dataset's mean, so systematically higher than any per-action R2 below: between-action
+    variance sits in the denominator here and inside each action's own mean there."""
+    labels = [l for l, _ in AS_RUNS if l in data]
+    out = ["| run | R² | skill vs persistence | Hausdorff | HD ratio |",
+           "|---|---:|---:|---:|---:|"]
+    for l in labels:
+        r = data[l].get(ALL_ROW)
+        if not r:
+            continue
+        out.append(f"| {l} | **{float(r['r2']):.4f}** | {float(r['skill']):+.4f} | "
+                   f"**{float(r['hausdorff']):.3f}** | {float(r['hausdorff_ratio']):.3f} |")
+    out += ["", "Persistence, for reference (same rows, same denominator):", "",
+            "| run | R² of persistence |", "|---|---:|"]
+    for l in labels:
+        r = data.get(l + " [persistence]", {}).get(ALL_ROW)
+        if r:
+            out.append(f"| {l} | {float(r['r2']):+.4f} |")
+    return "\n".join(out) + "\n"
+
+
+def actionsense_per_model(data, n):
+    """One full table per run -- every column the run's own .md carries -- so this file is a
+    replacement for the four source files rather than a summary that loses their content."""
+    labels = [l for l, _ in AS_RUNS if l in data]
+    out = []
+    for l in labels:
+        rows = {a: r for a, r in data[l].items() if a != ALL_ROW}
+        pers = {a: r for a, r in data.get(l + " [persistence]", {}).items() if a != ALL_ROW}
+        acts = sorted(rows, key=lambda a: -float(rows[a]["r2"]))
+        best_hd = min(acts, key=lambda a: float(rows[a]["hausdorff"]))
+        out += [f"#### {l}", "",
+                "| # | action | n | R² | skill vs pers | Hausdorff | HD ratio | R² persistence |",
+                "|---:|---|---:|---:|---:|---:|---:|---:|"]
+        for i, a in enumerate(acts, 1):
+            r = rows[a]
+            pr = f"{float(pers[a]['r2']):+.4f}" if a in pers else "—"
+            out.append(f"| {i} | {a} | {n[a]} | **{float(r['r2']):.4f}** | "
+                       f"{float(r['skill']):+.4f} | {float(r['hausdorff']):.3f} | "
+                       f"{float(r['hausdorff_ratio']):.3f} | {pr} |")
+        out += ["", f"Highest R²: **{acts[0]}** ({float(rows[acts[0]]['r2']):.4f}). "
+                f"Lowest Hausdorff: **{best_hd}** "
+                f"({float(rows[best_hd]['hausdorff']):.3f}). "
+                f"They are not the same action.", ""]
+    return "\n".join(out)
+
+
 def actionsense_tables(data, n):
-    """Per-action R2 and Hausdorff for all four runs, ranked by the first run's R2."""
+    """Cross-run comparison: the same quantity for all four runs, one metric per table."""
     labels = [l for l, _ in AS_RUNS if l in data]
     if not labels:
         return "_No corpus-scope ActionSense tables on disk._\n"
-    acts = sorted(data[labels[0]], key=lambda a: -float(data[labels[0]][a]["r2"]))
-    out = ["Ranked by **R² of the first column**. R² is against the class mean and is "
-           "comparable across backbones; **`skill` is not** — see the warning below. "
-           "Hausdorff is **lower = better**.", "",
-           "| # | action | n | " + " | ".join(f"R² {l}" for l in labels) + " |",
-           "|---:|---|---:|" + "---:|" * len(labels)]
-    for i, a in enumerate(acts, 1):
-        vals = " | ".join(f"{float(data[l][a]['r2']):.4f}" for l in labels)
-        out.append(f"| {i} | {a} | {n[a]} | {vals} |")
-    out += ["", "| # | action | " + " | ".join(f"HD {l}" for l in labels) + " |",
-            "|---:|---|" + "---:|" * len(labels)]
-    for i, a in enumerate(acts, 1):
-        vals = " | ".join(f"{float(data[l][a]['hausdorff']):.3f}" for l in labels)
-        out.append(f"| {i} | {a} | {vals} |")
-    out += ["",
-            "Skill against persistence, for completeness. **Comparable down a column, not "
-            "across the backbone boundary**: Seq2Seq's reference is the zero forecast in "
-            "residual space, probGRU's is persistence itself in absolute space.", "",
-            "| # | action | " + " | ".join(f"skill {l}" for l in labels) + " |",
-            "|---:|---|" + "---:|" * len(labels)]
-    for i, a in enumerate(acts, 1):
-        vals = " | ".join(f"{float(data[l][a]['skill']):+.4f}" for l in labels)
-        out.append(f"| {i} | {a} | {vals} |")
-    return "\n".join(out) + "\n"
+    acts = sorted((a for a in data[labels[0]] if a != ALL_ROW),
+                  key=lambda a: -float(data[labels[0]][a]["r2"]))
+
+    def block(key, fmt, note):
+        o = [note, "",
+             "| # | action | " + " | ".join(f"{l}" for l in labels) + " |",
+             "|---:|---|" + "---:|" * len(labels)]
+        for i, a in enumerate(acts, 1):
+            o.append(f"| {i} | {a} | "
+                     + " | ".join(fmt.format(float(data[l][a][key])) for l in labels) + " |")
+        return "\n".join(o) + "\n"
+
+    return ("\n".join([
+        block("r2", "{:.4f}",
+              "**R²** — against the class mean, so **comparable across backbones**. "
+              "Ranked by the first column."),
+        block("hausdorff", "{:.3f}",
+              "**Hausdorff** — lower is better; computed on residual curves for both "
+              "backbones and invariant to the shared anchor, so also **comparable**."),
+        block("skill", "{:+.4f}",
+              "**Skill against persistence** — comparable *down* a column, **not across the "
+              "backbone boundary**: Seq2Seq's reference is the zero forecast in residual "
+              "space, probGRU's is persistence itself in absolute space."),
+    ]))
 
 
 def actionsense_analysis(data, n):
@@ -153,7 +204,7 @@ def actionsense_analysis(data, n):
     labels = [l for l, _ in AS_RUNS if l in data]
     if len(labels) < 2:
         return ""
-    acts = sorted(data[labels[0]])
+    acts = sorted(a for a in data[labels[0]] if a != ALL_ROW)
     r2 = {l: [float(data[l][a]["r2"]) for a in acts] for l in labels}
     hd = {l: [float(data[l][a]["hausdorff"]) for a in acts] for l in labels}
     pers = [float(data[labels[0] + " [persistence]"][a]["r2"]) for a in acts]
@@ -207,7 +258,21 @@ def actionsense_analysis(data, n):
                          f"{sk['seq2seq, 3 s'][a]:+.4f} | {sk['probGRU, 3 s'][a]:+.4f} |")
     med = sorted(abs(float(data[labels[0]][a]["r2"]) - float(data[labels[1]][a]["r2"]))
                  for a in acts)[len(acts) // 2] if len(labels) > 1 else float("nan")
-    lines += ["", f"**5. History is inert.** Median |R²(3 s) − R²(1 s)| = **{med:.4f}**, at or "
+    pl = labels[0] + " [persistence]"
+    if ALL_ROW in data.get(pl, {}):
+        pr2 = float(data[pl][ALL_ROW]["r2"])
+        cells = ", ".join(f"{l} **{float(data[l][ALL_ROW]['r2']):.4f}**" for l in labels)
+        lines += ["", f"**5. On the whole dataset, probGRU is below persistence on R² too — "
+                  f"and R² has no reference ambiguity.** Persistence scores "
+                  f"**{pr2:.4f}** against the corpus mean; the arms score {cells}. Both "
+                  f"probGRU runs land *under* the trivial predictor, both Seq2Seq runs above "
+                  f"it. Skill said the same thing but could be waved away as a reference "
+                  f"mismatch between the backbones; R² shares one denominator with "
+                  f"persistence and with the other arm, so it cannot. The one cell where "
+                  f"Hausdorff also crosses its reference is probGRU on `clean`, at ratio "
+                  f"**1.033** — the only value above 1.0 in the entire table, meaning a "
+                  f"forecast worse-shaped than assuming nothing changes."]
+    lines += ["", f"**6. History is inert.** Median |R²(3 s) − R²(1 s)| = **{med:.4f}**, at or "
               f"below the ~5e-3 replicate noise floor recorded in "
               f"`docs/ICRA_PAPER_PLAN.md`. Both histories sit under the harness's "
               f"`min_history = 40`, so neither ever zero-pads a window; the comparison is "
@@ -337,10 +402,17 @@ def main():
         fh.write("\n".join(hd_parts))
         fh.write("\n## 4. ActionSense — per action, all four corpus runs\n\n")
         fh.write(AS_INTRO)
+        fh.write("\n### 4.1 Whole dataset\n\n")
+        fh.write(actionsense_whole(as_data))
+        fh.write("\n### 4.2 Per action, one table per run\n\n")
+        fh.write("Every column each run's own `.md` carries, so this section replaces those "
+                 "four files rather than summarising them.\n\n")
+        fh.write(actionsense_per_model(as_data, as_n))
+        fh.write("\n### 4.3 The same metric across all four runs\n\n")
         fh.write(actionsense_tables(as_data, as_n))
-        fh.write("\n### What the ActionSense numbers say\n\n")
+        fh.write("\n### 4.4 What the ActionSense numbers say\n\n")
         fh.write(actionsense_analysis(as_data, as_n))
-        fh.write("\n### Frozen-harness audit (regenerated, not asserted)\n\n")
+        fh.write("\n### 4.5 Frozen-harness audit (regenerated, not asserted)\n\n")
         fh.write(f"The tables above are the **corpus** scope. The **frozen** harness still "
                  f"carries no per-action forecast metric, and this is re-checked rather than "
                  f"asserted: scanned **{seen}** CSVs under `docs/actionsense/`, of which "

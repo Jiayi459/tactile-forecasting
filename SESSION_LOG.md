@@ -10157,3 +10157,39 @@ forecasts + skill；level/evolution ambiguity → absolute R² + Hausdorff。
 里的那批未跟踪文件可直接删除,然后 `git add docs/actionsense/results`。
 届时 per-run 的 `.md` 顶部会带上本轮新增的**全数据集行**(R²/skill/Hausdorff),
 `skill_comparison.md` 的 R² 列即可补齐。
+
+### 2026-09-06续4 — 四份 run 报告汇总进 per_action_metrics;skill_comparison 加入 AS_corpus 列
+
+**per_action_metrics.md 第 4 节重构(生成,非手写)**
+- **4.1 全数据集**:四个 run 的 R²/skill/Hausdorff/HD-ratio,并列出 persistence 的 R²。
+- **4.2 按模型分列**:每个 run 一张**完整**表,列齐 R²/skill/HD/HD-ratio/persistence 的 R²
+  ——即四份源 `.md` 的全部内容,**本文件因此是替代而非摘要**。
+- **4.3 同一指标横跨四个 run**:R²(可跨 backbone)、Hausdorff(可跨)、skill(**仅可沿列读**)。
+- **4.4 结论六条**;**4.5** 冻结范围审计。
+
+**本轮出现的决定性新事实(此前无法陈述)**
+全数据集 persistence 的 R² = **+0.6925**;四个臂:Seq2Seq **0.7414 / 0.7410**、
+probGRU **0.6374 / 0.6428**。**两个 probGRU run 都落在平凡预测器之下。**
+此前 skill 已给出同一结论,但可被"两个 backbone 参照不同"驳回;**R² 与 persistence、
+与另一臂共用同一个分母,无法被这样驳回**。这是该结论的最强形式。
+另:probGRU 在 `clean` 上的 HD ratio = **1.033**,是整张表**唯一 >1 的格**
+——形状上也输给"什么都不变"。
+
+**估计量清点(现在共有三个 skill 数字指向同一个 run,必须点名)**
+probGRU corpus 3s:frame-pooled(作业日志)**−0.309**;clip-balanced(评分器全数据集行)
+**−0.7225**;逐步平均(cv csv)**−0.7934**。三者都为负,故结论稳健,但**数值不可混用**。
+文档中每处均已注明出处与估计量。
+
+**skill_comparison.md 加入 `AS_corpus` 列**
+- **三张 Hausdorff 逐通道表:已填真实数字**(F_R/CoPx_R/CoPy_R = seq2seq 2.626/2.309/2.338;
+  probGRU 2.655/2.481/2.478),取自 `cv_*.csv` 的 `hausdorff_ch`,**与既有 ActionSense 列同一
+  per-clip 估计量**,故可同表。
+- **三张 skill 逐通道表:该列存在但单元格留空,且写明原因**——逐通道的**池化** skill
+  (`skill_ch`)在 `cross_validate` 里只被 print,`cv_*.csv` 只存逐步值,**比值无法回池化**。
+  填进去只能用逐步平均,那是第三种估计量,正是本文档"两个估计量不可互换"一节禁止的做法。
+  **一行代码(把 `skill_ch` 写进 CSV)即可补齐**,已注明。
+- 该列的参照问题与既有 ActionSense 列相同(无逐通道 persistence 行),故补上通道均值比值
+  **0.829×/0.884×**(3s)使其可与 d256 的 0.89×、OpenTouch 的 0.83× 横向对读;
+  并提示 0.884× 掩盖了 `clean` 的 1.033×。
+- 明确标注 `AS_corpus` 与 `ActionSense` 是**不同群体**(corpus vs 冻结 slice+peel),
+  不是对后者的更新。

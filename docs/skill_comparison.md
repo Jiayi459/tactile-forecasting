@@ -155,47 +155,62 @@ $0.301$, and the mean scores $0.995$.
 `d1_map` (08-22) is **excluded**: flatten and cnn predicted arrays of zeros there.
 See SESSION_LOG 2026-08-22.
 
+**`AS_corpus`** is the ActionSense aggregate arm at corpus scope -- 290 recordings over 14
+actions, 5-fold CV by recording, both backbones, 3 s history
+(`docs/actionsense/results/corpus-aggregate/`). It is a **different population** from the
+`ActionSense` column beside it, which is the frozen slice+peel harness: different `Norm`,
+different class mean, different folds. Read it as a separate sensor-scale entry, never as an
+update to the frozen column.
+
+**Its skill cells are empty on purpose.** The per-channel pooled skill is computed inside
+`cross_validate` as `skill_ch` and only ever *printed*; `cv_*.csv` stores the per-step values,
+whose ratios cannot be pooled back. Filling those cells would mean averaging per-step skills
+-- a third estimator, not the frame-pooled one every other column uses -- and this document
+already says such cells cannot be compared. Writing `skill_ch` to the CSV is the one-line fix.
+The Hausdorff cells *are* filled: `cv_*.csv` carries per-channel Hausdorff directly, on the
+same per-clip estimator as the `ActionSense` column.
+
 ## F_R
 
-| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|
-| AR | 0.200 | 0.148 | 0.148 | 0.367 | 0.367 | 0.367 | 0.367 | 0.367 |
-| seasonal | 0.000 | −0.019 | −0.019 | −0.038 | −0.038 | −0.038 | −0.038 | −0.038 |
-| probGRU | — | 0.203 | 0.207 | 0.386 | 0.383 | — | — | 0.386 |
-| GRU-aggregate | 0.181 | — | — | — | — | 0.360 | 0.360 | — |
-| CNN (map) | 0.138 | — | — | — | — | 0.333 | 0.330 | — |
-| flatten (map) | −0.042 | — | — | — | — | 0.273 | 0.269 | — |
-| probGRU + CNN | — | — | — | — | — | — | — | 0.356 |
-| probGRU + flatten | — | — | — | — | — | — | — | 0.322 |
-| **R** (persistence difficulty) | 0.655 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 |
+| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` | AS_corpus |
+|---|---|---|---|---|---|---|---|---|---|
+| AR | 0.200 | 0.148 | 0.148 | 0.367 | 0.367 | 0.367 | 0.367 | 0.367 | — |
+| seasonal | 0.000 | −0.019 | −0.019 | −0.038 | −0.038 | −0.038 | −0.038 | −0.038 | — |
+| probGRU | — | 0.203 | 0.207 | 0.386 | 0.383 | — | — | 0.386 | — |
+| GRU-aggregate | 0.181 | — | — | — | — | 0.360 | 0.360 | — | — |
+| CNN (map) | 0.138 | — | — | — | — | 0.333 | 0.330 | — | — |
+| flatten (map) | −0.042 | — | — | — | — | 0.273 | 0.269 | — | — |
+| probGRU + CNN | — | — | — | — | — | — | — | 0.356 | — |
+| probGRU + flatten | — | — | — | — | — | — | — | 0.322 | — |
+| **R** (persistence difficulty) | 0.655 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | — |
 
 ## CoPx_R
 
-| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|
-| AR | 0.254 | 0.214 | 0.214 | 0.431 | 0.431 | 0.431 | 0.431 | 0.431 |
-| seasonal | 0.000 | −0.015 | −0.015 | −0.033 | −0.033 | −0.033 | −0.033 | −0.033 |
-| probGRU | — | 0.288 | 0.278 | 0.427 | 0.431 | — | — | 0.427 |
-| GRU-aggregate | 0.233 | — | — | — | — | 0.422 | 0.422 | — |
-| CNN (map) | 0.011 | — | — | — | — | 0.374 | 0.370 | — |
-| flatten (map) | −0.002 | — | — | — | — | 0.331 | 0.328 | — |
-| probGRU + CNN | — | — | — | — | — | — | — | 0.414 |
-| probGRU + flatten | — | — | — | — | — | — | — | 0.393 |
-| **R** (persistence difficulty) | 0.746 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 |
+| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` | AS_corpus |
+|---|---|---|---|---|---|---|---|---|---|
+| AR | 0.254 | 0.214 | 0.214 | 0.431 | 0.431 | 0.431 | 0.431 | 0.431 | — |
+| seasonal | 0.000 | −0.015 | −0.015 | −0.033 | −0.033 | −0.033 | −0.033 | −0.033 | — |
+| probGRU | — | 0.288 | 0.278 | 0.427 | 0.431 | — | — | 0.427 | — |
+| GRU-aggregate | 0.233 | — | — | — | — | 0.422 | 0.422 | — | — |
+| CNN (map) | 0.011 | — | — | — | — | 0.374 | 0.370 | — | — |
+| flatten (map) | −0.002 | — | — | — | — | 0.331 | 0.328 | — | — |
+| probGRU + CNN | — | — | — | — | — | — | — | 0.414 | — |
+| probGRU + flatten | — | — | — | — | — | — | — | 0.393 | — |
+| **R** (persistence difficulty) | 0.746 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | — |
 
 ## CoPy_R
 
-| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|
-| AR | 0.194 | 0.171 | 0.171 | 0.476 | 0.476 | 0.476 | 0.476 | 0.476 |
-| seasonal | 0.000 | −0.016 | −0.016 | −0.009 | −0.009 | −0.009 | −0.009 | −0.009 |
-| probGRU | — | 0.221 | 0.227 | 0.472 | 0.472 | — | — | 0.472 |
-| GRU-aggregate | 0.175 | — | — | — | — | 0.469 | 0.469 | — |
-| CNN (map) | 0.045 | — | — | — | — | 0.424 | 0.419 | — |
-| flatten (map) | −0.051 | — | — | — | — | 0.407 | 0.408 | — |
-| probGRU + CNN | — | — | — | — | — | — | — | 0.430 |
-| probGRU + flatten | — | — | — | — | — | — | — | 0.446 |
-| **R** (persistence difficulty) | 0.658 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 |
+| model | ActionSense | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` | AS_corpus |
+|---|---|---|---|---|---|---|---|---|---|
+| AR | 0.194 | 0.171 | 0.171 | 0.476 | 0.476 | 0.476 | 0.476 | 0.476 | — |
+| seasonal | 0.000 | −0.016 | −0.016 | −0.009 | −0.009 | −0.009 | −0.009 | −0.009 | — |
+| probGRU | — | 0.221 | 0.227 | 0.472 | 0.472 | — | — | 0.472 | — |
+| GRU-aggregate | 0.175 | — | — | — | — | 0.469 | 0.469 | — | — |
+| CNN (map) | 0.045 | — | — | — | — | 0.424 | 0.419 | — | — |
+| flatten (map) | −0.051 | — | — | — | — | 0.407 | 0.408 | — | — |
+| probGRU + CNN | — | — | — | — | — | — | — | 0.430 | — |
+| probGRU + flatten | — | — | — | — | — | — | — | 0.446 | — |
+| **R** (persistence difficulty) | 0.658 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | — |
 
 ## Hausdorff distance between forecast and truth curves
 
@@ -218,6 +233,14 @@ frame-pooled from the driver's table, matching the skill above; OpenTouch is
 per-clip from its report; ActionSense is per-clip from its CV table at the
 longest history.
 
+**`AS_corpus` has the same missing reference, but a usable substitute.** Its per-channel
+persistence Hausdorff is not stored either, so the `persistence` row is blank there too. What
+*is* stored is the channel-averaged ratio: **0.829×** persistence for the Seq2Seq aggregate arm
+and **0.884×** for probGRU (3 s history; 0.828× and 0.886× at 1 s). Those are the figures to
+put beside d256's AR at 0.89× and OpenTouch's `map_aggregate` at 0.83×. Note that probGRU's
+0.884× is a corpus-wide average that hides a single cell above 1.0 — `clean`, at **1.033×**,
+worse-shaped than assuming nothing changes (`docs/per_action_metrics.md` §4.2).
+
 **The ActionSense column is not readable on its own.** Its CV table carries only
 the `aggregate` encoder and NO persistence row, so there is no reference to
 divide by and the single number in that column cannot be interpreted the way the
@@ -229,45 +252,45 @@ arm with persistence scored, which has not been done.
 
 ### Hausdorff — F_R
 
-| model | ActionSense | `d1_map2` | `d1_pg` |
-|---|---|---|---|
-| AR | — | 2.766 | 2.766 |
-| seasonal | — | 2.699 | 2.699 |
-| probGRU | — | — | 2.883 |
-| GRU-aggregate | 2.413 | 2.738 | — |
-| CNN (map) | — | 2.748 | — |
-| flatten (map) | — | 2.820 | — |
-| probGRU + CNN | — | — | 2.975 |
-| probGRU + flatten | — | — | 3.013 |
-| persistence | — | 3.301 | 3.301 |
+| model | ActionSense | `d1_map2` | `d1_pg` | AS_corpus |
+|---|---|---|---|---|
+| AR | — | 2.766 | 2.766 | — |
+| seasonal | — | 2.699 | 2.699 | — |
+| probGRU | — | — | 2.883 | 2.655 |
+| GRU-aggregate | 2.413 | 2.738 | — | 2.626 |
+| CNN (map) | — | 2.748 | — | — |
+| flatten (map) | — | 2.820 | — | — |
+| probGRU + CNN | — | — | 2.975 | — |
+| probGRU + flatten | — | — | 3.013 | — |
+| persistence | — | 3.301 | 3.301 | — |
 
 ### Hausdorff — CoPx_R
 
-| model | ActionSense | `d1_map2` | `d1_pg` |
-|---|---|---|---|
-| AR | — | 2.558 | 2.558 |
-| seasonal | — | 2.396 | 2.396 |
-| probGRU | — | — | 2.669 |
-| GRU-aggregate | 2.193 | 2.552 | — |
-| CNN (map) | — | 2.594 | — |
-| flatten (map) | — | 2.649 | — |
-| probGRU + CNN | — | — | 2.705 |
-| probGRU + flatten | — | — | 2.764 |
-| persistence | — | 3.151 | 3.151 |
+| model | ActionSense | `d1_map2` | `d1_pg` | AS_corpus |
+|---|---|---|---|---|
+| AR | — | 2.558 | 2.558 | — |
+| seasonal | — | 2.396 | 2.396 | — |
+| probGRU | — | — | 2.669 | 2.481 |
+| GRU-aggregate | 2.193 | 2.552 | — | 2.309 |
+| CNN (map) | — | 2.594 | — | — |
+| flatten (map) | — | 2.649 | — | — |
+| probGRU + CNN | — | — | 2.705 | — |
+| probGRU + flatten | — | — | 2.764 | — |
+| persistence | — | 3.151 | 3.151 | — |
 
 ### Hausdorff — CoPy_R
 
-| model | ActionSense | `d1_map2` | `d1_pg` |
-|---|---|---|---|
-| AR | — | 2.418 | 2.418 |
-| seasonal | — | 2.226 | 2.226 |
-| probGRU | — | — | 2.566 |
-| GRU-aggregate | 2.308 | 2.425 | — |
-| CNN (map) | — | 2.484 | — |
-| flatten (map) | — | 2.511 | — |
-| probGRU + CNN | — | — | 2.663 |
-| probGRU + flatten | — | — | 2.637 |
-| persistence | — | 3.070 | 3.070 |
+| model | ActionSense | `d1_map2` | `d1_pg` | AS_corpus |
+|---|---|---|---|---|
+| AR | — | 2.418 | 2.418 | — |
+| seasonal | — | 2.226 | 2.226 | — |
+| probGRU | — | — | 2.566 | 2.478 |
+| GRU-aggregate | 2.308 | 2.425 | — | 2.338 |
+| CNN (map) | — | 2.484 | — | — |
+| flatten (map) | — | 2.511 | — | — |
+| probGRU + CNN | — | — | 2.663 | — |
+| probGRU + flatten | — | — | 2.637 | — |
+| persistence | — | 3.070 | 3.070 | — |
 
 ## The backbones side by side, one input at a time
 
@@ -365,6 +388,16 @@ frozen table above -- +0.0660 probGRU, +0.1334 Seq2Seq, same estimator -- probGR
 beating persistence to losing to it, while Seq2Seq moves +0.133 → +0.145. The scopes are not
 strictly comparable (different `Norm`, different class mean, different folds), so the levels
 should not be subtracted; the **direction and its size** are the finding.
+
+**R² settles it without the reference argument.** Scored against the corpus mean -- one
+denominator shared by both arms and by persistence -- persistence itself reaches **0.6925**,
+Seq2Seq **0.7414** (3 s) / **0.7410** (1 s), and probGRU **0.6374** / **0.6428**. Both probGRU
+runs land *below* the trivial predictor. Skill said this first but could be dismissed as the
+two backbones being measured against different references; R² cannot be, because there is only
+one denominator. (These whole-dataset R² values are not comparable with the per-action R² in
+`docs/per_action_metrics.md` §4.2, which are each measured against their own action's mean:
+between-action variance sits in the denominator here and inside the actions there, so the
+corpus figure is systematically the higher of the two.)
 
 **The deficit is one action, not fourteen.** Broken out per action
 (`docs/per_action_metrics.md` §4), probGRU's skill is ordinary almost everywhere -- median
