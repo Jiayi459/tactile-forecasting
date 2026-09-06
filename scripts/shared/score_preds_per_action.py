@@ -210,7 +210,21 @@ def score(preds_dir, label, mask_mode, manifest, min_clips, want_models=None):
     for idx, a in acts.items():
         by_action.setdefault(a, []).append(idx)
 
+    ALL = "(all actions)"
     rows = []
+    # The corpus-level row is NOT the average of the per-action rows and cannot be recovered
+    # from them: aggregate.r2 with baseline CLASS_MEAN uses clip_balanced_mean(st, rows), so
+    # each action's R2 is measured against ITS OWN mean. A whole-dataset R2 needs the whole
+    # dataset's mean, which is what rows=None gives. Same for Hausdorff, averaged clip-equal
+    # over every clip rather than over the per-action means (actions have unequal clip counts).
+    for m in models + [PERS]:
+        r2 = float(np.nanmean(aggregate.r2(st, m).per_channel))
+        sk = float(np.nanmean(aggregate.skill(st, m, PERS)))
+        hd = float(np.nanmean([np.nanmean(hd_rows[i][m]) for i in hd_rows]))
+        hp = float(np.nanmean([np.nanmean(hd_rows[i][PERS]) for i in hd_rows]))
+        rows.append(dict(label=label, action=ALL, n_clips=len(hd_rows), model=m,
+                         r2=r2, skill=sk, hausdorff=hd,
+                         hausdorff_ratio=hd / hp if hp else float("nan")))
     for a, clips in sorted(by_action.items()):
         if len(clips) < min_clips:
             continue
@@ -232,10 +246,20 @@ def to_markdown(rows, models, label, n_clips_total):
            f"{n_clips_total} recordings scored. Ranked by **R²**, high → low. "
            f"Hausdorff is **lower = better**; `HD ratio` < 1 beats persistence.", ""]
     for m in models:
-        sub = sorted([r for r in rows if r["model"] == m], key=lambda r: -r["r2"])
+        every = [r for r in rows if r["model"] == m and r["action"] == "(all actions)"]
+        sub = sorted([r for r in rows if r["model"] == m and r["action"] != "(all actions)"],
+                     key=lambda r: -r["r2"])
         if not sub:
             continue
-        out += [f"**model `{m}`**", "",
+        if every:
+            e = every[0]
+            out += [f"**model `{m}`** — whole dataset ({e['n_clips']} recordings): "
+                    f"R² **{e['r2']:.4f}**, skill **{e['skill']:+.4f}**, "
+                    f"Hausdorff **{e['hausdorff']:.3f}** "
+                    f"({e['hausdorff_ratio']:.3f}× persistence). This is measured against the "
+                    f"whole dataset's mean, so it is **not** the average of the rows below, "
+                    f"each of which uses its own action's mean.", ""]
+        out += [f"per action:", "",
                 "| # | action | n | R² | skill vs pers | Hausdorff | HD ratio |",
                 "|---:|---|---:|---:|---:|---:|---:|"]
         for i, r in enumerate(sub, 1):
