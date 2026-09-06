@@ -2,7 +2,9 @@
 
 290 recordings scored. Ranked by **R²**, high → low. Hausdorff is **lower = better**; `HD ratio` < 1 beats persistence.
 
-**model `probgru_aggregate`**
+**model `probgru_aggregate`** — whole dataset (290 recordings): R² **0.6374**, skill **-0.7225**, Hausdorff **2.627** (0.901× persistence). This is measured against the whole dataset's mean, so it is **not** the average of the rows below, each of which uses its own action's mean.
+
+per action:
 
 | # | action | n | R² | skill vs pers | Hausdorff | HD ratio |
 |---:|---|---:|---:|---:|---:|---:|

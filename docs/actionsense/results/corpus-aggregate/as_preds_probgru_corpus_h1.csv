@@ -1,4 +1,6 @@
 label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio
+ActionSense - as_preds_probgru_corpus_h1,(all actions),290,probgru_aggregate,0.6427990322784664,-0.7202917243108932,2.6285466262968433,0.901944620066972
+ActionSense - as_preds_probgru_corpus_h1,(all actions),290,persistence,0.6924776487020504,0.0,2.914310444139759,1.0
 ActionSense - as_preds_probgru_corpus_h1,clean,55,probgru_aggregate,0.47228077464478213,-0.9901915479049498,2.9731038800077707,1.0267959211221798
 ActionSense - as_preds_probgru_corpus_h1,clean,55,persistence,0.5668896646515597,0.0,2.8955158652738717,1.0
 ActionSense - as_preds_probgru_corpus_h1,clear,28,probgru_aggregate,0.6085084696560812,0.10356241151171759,2.641736289185167,0.9022283834325258
