@@ -136,6 +136,15 @@ def actionsense_tables(data, n):
     for i, a in enumerate(acts, 1):
         vals = " | ".join(f"{float(data[l][a]['hausdorff']):.3f}" for l in labels)
         out.append(f"| {i} | {a} | {vals} |")
+    out += ["",
+            "Skill against persistence, for completeness. **Comparable down a column, not "
+            "across the backbone boundary**: Seq2Seq's reference is the zero forecast in "
+            "residual space, probGRU's is persistence itself in absolute space.", "",
+            "| # | action | " + " | ".join(f"skill {l}" for l in labels) + " |",
+            "|---:|---|" + "---:|" * len(labels)]
+    for i, a in enumerate(acts, 1):
+        vals = " | ".join(f"{float(data[l][a]['skill']):+.4f}" for l in labels)
+        out.append(f"| {i} | {a} | {vals} |")
     return "\n".join(out) + "\n"
 
 
@@ -171,14 +180,31 @@ def actionsense_analysis(data, n):
                      float(data["seq2seq, 3 s"][a]["hausdorff"]) - float(data["probGRU, 3 s"][a]["hausdorff"]))
                     for a in acts), key=lambda t: -t[1])
         won = sum(1 for _, _, dh in d if dh < 0)
-        lines += ["", f"**4. The backbone gap is one action.** Seq2Seq beats probGRU on "
-                  f"Hausdorff in **{won} of {len(d)}** actions, but on R² the difference is "
-                  f"within ±0.04 everywhere except **{d[0][0]}** "
-                  f"(ΔR² **{d[0][1]:+.4f}**, ΔHD **{d[0][2]:+.4f}**). Remove that one action "
-                  f"and the two backbones are indistinguishable on R².", "",
-                  "| action | ΔR² (s2s − pg) | ΔHD (s2s − pg) |", "|---|---:|---:|"]
+        sk = {l: {a: float(data[l][a]["skill"]) for a in acts} for l in labels}
+        pg_sk = sorted(sk["probGRU, 3 s"].items(), key=lambda t: t[1])
+        med_pg = sorted(sk["probGRU, 3 s"].values())[len(acts) // 2]
+        med_s2 = sorted(sk["seq2seq, 3 s"].values())[len(acts) // 2]
+        worst, worst_v = pg_sk[0]
+        lines += ["", f"**4. The backbone gap is one action, and all three metrics agree on "
+                  f"which.** Seq2Seq beats probGRU on Hausdorff in **{won} of {len(d)}** "
+                  f"actions, but the size of the gap is concentrated almost entirely in "
+                  f"**{d[0][0]}**: ΔR² **{d[0][1]:+.4f}** where every other action is within "
+                  f"±0.04, ΔHD **{d[0][2]:+.4f}** where the rest sit near −0.1, and skill "
+                  f"**{worst_v:+.4f}** against Seq2Seq's "
+                  f"**{sk['seq2seq, 3 s'][worst]:+.4f}**. Strip that action out and the "
+                  f"medians are ordinary: probGRU **{med_pg:+.4f}**, Seq2Seq "
+                  f"**{med_s2:+.4f}**.", "",
+                  f"This matters for how the corpus-level result is read. probGRU's pooled "
+                  f"skill over the whole corpus is **−0.309** — below persistence — but that "
+                  f"is not a diffuse penalty spread over fourteen actions. It is "
+                  f"`{worst}`, the largest group (55 of 290 recordings), failing hard while "
+                  f"the other thirteen behave normally. Any explanation of the corpus number "
+                  f"has to explain that one action, not the average.", "",
+                  "| action | ΔR² (s2s − pg) | ΔHD (s2s − pg) | skill s2s | skill pg |",
+                  "|---|---:|---:|---:|---:|"]
         for a, dr, dh in d:
-            lines.append(f"| {a} | {dr:+.4f} | {dh:+.4f} |")
+            lines.append(f"| {a} | {dr:+.4f} | {dh:+.4f} | "
+                         f"{sk['seq2seq, 3 s'][a]:+.4f} | {sk['probGRU, 3 s'][a]:+.4f} |")
     med = sorted(abs(float(data[labels[0]][a]["r2"]) - float(data[labels[1]][a]["r2"]))
                  for a in acts)[len(acts) // 2] if len(labels) > 1 else float("nan")
     lines += ["", f"**5. History is inert.** Median |R²(3 s) − R²(1 s)| = **{med:.4f}**, at or "

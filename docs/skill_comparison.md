@@ -366,13 +366,27 @@ beating persistence to losing to it, while Seq2Seq moves +0.133 → +0.145. The 
 strictly comparable (different `Norm`, different class mean, different folds), so the levels
 should not be subtracted; the **direction and its size** are the finding.
 
-The mechanism is already written down as methodological finding #1 in
-`docs/ICRA_PAPER_PLAN.md`: *residual-over-persistence parameterization is mandatory when
-persistence is strong*. Seq2Seq predicts the residual, so emitting zero reproduces persistence
-exactly and its skill has a floor at 0. probGRU predicts the absolute target and gets no such
-prior. On slice+peel -- two long, rhythmic actions -- that costs little. Across 14 actions,
-many of them short and abrupt, it costs 0.375. The corpus run is an independent confirmation
-of a rule that was previously inferred from EgoTouch pixels and the map arms.
+**The deficit is one action, not fourteen.** Broken out per action
+(`docs/per_action_metrics.md` §4), probGRU's skill is ordinary almost everywhere -- median
+**+0.134** against Seq2Seq's **+0.158** -- and collapses on exactly one: `clean`, at
+**−0.934** where Seq2Seq scores **+0.110**. The same action is the outlier in the other two
+metrics, which are common-denominator and so cannot be explained away by the reference
+mismatch: R² **0.469 vs 0.634** (every other action within ±0.04) and Hausdorff **2.99 vs
+2.34** (the rest near −0.1). Three independent metrics name the same action.
+
+`clean` is the largest group in the corpus -- 55 of 290 scored recordings -- so a failure
+there moves the pooled number a long way. **An earlier draft of this section attributed the
+drop to "fourteen actions, many of them short and abrupt"; the per-action table does not
+support that, and `clean` is classified SMOOTH in `trait_partition.csv`, not abrupt.**
+
+What survives is the parameterization argument, and only as far as it goes: methodological
+finding #1 in `docs/ICRA_PAPER_PLAN.md` -- *residual-over-persistence parameterization is
+mandatory when persistence is strong* -- explains why probGRU has no floor at 0 where Seq2Seq
+does, and therefore why probGRU is the arm that *can* go negative at all. It does not explain
+why the one place it does is `clean`. That is an open question: `clean` is smooth,
+low-amplitude wiping with the shortest median length among the large groups (101 frames at
+10 Hz), and an absolute-target autoregressive rollout has nothing anchoring it to the level on
+such a signal -- but that is a hypothesis, not a measurement, and no run here tests it.
 
 **Read Hausdorff, not skill, for the head-to-head.** The two backbones are not scored against
 the same reference: Seq2Seq's persistence is the zero forecast in residual space, probGRU's is

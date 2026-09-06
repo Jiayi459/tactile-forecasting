@@ -162,6 +162,25 @@ Ranked by **R² of the first column**. R² is against the class mean and is comp
 | 13 | open/close | 2.283 | 2.268 | 2.429 | 2.426 |
 | 14 | open | 2.347 | 2.309 | 2.442 | 2.382 |
 
+Skill against persistence, for completeness. **Comparable down a column, not across the backbone boundary**: Seq2Seq's reference is the zero forecast in residual space, probGRU's is persistence itself in absolute space.
+
+| # | action | skill seq2seq, 3 s | skill seq2seq, 1 s | skill probGRU, 3 s | skill probGRU, 1 s |
+|---:|---|---:|---:|---:|---:|
+| 1 | slice | +0.1400 | +0.1322 | +0.1153 | +0.1158 |
+| 2 | peel | +0.1910 | +0.1758 | +0.1916 | +0.1644 |
+| 3 | spread | +0.1049 | +0.1004 | -0.0162 | -0.0544 |
+| 4 | clean | +0.1099 | +0.1259 | -0.9339 | -0.9902 |
+| 5 | clear | +0.1177 | +0.1168 | +0.1257 | +0.1036 |
+| 6 | set | +0.1611 | +0.1391 | +0.0732 | +0.0323 |
+| 7 | load | +0.1546 | +0.1437 | +0.0775 | +0.1093 |
+| 8 | get/replace | +0.1583 | +0.1510 | +0.1790 | +0.1483 |
+| 9 | get | +0.1651 | +0.1578 | +0.1947 | +0.1952 |
+| 10 | stack | +0.2537 | +0.2205 | +0.2678 | +0.2361 |
+| 11 | unload | +0.1821 | +0.1638 | +0.2116 | +0.2123 |
+| 12 | pour | +0.0121 | +0.0208 | +0.0488 | +0.0238 |
+| 13 | open/close | +0.1781 | +0.1546 | +0.1835 | +0.1788 |
+| 14 | open | +0.1237 | +0.1315 | +0.1335 | +0.1613 |
+
 ### What the ActionSense numbers say
 
 **1. The ranking is a property of the action, not of the model.** Spearman between the four runs' R² orderings:
@@ -183,24 +202,26 @@ Ranked by **R² of the first column**. R² is against the class mean and is comp
 
 Not merely a different order — no relationship. A shape metric and a squared-error metric are answering different questions about the same forecast, which is the point of reporting both.
 
-**4. The backbone gap is one action.** Seq2Seq beats probGRU on Hausdorff in **13 of 14** actions, but on R² the difference is within ±0.04 everywhere except **clean** (ΔR² **+0.1646**, ΔHD **-0.6484**). Remove that one action and the two backbones are indistinguishable on R².
+**4. The backbone gap is one action, and all three metrics agree on which.** Seq2Seq beats probGRU on Hausdorff in **13 of 14** actions, but the size of the gap is concentrated almost entirely in **clean**: ΔR² **+0.1646** where every other action is within ±0.04, ΔHD **-0.6484** where the rest sit near −0.1, and skill **-0.9339** against Seq2Seq's **+0.1099**. Strip that action out and the medians are ordinary: probGRU **+0.1335**, Seq2Seq **+0.1583**.
 
-| action | ΔR² (s2s − pg) | ΔHD (s2s − pg) |
-|---|---:|---:|
-| clean | +0.1646 | -0.6484 |
-| load | +0.0389 | -0.1911 |
-| spread | +0.0224 | -0.1033 |
-| set | +0.0215 | -0.1121 |
-| slice | +0.0070 | -0.1799 |
-| clear | -0.0005 | -0.0817 |
-| peel | -0.0014 | -0.1029 |
-| open/close | -0.0052 | -0.1460 |
-| open | -0.0088 | -0.0947 |
-| get/replace | -0.0097 | -0.0550 |
-| stack | -0.0098 | -0.0911 |
-| get | -0.0186 | -0.1209 |
-| unload | -0.0224 | -0.1071 |
-| pour | -0.0241 | +0.0474 |
+This matters for how the corpus-level result is read. probGRU's pooled skill over the whole corpus is **−0.309** — below persistence — but that is not a diffuse penalty spread over fourteen actions. It is `clean`, the largest group (55 of 290 recordings), failing hard while the other thirteen behave normally. Any explanation of the corpus number has to explain that one action, not the average.
+
+| action | ΔR² (s2s − pg) | ΔHD (s2s − pg) | skill s2s | skill pg |
+|---|---:|---:|---:|---:|
+| clean | +0.1646 | -0.6484 | +0.1099 | -0.9339 |
+| load | +0.0389 | -0.1911 | +0.1546 | +0.0775 |
+| spread | +0.0224 | -0.1033 | +0.1049 | -0.0162 |
+| set | +0.0215 | -0.1121 | +0.1611 | +0.0732 |
+| slice | +0.0070 | -0.1799 | +0.1400 | +0.1153 |
+| clear | -0.0005 | -0.0817 | +0.1177 | +0.1257 |
+| peel | -0.0014 | -0.1029 | +0.1910 | +0.1916 |
+| open/close | -0.0052 | -0.1460 | +0.1781 | +0.1835 |
+| open | -0.0088 | -0.0947 | +0.1237 | +0.1335 |
+| get/replace | -0.0097 | -0.0550 | +0.1583 | +0.1790 |
+| stack | -0.0098 | -0.0911 | +0.2537 | +0.2678 |
+| get | -0.0186 | -0.1209 | +0.1651 | +0.1947 |
+| unload | -0.0224 | -0.1071 | +0.1821 | +0.2116 |
+| pour | -0.0241 | +0.0474 | +0.0121 | +0.0488 |
 
 **5. History is inert.** Median |R²(3 s) − R²(1 s)| = **0.0061**, at or below the ~5e-3 replicate noise floor recorded in `docs/ICRA_PAPER_PLAN.md`. Both histories sit under the harness's `min_history = 40`, so neither ever zero-pads a window; the comparison is clean, and it says the axis does not matter.
 
