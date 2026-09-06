@@ -9912,6 +9912,21 @@ IEEE RAS/PaperCept 官方压缩包中的该文件一并上传；不能以 `IEEEt
 **结论边界**:本轮只重写 Introduction 与直接受影响的 bibliography。Abstract、Results、Discussion
 和 Conclusion 中尚待 ActionSense/action-level 结果确认的旧结论未被本轮改写。
 
+### 2026-09-06续2 — Introduction 第一段去数据集化
+
+**用户指示**:第一段参考用户提供的版本，只说明视觉遮挡下触觉为何重要，以及 flexible resistive
+sensors 如何形成 scalable full-hand measurements；不在此处具体介绍 ActionSense/OpenTouch。
+
+**计划**:用四句完成 problem → contact variables → resistive transduction → full-hand glove 的递进；
+引用 Kappassov et al. 的综述与 Sundaram et al. 的 scalable tactile glove，并将 Sundaram 书目恢复。
+
+**已实现**:第一段现为四句，不再出现 ActionSense/OpenTouch，也不提前解释具体 electrode geometry；
+内容只保留视觉遮挡、压力/接触位置、pressure-dependent resistance 与 scalable full-hand maps。
+恢复 `sundaram2019glove` 的 Nature 书目及 DOI。
+
+**已核验**:全文 citation keys 与 bibitems 一一对应，无缺失或未引用条目；Pandoc LaTeX 结构解析返回 0，
+仅保留原有数学环境转换 warning。
+
 ### 2026-09-06 — 四个 corpus run 的结果分析;文件重组;一处差点犯下的估计量错误
 
 **文件重组(94 个)**。命名沿两个**互相独立**的轴,而用户把 map/flat/corpus 当成同一类词提问,
@@ -10029,3 +10044,116 @@ per-action skill 显示:
 **教训**:昨天那句机制解释是在**只看池化值**时写下的,per-action 分解一做出来就站不住。
 **聚合数字不能用来论证机制;要论证机制必须先分解。** 这与本项目反复出现的模式一致
 (P3、"先选定基线再相信数字"),只是这次是我自己犯的。
+
+### 2026-09-06续3 — Introduction 采用 latency-driven forecasting 动机
+
+**用户指示**:按上一轮比较建议修改 Introduction，并保留 Veiga et al. 作为 why-prediction 的关键
+引用。
+
+**计划**:
+1. 第二段以 control-loop latency 为中心，先用 Veiga et al. 支撑 slip prediction 的 early
+   intervention，再用 Tian et al. 从 discrete-event anticipation 过渡到 continuous tactile
+   prediction for planning。
+2. 第三段精简 conventional time-series 定位，不突出未参与本文比较的 Transformer；以 Mandil 的
+   action-conditioned tactile forecast 和 Zhang 的 external-state prediction 界定 tactile-history-only gap。
+3. 第四段合并 coupled hand--object mechanics、unobserved future action、generalization 与
+   persistence/level/trajectory 的评价问题。
+4. 第五段缩短为研究问题、两套 corpus、physical representation、model groups 与三个评价轴；
+   保持 raw maps 为 input-representation ablation，而不是 prediction target。
+5. Contributions 暂时保持 result-neutral；移除 Introduction 不再使用的 Johansson bibitem，新增
+   Veiga IROS 2015 书目。
+
+**证据边界**:Veiga et al. 预测的是 slip event，而非连续 tactile trajectory；其作用只用于证明
+预测可补偿 control latency 并支持早期干预。连续 tactile forecasting 的 planning 价值由 Tian
+et al. 的 tactile predictive MPC 单独支撑。
+
+**已实现**:
+- why-prediction 段改成 `control-loop latency → slip early intervention → continuous tactile MPC →
+  early intervention + planning`，删除原 Johansson 人类触觉支线。
+- time-series 段压缩为传统 reference/AR/recurrent 方法、action-conditioned tactile prediction、
+  external-state prediction 与 tactile-history-only gap；未引入 Transformer，从而不制造未比较模型的
+ 额外 reviewer question。
+- challenges 段先说明 tactile-only future 受未观测动作与 interaction conditions 限制，再连接
+  persistence、future level 和 trajectory evolution；保留 Nunes/Mandil 的 metric-utility 边界。
+- study paragraph 压缩并校正为 raw-map **input histories** 的 representation ablation；三项
+  contributions 保持 result-neutral。
+- bibliography 新增 Veiga IROS 2015（pp. 5065--5072，DOI 10.1109/IROS.2015.7354090），删除已无
+  正文引用的 Johansson bibitem。
+
+**已核验**:
+- Veiga 的 latency 与 unseen-object 表述逐句对照论文 Introduction/Abstract；未将其 discrete slip
+  classifier 写成 continuous tactile forecaster。
+- 所有 citation keys 与 bibitems 一一对应，无 orphan；Pandoc LaTeX 结构解析返回 0，仅有原数学
+  环境转换 warning。
+- Introduction（含 contributions 与 Fig. 1 placeholder）由 659 words 降至 608 words。
+
+### 2026-09-06续4 — 修复 Introduction 第四、五段的 problem--response 衔接
+
+**用户反馈**:第四段提出 difficulties 后，第五段仅罗列实验组件，没有说明设计如何回应困难，段落
+之间跳跃。
+
+**计划**:第四段明确拆成两项困难：（1）tactile history 对 future contact 的信息不完整；（2）
+persistence 与 pointwise metrics 会混淆 apparent accuracy。第五段以 `Our study addresses these
+difficulties...` 开头，并逐一映射：跨 sensor geometry → shared physical representation/raw-map
+ablation；history-only research scope → causal input restriction；persistence confound → three reference
+forecasts + skill；level/evolution ambiguity → absolute R² + Hausdorff。
+
+**已实现**:
+- 第四段首句直接声明两项困难：history-only 信息不完整，以及 persistence 主导 apparent accuracy；
+  后文分别展开 interaction-conditioned futures 与 future-level/trajectory ambiguity。
+- 第四段末句将困难收敛为三个需被区分的对象：intrinsic persistence、learned predictive gain、
+  trajectory evolution。
+- 第五段以 `Our study addresses these difficulties...` 显式承接，并按相同次序给出 causal input
+  restriction、shared force/CoP representation + raw-map ablation、reference forecasts + 三类指标。
+- citation/bibitem 审计无缺失或 orphan；Pandoc 结构解析返回 0，仅保留原数学转换 warning。
+
+### 2026-09-06续5 — Sections 3--4 ICRA 篇幅压缩
+
+**用户指示**:在保持 Section 3 与 Section 4 结构不变的前提下，将正文分别压缩至约
+480--550 words 与 650--750 words；优先删除复杂、重复的表达，并在修改前先列明删改重点。
+
+**压缩重点**:
+- Section 3 合并 forecasting task、input/target 与 horizon 的重复定义；保留完整指标公式，但缩短
+  公式后的重复解释；将 H1--H4 各自收敛为一项主要比较和可检验预期。
+- Section 4 删除数据表与正文的重复描述；压缩 preprocessing、window/split 和 statistical
+  weighting 的多轮解释，同时保留影响复现或结论边界的实现细节。
+
+**已实现**:
+- Section 3 保持原有三个 subsection、研究问题、H1--H4 以及全部评价公式不变，字数由 729 降至
+  515（Pandoc plain-text 统计）。
+- Section 4 保持原有四个 subsection、corpus table 与 D1 公式不变，字数由 1,106 降至 664。
+- 保留 ActionSense/OpenTouch 的预处理差异、因果输入限制、held-out split、aggregation unit、
+  bootstrap、CoP mask 和 ActionSense estimator mismatch 等影响解释的 protocol caveats。
+- 未填入新的结果、未改变任何实验数值，也未改变 section/subsection 层级。
+
+**已核验**:
+- citation keys 与 bibitems 一一对应，无缺失或 orphan。
+- Pandoc LaTeX 结构解析返回 0；输出仅含原有 aligned/custom-macro 数学转换 warning。
+
+### 2026-09-06续3 — 重组把驱动脚本写死的输出路径变成了错的;改为从数据推断
+
+**用户重跑评分后报告两件事**:产物落在 `docs/actionsense/{per_action,forecast}/`(旧路径),
+且 `git add` 报 "nothing added to commit"。**两者都是我上一次重组的后果**:
+- 我把 94 个产物移到 `docs/actionsense/results/<scope>-<input>/`,却**没有同步
+  `score_and_plot_runs.sh` 里写死的 `OUT_TABLE`/`OUT_PLOT`**,于是它继续往旧路径写。
+- 脚本打印的提交命令里含 `docs/actionsense/loss_curve_*.png`,而这些文件已移入
+  `results/loss-curves/`,该通配匹配不到任何东西 → **`git add` 因坏 pathspec 整体失败**,
+  同一条命令里的其他路径也没被加入。这就是"nothing added"的原因,不是用户操作失误。
+
+**修法:目标目录由数据推断,不再写死。** 每个 preds 目录先读一遍自己的 npz:
+动作数 > 2 判为 `corpus`(冻结 harness 只有 slice+peel),模型名含 aggregate/flatten/cnn
+判定输入表示,拼成 `<scope>-<input>` 作为子目录。`OUT_ROOT` 可用环境变量覆盖。
+**写死单一输出目录正是让脚本在文件搬家后继续写向旧地址的原因**,已写进脚本注释。
+
+**顺带修掉的第二个缺陷**:末尾"wrote:"清单用 `find -newermt '-10 minutes'`,
+在本机静默匹配不到任何文件(错误被 `2>/dev/null` 吞掉),于是打印一个**空清单**。
+改为在循环中累计本次实际写出的 stem 再逐个列出。**一个什么都不打印的汇总比没有汇总更糟**——
+它看起来像"没产出",而实际产出了。
+
+**验证**:构造两个 fixture(5 动作 + aggregate 模型;2 动作 + cnn 模型),
+分别正确落到 `corpus-aggregate/` 与 `frozen-cnn/`,清单非空。`pytest tests/ -q` → 137 passed。
+
+**仍待用户操作**:用修好的脚本重跑一次(几秒),旧路径 `docs/actionsense/{per_action,forecast}/`
+里的那批未跟踪文件可直接删除,然后 `git add docs/actionsense/results`。
+届时 per-run 的 `.md` 顶部会带上本轮新增的**全数据集行**(R²/skill/Hausdorff),
+`skill_comparison.md` 的 R² 列即可补齐。

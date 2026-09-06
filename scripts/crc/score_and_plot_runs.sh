@@ -18,10 +18,12 @@
 set -euo pipefail
 
 PY="${PY:-python}"
-OUT_TABLE="docs/actionsense/per_action"
-OUT_PLOT="docs/actionsense/forecast"
-mkdir -p "$OUT_TABLE" "$OUT_PLOT"
+# Destination is DERIVED from the predictions, not hardcoded: docs/actionsense/results is
+# laid out as <scope>-<input>, and a run knows both. Hardcoding one output directory is what
+# made this script write into the pre-reorganisation paths after the files had been moved.
+OUT_ROOT="${OUT_ROOT:-docs/actionsense/results}"
 
+TOUCHED=""
 if [ "$#" -gt 0 ]; then DIRS=("$@"); else DIRS=(runs/as_preds_*/); fi
 [ -e "${DIRS[0]}" ] || { echo "FATAL: no runs/as_preds_*/ found. Did --save-preds write here?"; exit 1; }
 
@@ -63,34 +65,57 @@ for d in "${DIRS[@]}"; do
     run="$(basename "$d")"
     n=$(ls "$d"/clip_*.npz 2>/dev/null | wc -l)
     if [ "$n" -eq 0 ]; then echo "SKIP $run: no clip_*.npz"; continue; fi
+    sub=$($PY - "$d" <<'PYDEST'
+import glob, os, sys, collections, numpy as np
+d = sys.argv[1]
+fs = sorted(glob.glob(os.path.join(d, "clip_*.npz")))
+acts, models = set(), set()
+for f in fs:
+    z = np.load(f, allow_pickle=True)
+    acts.add(str(z["action"]) if "action" in z.files else "")
+    models |= {k[3:] for k in z.files if k.startswith("mu_")}
+# scope: the frozen harness is slice+peel over 75 recordings; anything wider is the corpus run
+scope = "corpus" if len(acts) > 2 else "frozen"
+joined = " ".join(sorted(models))
+inp = ("aggregate" if "aggregate" in joined else
+       "flatten" if "flatten" in joined else
+       "cnn" if "cnn" in joined else "other")
+print(f"{scope}-{inp}")
+PYDEST
+)
+    OUT="$OUT_ROOT/$sub"
+    mkdir -p "$OUT"
+    TOUCHED="$TOUCHED $OUT/$run"
     echo ""
     echo "=================================================================="
-    echo "$run  ($n recordings of forecasts)"
+    echo "$run  ($n recordings of forecasts)  ->  $OUT"
     echo "=================================================================="
 
     # Per-action R2 / skill / Hausdorff. --mask none is the default and is stated in the
     # output: the harness's per-fold TRAIN force threshold cannot be rebuilt from a preds
     # directory, which records no fold membership.
     $PY scripts/shared/score_preds_per_action.py \
-        --preds "$d" --label "ActionSense - $run" --out "$OUT_TABLE"
+        --preds "$d" --label "ActionSense - $run" --out "$OUT"
 
     # One figure per channel. ActionSense has six (two hands); the plotter falls back to the
     # channel name for the ones its LABELS table does not know, so all six come out.
     # --band matters here: these are probabilistic arms, and mu alone understates them.
     $PY scripts/opentouch/plot_opentouch_forecast_overlay.py \
-        --preds "$d" --n-clips 3 --band --out-prefix "$OUT_PLOT/$run"
+        --preds "$d" --n-clips 3 --band --out-prefix "$OUT/$run"
 done
 
 echo ""
 echo "=================================================================="
-echo "wrote:"
-ls -1 "$OUT_TABLE"/*.md "$OUT_TABLE"/*.csv "$OUT_PLOT"/*.png 2>/dev/null | sed 's/^/  /'
+echo "wrote (under $OUT_ROOT):"
+for stem in $TOUCHED; do
+    ls -1 "$stem".csv "$stem".md "$stem"_*.png 2>/dev/null | sed 's/^/  /'
+done
 echo ""
 echo "Commit the SMALL artifacts only. /runs/ is gitignored on purpose"
 echo "('Training outputs / job logs (rsynced back from CRC)'), so the .npz forecasts"
 echo "should travel by rsync, not by git -- roughly 30 MB per run, and git history is forever."
 echo ""
-echo "  git add docs/actionsense/per_action docs/actionsense/forecast docs/actionsense/loss_curve_*.png"
+echo "  git add docs/actionsense/results"
 echo "  git commit -m 'ActionSense corpus runs: per-action tables, forecast overlays, loss curves'"
 echo "  git push origin main"
 echo ""
