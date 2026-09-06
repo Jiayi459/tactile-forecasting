@@ -9735,3 +9735,224 @@ the baselines"),我写评分器时没有沿用该教训。缺模型的 clip 仍�
 **验证**:构造"6 个 clip、其中只有 2 个带 seasonal/ar"的 fixture **精确复现该崩溃**,
 修复后默认路径保全 6 个 clip 并说明丢弃了 ar/seasonal;`--models seasonal,ar,...` 路径改为
 保 3 个模型、丢 4 个 clip,同样明说。`pytest tests/ -q` → 137 passed。
+
+### 2026-09-05续6 — Section 6 框架重组计划（用户已授权修改）
+
+**中心功能**:让 Results 与 Sec. 5 的比较顺序逐项对应,并把“未来数值位置”和“轨迹如何演化”
+落实为可追溯的证据来源,而不是把它们误写成一份额外数据或一个合成指标。
+
+**实施顺序**:
+1. 以同一 OpenTouch clip-balanced scorer 的现有 CSV 建一张主表；只纳入能在
+   `docs/opentouch/d1_pg/` 或 `docs/opentouch/d1_map2/` 逐项核对的数值。
+2. 6.1 按 H1 解释 reference forecasts 与 persistence 之外的 gain；ActionSense 的共同 scorer
+   尚未完成,因此其数字、跨 corpus 排名和最终 H1 verdict 留空。
+3. 6.2 按 H2 比较 Seq2Seq 与 ProbGRU；将原“level versus evolution”改写为
+   “pointwise gain versus trajectory evolution”。stitched forecast 明确来自保存的逐 clip
+   `clip_*.npz`,horizon curve 明确来自 `opentouch_cv4_*.csv` 的逐 horizon 行；两者都是现有
+   test predictions 的诊断可视化,不是新数据。最终图与机制性结论留 placeholder。
+4. 6.3 标题改为 `Physical Representation`,正文统一称 `physical-state representation/arm`,
+   不再以 `moment(s)` 作为读者面对的 representation 名称；CNN--flatten 与 physical--map
+   两层比较分开解释。
+5. 6.4 建立 action-level 表/图框架；逐 action 的 exact skill/Hausdorff 与 ActionSense 四个 run
+   尚未齐备,所有会改变 H4 结论的数字和 verdict 留空。
+6. 删除当前混合 estimator、未完成对照或暂不能由统一 scorer 支撑的 ActionSense、ceiling 与
+   calibration 数值；待共同协议结果完成后再恢复。
+
+**OPEN QUESTIONS**:无。用户已明确要求:ActionSense 等运行完成后再填；只要比较或结论存在不确定性
+就留空；当前先完成 Results 框架与可追溯的 OpenTouch 部分。
+
+**已实现**:
+- Sec. 6 重排为四个与 Sec. 5/H1--H4 对齐的 subsection:
+  `Reference Forecasts and Predictability Beyond Persistence` →
+  `Architecture Choice Across Evaluation Axes` → `Physical Representation` →
+  `Action-Level Predictability`,末尾保留一个待完成的 synthesis paragraph。
+- 将原来两张 pointwise/Hausdorff 表合并为一张 OpenTouch 主表。表中全部 81 个展示值均可逐行回溯到
+  `docs/opentouch/d1_pg/opentouch_report_d1_pg.csv`、
+  `docs/opentouch/d1_map2/opentouch_report_d1_map2.csv` 与
+  `docs/opentouch/d1_map2/opentouch_report_d1_map2_hd.csv`;来源以 `% DATA SOURCES` 注释紧贴表格。
+- ActionSense 不再沿用 frozen split 或 frame-pooled 的旧数字。加入一个明确的 table placeholder,
+  要求四个 full-corpus archives 通过共同覆盖审计后才填写 $\Rdiff/R^2$/exact skill/Hausdorff 与录音数。
+- 原“level versus evolution”不再作为模糊的第三种结果。正文明确:stitched forecast 由保存的
+  `clip_*.npz` test predictions 每隔 $H$ 个 origin 拼接；per-horizon curve 来自
+  `opentouch_cv4_*.csv` 的 horizon rows；二者与 Hausdorff 都是同一批 held-out predictions 的
+  不同视图。只有三者一致后才写 level/evolution 的机制性结论。
+- Sec. 6.3 标题改为 `Physical Representation`;读者面对的 arm/representation 名称统一成
+  `physical-state`,并在 Secs. 3--5 同步替换旧 `moment arm/moment histories/moment--map` 用法。
+  `spatial moment` 只保留为 $F$/CoP 的数学计算说明。
+- H4 的旧 $\Delta R^2$ 表与 smooth/abrupt verdict 暂时移除。逐 action exact skill/Hausdorff
+  尚无共同人口输出,因此 table/figure 都保持 placeholder,没有从分别聚合或四舍五入后的 $R^2$
+  反推 skill。
+- 暂时删除混合 estimator 或会过早锁定结论的 ceiling/calibration 数值；这些可在统一 scorer
+  与最终 outline 决定其必要性后恢复。
+
+**已核验**:
+- 用 `rg` 逐行对照上述三个 OpenTouch CSV,表格三位小数舍入与 repo 原值一致。
+- `pandoc -f latex -t plain main.tex` 返回 0；仅对原有 aligned equations 给出数学转换 warning,
+  无 LaTeX 结构错误。机器仍无完整 LaTeX engine,最终 float/page layout 需在 Overleaf 验证。
+
+**结论边界**:当前可写的结论只限 OpenTouch 共同 scorer 内的 ordering。跨 corpus、ActionSense、
+逐 action 与 smooth/abrupt 总结仍为空,不得由现有旧表补写。
+
+### 2026-09-05续7 — Sections 7--8 结构设计计划
+
+**用户指示**:将原 Discussion + Limitations 合并成 Section 7 `Discussion and Limitations`,
+Section 8 保留 `Conclusion`;两节最终都不设 subsection/列表。先核对 repo 的结果与代码,给出
+逐段论证蓝图,用户确认后再重写正文。Conclusion 必须逐项回答 Sec. 3 的 H1--H4 和 Introduction
+的三部分问题（能预测多少、predictability 从哪里来、pointwise gain 是否延伸到 trajectory evolution）。
+
+**本轮范围**:
+1. 只执行已明确要求的标题/层级合并,暂不改写旧正文论证。
+2. 已确认的 quantitative evidence 仅来自 OpenTouch 2,843-clip common scorer；ActionSense、
+   per-action exact skill/Hausdorff 与 H4 verdict 仍 pending。
+3. Discussion 蓝图按 claim → evidence → interpretation → boundary 组织,避免重复 Results；limitations
+   与其所限制的 claim 相邻,而非另列清单。
+4. Conclusion 只保留一个连续段落,以 H1 为主结论、H2/H3 为次结论、H4 为待补结论,最后回到
+   tactile prediction 对 manipulation 的意义与证据边界。
+
+**OPEN QUESTIONS**:Sections 7--8 的逐段蓝图需用户确认后才进入英文正文重写。
+
+**本轮已执行的结构修改**:`main.tex` 已将原 `Discussion` 与独立 `Limitations` 合并为
+`\section{Discussion and Limitations}`；保留 `sec:discussion` 与 `sec:limitations` 两个 label
+指向同一节；删除原有三个 Discussion subsection 标题，使 Section 7 与 Section 8 都成为连续正文。
+旧段落内容暂时保留，仅作为待重写材料，不代表新的 outline 已被用户批准。
+
+**证据审计结论**:
+- H1--H3 当前能由 OpenTouch 的 2,843-clip common scorer 回答；H4 缺少同一人口下的
+  ActionSense/per-action exact skill 与 per-action Hausdorff,不能写 final verdict。
+- H1 应写成 qualified support:AR 与 learned physical-state models 在 pointwise 指标竞争，
+  但 persistence 只在 F 上强；seasonal pointwise skill 为负却有三通道最低 HD ratio。
+- H2 只能 partial support:Seq2Seq 三通道 HD 均低于 ProbGRU；ProbGRU pointwise skill 仅在
+  两个 CoP 通道更高,force 反而由 Seq2Seq 更高。
+- H3 的 physical-state 部分获支持:两个 backbone、三个通道上 physical input 均有更高 skill
+  与更低 HD ratio；CNN>flatten 只在 Seq2Seq 全部成立,ProbGRU 的 CoPy 次序反转。
+- 核心 RQ 的现阶段答案必须 target-specific:F 的 absolute R2 高但 relative skill 较低；CoP
+  relative skill 高但 absolute R2 低。点误差与 trajectory shape 的 ordering 也不同；因此不能
+  以单一 metric 宣称 learned dynamics。
+
+### 2026-09-06 — 将稿件模板切换为 `ieeeconf`
+
+**用户指示**:按导师要求，将 `\documentclass[conference]{IEEEtran}` 改为
+`\documentclass[letterpaper, 10 pt, conference]{ieeeconf}`，并解释各参数含义。
+
+**计划**:
+1. 对照 IEEE RAS/PaperCept 发布的 `ieeeconf.zip` 原始模板核实 class line 与必要命令。
+2. 仅修改模板兼容相关内容：document class、官方 margin/command 设置，以及不兼容的匿名作者与
+   keywords 命令；不改论文正文。
+3. 搜索残留的 `IEEEtran`-specific 命令，并执行可用的 LaTeX 结构解析检查；完整页面布局仍在
+   Overleaf 编译确认。
+
+**OPEN QUESTIONS**:无。导师已明确指定 US Letter、10 pt、conference 模式与 `ieeeconf` class。
+
+**已实现**:
+- `main.tex` 的 class 改为 IEEE RAS 官方示例所用的
+  `\documentclass[letterpaper, 10 pt, conference]{ieeeconf}`。
+- 加入官方模板要求的 `\IEEEoverridecommandlockouts` 与 `\overrideIEEEmargins`，并在 `\maketitle`
+  后加入空页眉页脚设置。
+- 将 title 改为 `ieeeconf` 示例的显式 `\LARGE \bf` 样式；将 `IEEEtran`-specific 的
+  `\IEEEauthorblockN` 改为普通匿名 `\author`；将未由 `ieeeconf` 定义的 `IEEEkeywords`
+  环境改为该 class 支持的 `keywords` 环境。
+- 论文正文、结果、引用与数值均未修改。
+
+**已核验**:
+- 从 IEEE RAS 页面链接的 PaperCept `ieeeconf.zip` 核对 `root.tex` 与 `ieeeconf.cls`：class line、
+  两个 override 命令、title 样式、page style 和 `keywords` 环境均与 class 定义一致。
+- `rg` 确认 `main.tex` 不再残留 `IEEEtran`、`\IEEEauthorblockN` 或 `IEEEkeywords`。
+- `pandoc -f latex -t plain main.tex` 返回 0；仅保留原有 aligned math 转换 warning。当前机器没有
+  LaTeX engine，因此最终 class 加载、分页与版面需在 Overleaf 编译确认。
+
+**依赖提醒**:repo 当前没有 `ieeeconf.cls`。若 Overleaf 项目报 `File 'ieeeconf.cls' not found`，需将
+IEEE RAS/PaperCept 官方压缩包中的该文件一并上传；不能以 `IEEEtran.cls` 代替。
+
+### 2026-09-06续 — Introduction 论证链压缩与重写
+
+**用户指示**:重写 Introduction，使论证依次收敛为：触觉的不可替代性与电阻式全手测量 →
+仅感知当前接触为何不够、预测为何有用 → 常规时间序列预测与尚少研究的触觉预测 →
+触觉可预测性的总体难点 → 本文的评价缺口、研究问题与贡献。首两段合并，why prediction 作为
+最重要的独立段落；每段首句必须概括段落主旨，避免在 Introduction 预先展开传感器校正与
+手物力学细节。
+
+**计划**:
+1. 将原首两段合并，只介绍接触局部信息与 resistive/piezoresistive tactile arrays；删除 GelSight
+   和其他传感器类型的展开。
+2. 用 Tian et al. 的 tactile predictive control 与 Mandil et al. 的 slip-prediction case study
+   支撑 forecasting 的 planning/intervention 价值；不写缺少直接论文证据的“机器人会打到自己”。
+3. 增加一段紧凑的领域定位：从 persistence/seasonal/AR 到 recurrent probabilistic forecasting，
+   再指出 full-hand tactile-only forecasting 的证据仍有限，并只概括高维、强自相关、接触依赖等难点。
+4. 保留 persistence/skill/trajectory 的核心评价缺口，但压缩论证；将研究问题与方法概述合并，
+   并把尚未完成的 ActionSense/action-level 结论从 contributions 改为待检验的比较范围。
+5. 补全新增与既有关键文献的书目信息，执行 citation-key 审计与 Pandoc 结构检查。
+
+**OPEN QUESTIONS**:无。Introduction 不声称已经证明预测能避免碰撞或闭环故障；其控制价值限定为
+已有文献支持的规划、动作选择与滑移预警/评估动机。
+
+**已实现**:
+- Introduction 重写为五段主线：接触局部性与电阻式全手测量 → 预测为控制提供提前量 →
+  conventional time-series forecasting 与 tactile gap → persistence/level/evolution 评价缺口 →
+  本文研究问题、比较范围与三项贡献。五段首句均直接陈述本段中心命题。
+- 首段删除 GelSight 与传感器类型综述，只保留 pressure-sensitive resistive/piezoresistive layer、
+  crossed electrodes 和 tactile map 这条与 ActionSense/OpenTouch 直接相关的硬件逻辑。
+- why-prediction 段以“current sensing 与 anticipatory decision 的时间差”为矛盾，用 Johansson &
+  Flanagan、Tian et al. 和 Mandil et al. 分别支撑 predictive feedback、MPC action selection 与 slip
+  prediction；未加入无直接来源的 self-collision claim。
+- 原两段过细的 drift/pedestal/inactive-region/hand-object mechanics 列举被压缩为四个总体属性：
+  high-dimensional、sensor-dependent、strongly autocorrelated、contact-geometry-dependent；细节留给
+  Data/Discussion。
+- contributions 从四项含未完成实证结论的表述改为三项 study-design contribution，避免在
+  ActionSense/action-level 结果完成前预写 smooth/abrupt 或 model-ordering 结论。
+- 新增 DeepAR 书目；将 Zhang et al. 修正为 IROS 2021（pp. 2874--2881, DOI 已核对），将 Mandil
+  et al. 修正为 RSS XVIII 论文并补 DOI；ActionSense 补 DOI。因 Introduction 不再展开其他
+  sensor 类型，删除已无正文引用的 GelSight 与 scalable-glove 两个 bibitem。
+
+**已核验**:
+- 所有 `\\cite{}` key 均存在对应 `\\bibitem{}`，且当前 bibliography 无未引用条目。
+- `pandoc -f latex -t plain main.tex` 返回 0；仅保留原有 aligned-equation 转换 warning。
+- Introduction（含 contributions 与 Fig. 1 placeholder）为 659 words；正文论证明显短于旧版本。
+  本机仍无 LaTeX engine，`ieeeconf.cls` 与最终分页需在 Overleaf 检查。
+
+**结论边界**:本轮只重写 Introduction 与直接受影响的 bibliography。Abstract、Results、Discussion
+和 Conclusion 中尚待 ActionSense/action-level 结果确认的旧结论未被本轮改写。
+
+### 2026-09-06 — 四个 corpus run 的结果分析;文件重组;一处差点犯下的估计量错误
+
+**文件重组(94 个)**。命名沿两个**互相独立**的轴,而用户把 map/flat/corpus 当成同一类词提问,
+故在 `docs/actionsense/results/README.md` 里写明:
+- **输入表示**:`aggregate`(直接读 6 维 F/CoP,神经 AR)/ `flatten`(读 32×32×2 图,
+  逐帧 `Linear(2048→64)` 压平,**不利用空间结构**)/ `cnn`(同图过卷积栈,**利用空间结构**)。
+  三者共用**完全相同**的 GRU 与 head,encoder 是唯一变量。
+- **群体范围**:`frozen`(75 条、仅 slice+peel,冻结协议)/ `corpus`(290 条、14 动作,exploratory)。
+目录 `results/{corpus-aggregate, frozen-aggregate, frozen-flatten, frozen-cnn, loss-curves}`。
+**只有 aggregate 有 corpus run**:299 条里仅 100 条有 `clip_*.npy`,map 臂在 corpus 范围下会
+静默落到一个更小的群体,与 aggregate 不可比。
+
+**结果分析(四个 run × 14 动作)**
+
+1. **排名是动作的属性,不是模型的属性。** 四个 run 的 R² 序 Spearman:同 backbone 跨 history
+   **+0.996 / +0.991**,跨 backbone **+0.868…+0.908**。
+2. **但它主要是 *persistence* 的属性。** Spearman(R², 同动作上 persistence 的 R²) = **+0.969**。
+   一个动作排名高,主要因为它的信号平滑到连平凡预测器都做得好,**而不是模型学到了什么**。
+   这正是 P3 与方法论第 5 条("平滑性是双刃")在 per-action 尺度上的复现。
+3. **R² 与 Hausdorff 对动作的排序几乎无关**:同一 run 内 Spearman 仅 **+0.05…+0.12**。
+   不是"顺序不同",是**没有关系**。比 ICRA R7 的"两指标反着来"更强:它们在回答不同的问题。
+4. **backbone 差异几乎全部来自一个动作。** Hausdorff 上 seq2seq 在 **13/14** 动作占优;
+   但 R² 上除 `clean` 外每个动作都在 ±0.04 内。`clean`:ΔR² **+0.165**、ΔHD **−0.648**
+   (n=55,全库最大组)。**去掉 clean,两个 backbone 在 R² 上无法区分。**
+5. **history 是惰性的**:中位 |R²(3s)−R²(1s)| = **0.0061**,处于 ~5e-3 复现噪声底附近。
+   且 1s/3s 的 t_in(10/30)均低于 `min_history=40`,**两者都从不补零**,对照干净。
+
+**差点犯下的错误(已避免,并记录为教训)**
+从 `cv_*.csv` 我算出 corpus probGRU 的 skill = **−0.79**(step1 −4.25),而 `skill_comparison.md`
+现有的冻结表里 probGRU/aggregate 是 **+0.0660**。我一度准备把两者并列。
+**它们是不同的估计量**:文档第 24 行那一节已定义 frame-pooled 与 clip-balanced 两种,
+两者都对 **(帧, horizon 步)** 一起池化;而我算的是**逐步 skill 的算术平均**——第三种,
+文档未定义,且被 step-1 主导(step-1 的 MSE 绝对值最小,池化时权重最低,逐步平均时权重却相同)。
+**对 probGRU 两者符号相反。**
+**阻塞项**:`train_tactile_map.py` 只把 `skill_step` 写进 CSV,池化后的 `skill_ch`
+(即 `evaluate` 的 `1 - em.mean((0,1))/ep.mean((0,1))`,与冻结表同一约定)**只 print 到作业日志**,
+未落盘。故需要用户提供四个作业日志里的那一行汇总。**在拿到之前不把 skill 写进 skill_comparison.md。**
+Hausdorff 不受影响(CSV 里有,且两 backbone 同约定):
+corpus 均值 seq2seq **2.436 / 2.432**(3s/1s)、probGRU **2.596 / 2.603**;
+HD ratio vs persistence **0.829 / 0.828** 对 **0.884 / 0.886**。
+
+**已更新**:`docs/per_action_metrics.md` 新增第 4 节(ActionSense 四个 run 的 R²/HD 全表 +
+上述五条分析 + 冻结范围审计),由 `scripts/shared/export_per_action_metrics.py` **生成**而非手写;
+文档开头的状态表同步改为"ActionSense per-action 现已存在(corpus 范围),frozen 仍然没有且不可能有"。

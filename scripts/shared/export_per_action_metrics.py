@@ -88,6 +88,107 @@ def overall_hausdorff(rows):
     return out
 
 
+AS_DIR = "docs/actionsense/results/corpus-aggregate"
+AS_RUNS = [("seq2seq, 3 s", "as_preds_seq2seq_corpus"),
+           ("seq2seq, 1 s", "as_preds_seq2seq_corpus_h1"),
+           ("probGRU, 3 s", "as_preds_probgru_corpus"),
+           ("probGRU, 1 s", "as_preds_probgru_corpus_h1")]
+
+
+def read_actionsense():
+    """-> ({label: {action: row}}, {action: n_clips}) for the corpus-scope runs, or ({}, {}).
+
+    Unlike OpenTouch's, these tables carry R2 AND skill AND Hausdorff per action, because they
+    are produced by score_preds_per_action from the saved forecasts rather than by the report
+    script's action block. The learned arm is the one model that is not persistence.
+    """
+    out, n = {}, {}
+    for label, run in AS_RUNS:
+        path = os.path.join(REPO, AS_DIR, run + ".csv")
+        if not os.path.exists(path):
+            continue
+        with open(path) as fh:
+            rows = list(csv.DictReader(fh))
+        out[label] = {r["action"]: r for r in rows if r["model"] != "persistence"}
+        out[label + " [persistence]"] = {r["action"]: r for r in rows
+                                         if r["model"] == "persistence"}
+        for r in rows:
+            n[r["action"]] = int(r["n_clips"])
+    return out, n
+
+
+def actionsense_tables(data, n):
+    """Per-action R2 and Hausdorff for all four runs, ranked by the first run's R2."""
+    labels = [l for l, _ in AS_RUNS if l in data]
+    if not labels:
+        return "_No corpus-scope ActionSense tables on disk._\n"
+    acts = sorted(data[labels[0]], key=lambda a: -float(data[labels[0]][a]["r2"]))
+    out = ["Ranked by **R² of the first column**. R² is against the class mean and is "
+           "comparable across backbones; **`skill` is not** — see the warning below. "
+           "Hausdorff is **lower = better**.", "",
+           "| # | action | n | " + " | ".join(f"R² {l}" for l in labels) + " |",
+           "|---:|---|---:|" + "---:|" * len(labels)]
+    for i, a in enumerate(acts, 1):
+        vals = " | ".join(f"{float(data[l][a]['r2']):.4f}" for l in labels)
+        out.append(f"| {i} | {a} | {n[a]} | {vals} |")
+    out += ["", "| # | action | " + " | ".join(f"HD {l}" for l in labels) + " |",
+            "|---:|---|" + "---:|" * len(labels)]
+    for i, a in enumerate(acts, 1):
+        vals = " | ".join(f"{float(data[l][a]['hausdorff']):.3f}" for l in labels)
+        out.append(f"| {i} | {a} | {vals} |")
+    return "\n".join(out) + "\n"
+
+
+def actionsense_analysis(data, n):
+    """The three things the numbers say that a table alone does not."""
+    labels = [l for l, _ in AS_RUNS if l in data]
+    if len(labels) < 2:
+        return ""
+    acts = sorted(data[labels[0]])
+    r2 = {l: [float(data[l][a]["r2"]) for a in acts] for l in labels}
+    hd = {l: [float(data[l][a]["hausdorff"]) for a in acts] for l in labels}
+    pers = [float(data[labels[0] + " [persistence]"][a]["r2"]) for a in acts]
+    lines = ["**1. The ranking is a property of the action, not of the model.** Spearman "
+             "between the four runs' R² orderings:", ""]
+    for i in range(len(labels)):
+        for j in range(i + 1, len(labels)):
+            lines.append(f"- {labels[i]} vs {labels[j]}: **{spearman(r2[labels[i]], r2[labels[j]]):+.3f}**")
+    lines += ["", f"**2. …and it is mostly a property of *persistence*.** Spearman(R², "
+              f"R² of persistence on the same action) = "
+              f"**{spearman(r2[labels[0]], pers):+.3f}**. An action ranks high here largely "
+              f"because its signal is smooth enough that the trivial predictor already does "
+              f"well on it, not because the model has learnt something specific to it.", "",
+              "**3. R² and Hausdorff rank the actions almost independently.** Spearman(R², HD) "
+              "within a run:"]
+    for l in labels:
+        lines.append(f"- {l}: **{spearman(r2[l], hd[l]):+.3f}**")
+    lines += ["", "Not merely a different order — no relationship. A shape metric and a "
+              "squared-error metric are answering different questions about the same "
+              "forecast, which is the point of reporting both."]
+    if "seq2seq, 3 s" in data and "probGRU, 3 s" in data:
+        d = sorted(((a,
+                     float(data["seq2seq, 3 s"][a]["r2"]) - float(data["probGRU, 3 s"][a]["r2"]),
+                     float(data["seq2seq, 3 s"][a]["hausdorff"]) - float(data["probGRU, 3 s"][a]["hausdorff"]))
+                    for a in acts), key=lambda t: -t[1])
+        won = sum(1 for _, _, dh in d if dh < 0)
+        lines += ["", f"**4. The backbone gap is one action.** Seq2Seq beats probGRU on "
+                  f"Hausdorff in **{won} of {len(d)}** actions, but on R² the difference is "
+                  f"within ±0.04 everywhere except **{d[0][0]}** "
+                  f"(ΔR² **{d[0][1]:+.4f}**, ΔHD **{d[0][2]:+.4f}**). Remove that one action "
+                  f"and the two backbones are indistinguishable on R².", "",
+                  "| action | ΔR² (s2s − pg) | ΔHD (s2s − pg) |", "|---|---:|---:|"]
+        for a, dr, dh in d:
+            lines.append(f"| {a} | {dr:+.4f} | {dh:+.4f} |")
+    med = sorted(abs(float(data[labels[0]][a]["r2"]) - float(data[labels[1]][a]["r2"]))
+                 for a in acts)[len(acts) // 2] if len(labels) > 1 else float("nan")
+    lines += ["", f"**5. History is inert.** Median |R²(3 s) − R²(1 s)| = **{med:.4f}**, at or "
+              f"below the ~5e-3 replicate noise floor recorded in "
+              f"`docs/ICRA_PAPER_PLAN.md`. Both histories sit under the harness's "
+              f"`min_history = 40`, so neither ever zero-pads a window; the comparison is "
+              f"clean, and it says the axis does not matter."]
+    return "\n".join(lines) + "\n"
+
+
 def audit_actionsense():
     """-> (list of csvs carrying an action/verb column, total csvs scanned).
 
@@ -198,6 +299,7 @@ def main():
         tops.append((label, primary, order[:3], [r2[x][primary] for x in order[:3]]))
 
     hd_parts = [hausdorff_section(label, path) for label, path, _ in FAMILIES]
+    as_data, as_n = read_actionsense()
     hits, seen = audit_actionsense()
 
     with open(os.path.join(REPO, a.out), "w") as fh:
@@ -207,18 +309,24 @@ def main():
         fh.write("\n".join(parts))
         fh.write("\n## 3. Hausdorff distance — the level at which it actually exists\n\n")
         fh.write("\n".join(hd_parts))
-        fh.write("\n## 4. ActionSense audit (regenerated, not asserted)\n\n")
-        fh.write(f"Scanned **{seen}** CSVs under `docs/actionsense/`. "
-                 f"Files whose header carries an action/verb column: "
-                 f"**{len(hits)}**.\n\n")
-        for p, head in hits:
-            fh.write(f"- `{p}` — `{head}`\n")
-        fh.write("\nNone of these is a forecast-metric table: `trait_partition.csv` is a "
-                 "clip-count partition (verb → trait class), carrying no skill, R² or "
-                 "Hausdorff column. ActionSense's frozen harness is additionally restricted "
-                 "to `actions: [slice, peel]` "
-                 "(`configs/actionsense/eval_harness.yaml:51`), so even a per-action "
-                 "breakdown would have exactly two rows.\n")
+        fh.write("\n## 4. ActionSense — per action, all four corpus runs\n\n")
+        fh.write(AS_INTRO)
+        fh.write(actionsense_tables(as_data, as_n))
+        fh.write("\n### What the ActionSense numbers say\n\n")
+        fh.write(actionsense_analysis(as_data, as_n))
+        fh.write("\n### Frozen-harness audit (regenerated, not asserted)\n\n")
+        fh.write(f"The tables above are the **corpus** scope. The **frozen** harness still "
+                 f"carries no per-action forecast metric, and this is re-checked rather than "
+                 f"asserted: scanned **{seen}** CSVs under `docs/actionsense/`, of which "
+                 f"**{len(hits)}** have an action/verb column.\n\n")
+        for pth, head in hits:
+            fh.write(f"- `{pth}` — `{head}`\n")
+        fh.write("\nNone of those is a forecast-metric table — `trait_partition.csv` is a "
+                 "clip-count partition (verb → trait class) with no skill, R² or Hausdorff "
+                 "column. The frozen harness is restricted to `actions: [slice, peel]` "
+                 "(`configs/actionsense/eval_harness.yaml:51`), so a per-action breakdown of "
+                 "it would have exactly two rows. That is the gap the corpus runs fill, and "
+                 "the reason their numbers may not be quoted beside frozen ones.\n")
         fh.write(FOOTER)
     print(f"wrote {a.out}")
     for label, primary, top, vals in tops:
@@ -243,12 +351,13 @@ manufacturing them:
 | OpenTouch per-action R² | **exists** — `scope="action"` rows, actions with ≥30 clips |
 | OpenTouch per-action skill vs persistence | **not exported**, but exactly derivable — see §2 |
 | OpenTouch per-action Hausdorff | **does not exist** — `hausdorff_table` pools all clips and is written only at `scope="overall"` |
-| ActionSense per-action anything | **does not exist** — harness restricted to `[slice, peel]`; no table carries an action dimension (§4) |
+| ActionSense per-action R², skill **and** Hausdorff | **exists now** (§4) — from the corpus-scope runs, 290 recordings over 14 actions, scored from saved forecasts. The *frozen* harness still has none, and cannot: it is restricted to `[slice, peel]`. |
 
-Recomputing per-action Hausdorff is *possible in principle* — `opentouch_report.py`
+Recomputing OpenTouch's per-action Hausdorff is *possible in principle* — `opentouch_report.py`
 already walks the corpus clip by clip — but it needs the per-clip forecast archives
-`runs/preds/clip_*.npz`, and **`runs/` is empty on this machine**. It is a scoring job, not a
-training job: no GPU, no retraining, given those archives.
+`runs/preds/clip_*.npz`. It is a scoring job, not a training job: no GPU, no retraining, given
+those archives, and `scripts/shared/score_preds_per_action.py` already does it for ActionSense
+from the identical npz format.
 
 **So the ranking below is OpenTouch only, by R², over the 13 actions with ≥30 clips.**
 R² is also the metric this project decided to rank on: skill-vs-persistence is structurally
@@ -270,6 +379,25 @@ baseline before believing the number") and as problem **P3** in the session log,
 why this document ranks on R².
 
 ## 2. Per-action ranking (OpenTouch)
+
+"""
+
+AS_INTRO = """Scope: **290 recordings, 14 actions**, 5-fold CV by recording, aggregate input
+(the 6-dim F/CoP signal; the map arms cannot run at this scope — only 100 of 299 recordings
+have `clip_*.npy`). Produced by `scripts/shared/score_preds_per_action.py` from the saved
+forecasts; source tables in `docs/actionsense/results/corpus-aggregate/`.
+
+> **These numbers must not be placed in a table with frozen-harness results.** Widening the
+> population from 75 slice/peel recordings to 290 changes the `Norm`, the class-mean
+> denominator and the CV folds. Nothing about the frozen protocol was altered to produce them.
+
+> **`skill` is not comparable across the two backbones, and the run-level numbers show why.**
+> Seq2Seq predicts the residual over persistence, so its reference is the zero forecast;
+> probGRU predicts the absolute target, so its reference is persistence itself — which at
+> step 1 is nearly unbeatable. Pooled over the corpus that gives seq2seq **+0.14** and probGRU
+> **−0.79**, the latter driven by a step-1 value of −4.25. The two arms are not being scored
+> against the same thing. **R² (against the class mean) and Hausdorff are common-denominator
+> and are the comparable columns.**
 
 """
 

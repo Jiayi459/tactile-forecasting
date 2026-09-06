@@ -15,12 +15,13 @@ manufacturing them:
 | OpenTouch per-action R² | **exists** — `scope="action"` rows, actions with ≥30 clips |
 | OpenTouch per-action skill vs persistence | **not exported**, but exactly derivable — see §2 |
 | OpenTouch per-action Hausdorff | **does not exist** — `hausdorff_table` pools all clips and is written only at `scope="overall"` |
-| ActionSense per-action anything | **does not exist** — harness restricted to `[slice, peel]`; no table carries an action dimension (§4) |
+| ActionSense per-action R², skill **and** Hausdorff | **exists now** (§4) — from the corpus-scope runs, 290 recordings over 14 actions, scored from saved forecasts. The *frozen* harness still has none, and cannot: it is restricted to `[slice, peel]`. |
 
-Recomputing per-action Hausdorff is *possible in principle* — `opentouch_report.py`
+Recomputing OpenTouch's per-action Hausdorff is *possible in principle* — `opentouch_report.py`
 already walks the corpus clip by clip — but it needs the per-clip forecast archives
-`runs/preds/clip_*.npz`, and **`runs/` is empty on this machine**. It is a scoring job, not a
-training job: no GPU, no retraining, given those archives.
+`runs/preds/clip_*.npz`. It is a scoring job, not a training job: no GPU, no retraining, given
+those archives, and `scripts/shared/score_preds_per_action.py` already does it for ActionSense
+from the identical npz format.
 
 **So the ranking below is OpenTouch only, by R², over the 13 actions with ≥30 clips.**
 R² is also the metric this project decided to rank on: skill-vs-persistence is structurally
@@ -106,13 +107,120 @@ Ranked by **R² of `map_aggregate`**, high → low. `skill*` is derived (see the
 | `flatten` | 2.649 | 2.511 | 2.820 | **2.660** | 0.841 | 0.818 | 0.854 |
 | `persistence` | 3.151 | 3.070 | 3.301 | **3.174** | 1.000 | 1.000 | 1.000 |
 
-## 4. ActionSense audit (regenerated, not asserted)
+## 4. ActionSense — per action, all four corpus runs
 
-Scanned **21** CSVs under `docs/actionsense/`. Files whose header carries an action/verb column: **1**.
+Scope: **290 recordings, 14 actions**, 5-fold CV by recording, aggregate input
+(the 6-dim F/CoP signal; the map arms cannot run at this scope — only 100 of 299 recordings
+have `clip_*.npy`). Produced by `scripts/shared/score_preds_per_action.py` from the saved
+forecasts; source tables in `docs/actionsense/results/corpus-aggregate/`.
 
+> **These numbers must not be placed in a table with frozen-harness results.** Widening the
+> population from 75 slice/peel recordings to 290 changes the `Norm`, the class-mean
+> denominator and the CV folds. Nothing about the frozen protocol was altered to produce them.
+
+> **`skill` is not comparable across the two backbones, and the run-level numbers show why.**
+> Seq2Seq predicts the residual over persistence, so its reference is the zero forecast;
+> probGRU predicts the absolute target, so its reference is persistence itself — which at
+> step 1 is nearly unbeatable. Pooled over the corpus that gives seq2seq **+0.14** and probGRU
+> **−0.79**, the latter driven by a step-1 value of −4.25. The two arms are not being scored
+> against the same thing. **R² (against the class mean) and Hausdorff are common-denominator
+> and are the comparable columns.**
+
+Ranked by **R² of the first column**. R² is against the class mean and is comparable across backbones; **`skill` is not** — see the warning below. Hausdorff is **lower = better**.
+
+| # | action | n | R² seq2seq, 3 s | R² seq2seq, 1 s | R² probGRU, 3 s | R² probGRU, 1 s |
+|---:|---|---:|---:|---:|---:|---:|
+| 1 | slice | 45 | 0.7361 | 0.7327 | 0.7291 | 0.7292 |
+| 2 | peel | 30 | 0.6808 | 0.6753 | 0.6822 | 0.6711 |
+| 3 | spread | 30 | 0.6501 | 0.6515 | 0.6277 | 0.6216 |
+| 4 | clean | 55 | 0.6339 | 0.6391 | 0.4693 | 0.4723 |
+| 5 | clear | 28 | 0.6132 | 0.6125 | 0.6137 | 0.6085 |
+| 6 | set | 6 | 0.5966 | 0.5826 | 0.5752 | 0.5620 |
+| 7 | load | 5 | 0.5673 | 0.5617 | 0.5284 | 0.5439 |
+| 8 | get/replace | 15 | 0.5376 | 0.5312 | 0.5473 | 0.5331 |
+| 9 | get | 30 | 0.4960 | 0.4915 | 0.5147 | 0.5149 |
+| 10 | stack | 5 | 0.4625 | 0.4358 | 0.4723 | 0.4465 |
+| 11 | unload | 5 | 0.4531 | 0.4417 | 0.4755 | 0.4771 |
+| 12 | pour | 21 | 0.4137 | 0.4199 | 0.4378 | 0.4209 |
+| 13 | open/close | 9 | 0.3475 | 0.3258 | 0.3527 | 0.3467 |
+| 14 | open | 6 | 0.2594 | 0.2692 | 0.2682 | 0.2917 |
+
+| # | action | HD seq2seq, 3 s | HD seq2seq, 1 s | HD probGRU, 3 s | HD probGRU, 1 s |
+|---:|---|---:|---:|---:|---:|
+| 1 | slice | 2.373 | 2.368 | 2.552 | 2.528 |
+| 2 | peel | 2.361 | 2.377 | 2.464 | 2.471 |
+| 3 | spread | 2.391 | 2.368 | 2.494 | 2.494 |
+| 4 | clean | 2.343 | 2.329 | 2.991 | 2.973 |
+| 5 | clear | 2.501 | 2.510 | 2.582 | 2.642 |
+| 6 | set | 2.496 | 2.503 | 2.608 | 2.670 |
+| 7 | load | 2.508 | 2.495 | 2.699 | 2.666 |
+| 8 | get/replace | 2.435 | 2.414 | 2.490 | 2.518 |
+| 9 | get | 2.442 | 2.448 | 2.563 | 2.552 |
+| 10 | stack | 2.325 | 2.344 | 2.416 | 2.476 |
+| 11 | unload | 2.440 | 2.464 | 2.547 | 2.580 |
+| 12 | pour | 2.747 | 2.649 | 2.700 | 2.713 |
+| 13 | open/close | 2.283 | 2.268 | 2.429 | 2.426 |
+| 14 | open | 2.347 | 2.309 | 2.442 | 2.382 |
+
+### What the ActionSense numbers say
+
+**1. The ranking is a property of the action, not of the model.** Spearman between the four runs' R² orderings:
+
+- seq2seq, 3 s vs seq2seq, 1 s: **+0.996**
+- seq2seq, 3 s vs probGRU, 3 s: **+0.868**
+- seq2seq, 3 s vs probGRU, 1 s: **+0.899**
+- seq2seq, 1 s vs probGRU, 3 s: **+0.873**
+- seq2seq, 1 s vs probGRU, 1 s: **+0.908**
+- probGRU, 3 s vs probGRU, 1 s: **+0.991**
+
+**2. …and it is mostly a property of *persistence*.** Spearman(R², R² of persistence on the same action) = **+0.969**. An action ranks high here largely because its signal is smooth enough that the trivial predictor already does well on it, not because the model has learnt something specific to it.
+
+**3. R² and Hausdorff rank the actions almost independently.** Spearman(R², HD) within a run:
+- seq2seq, 3 s: **+0.051**
+- seq2seq, 1 s: **+0.116**
+- probGRU, 3 s: **+0.095**
+- probGRU, 1 s: **+0.116**
+
+Not merely a different order — no relationship. A shape metric and a squared-error metric are answering different questions about the same forecast, which is the point of reporting both.
+
+**4. The backbone gap is one action.** Seq2Seq beats probGRU on Hausdorff in **13 of 14** actions, but on R² the difference is within ±0.04 everywhere except **clean** (ΔR² **+0.1646**, ΔHD **-0.6484**). Remove that one action and the two backbones are indistinguishable on R².
+
+| action | ΔR² (s2s − pg) | ΔHD (s2s − pg) |
+|---|---:|---:|
+| clean | +0.1646 | -0.6484 |
+| load | +0.0389 | -0.1911 |
+| spread | +0.0224 | -0.1033 |
+| set | +0.0215 | -0.1121 |
+| slice | +0.0070 | -0.1799 |
+| clear | -0.0005 | -0.0817 |
+| peel | -0.0014 | -0.1029 |
+| open/close | -0.0052 | -0.1460 |
+| open | -0.0088 | -0.0947 |
+| get/replace | -0.0097 | -0.0550 |
+| stack | -0.0098 | -0.0911 |
+| get | -0.0186 | -0.1209 |
+| unload | -0.0224 | -0.1071 |
+| pour | -0.0241 | +0.0474 |
+
+**5. History is inert.** Median |R²(3 s) − R²(1 s)| = **0.0061**, at or below the ~5e-3 replicate noise floor recorded in `docs/ICRA_PAPER_PLAN.md`. Both histories sit under the harness's `min_history = 40`, so neither ever zero-pads a window; the comparison is clean, and it says the axis does not matter.
+
+### Frozen-harness audit (regenerated, not asserted)
+
+The tables above are the **corpus** scope. The **frozen** harness still carries no per-action forecast metric, and this is re-checked rather than asserted: scanned **35** CSVs under `docs/actionsense/`, of which **11** have an action/verb column.
+
+- `docs/actionsense/results/corpus-aggregate/as_preds_probgru_corpus.csv` — `label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio`
+- `docs/actionsense/results/corpus-aggregate/as_preds_probgru_corpus_h1.csv` — `label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio`
+- `docs/actionsense/results/corpus-aggregate/as_preds_seq2seq_corpus.csv` — `label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio`
+- `docs/actionsense/results/corpus-aggregate/as_preds_seq2seq_corpus_h1.csv` — `label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio`
+- `docs/actionsense/results/frozen-aggregate/as_preds_probgru.csv` — `label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio`
+- `docs/actionsense/results/frozen-aggregate/as_preds_seq2seq.csv` — `label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio`
+- `docs/actionsense/results/frozen-cnn/as_preds_all.csv` — `label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio`
+- `docs/actionsense/results/frozen-cnn/as_preds_probgru_map.csv` — `label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio`
+- `docs/actionsense/results/frozen-flatten/as_preds_pg_flat.csv` — `label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio`
+- `docs/actionsense/results/frozen-flatten/as_preds_s2s_flat.csv` — `label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio`
 - `docs/actionsense/trait_partition.csv` — `verb,trait_class,contentious,opentouch_correspondent,recordings,frames_10hz,windows,scored_recordings,scored_windows`
 
-None of these is a forecast-metric table: `trait_partition.csv` is a clip-count partition (verb → trait class), carrying no skill, R² or Hausdorff column. ActionSense's frozen harness is additionally restricted to `actions: [slice, peel]` (`configs/actionsense/eval_harness.yaml:51`), so even a per-action breakdown would have exactly two rows.
+None of those is a forecast-metric table — `trait_partition.csv` is a clip-count partition (verb → trait class) with no skill, R² or Hausdorff column. The frozen harness is restricted to `actions: [slice, peel]` (`configs/actionsense/eval_harness.yaml:51`), so a per-action breakdown of it would have exactly two rows. That is the gap the corpus runs fill, and the reason their numbers may not be quoted beside frozen ones.
 
 ## 5. Reading the numbers
 
