@@ -1,0 +1,11 @@
+label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio
+ActionSense frozen — all arms + baselines (TEST split only),peel,6,ar,0.6653689439749558,0.20870328201349264,2.391331935684036,0.8278772085549976
+ActionSense frozen — all arms + baselines (TEST split only),peel,6,pg_probgru_cnn,0.6323906428205207,0.11090642384758968,2.499566876201127,0.865348058622399
+ActionSense frozen — all arms + baselines (TEST split only),peel,6,s2s_seq2seq_cnn,0.6138769995735992,0.08016497741514848,2.503157020776238,0.8665909638104241
+ActionSense frozen — all arms + baselines (TEST split only),peel,6,seasonal,0.5738753657147,0.0,2.8885104106899386,1.0
+ActionSense frozen — all arms + baselines (TEST split only),peel,6,persistence,0.5738753657147,0.0,2.8885104106899386,1.0
+ActionSense frozen — all arms + baselines (TEST split only),slice,9,ar,0.7348450790821216,0.11252949342516223,2.3858699527964813,0.8284868639972456
+ActionSense frozen — all arms + baselines (TEST split only),slice,9,pg_probgru_cnn,0.7306036999791273,0.09553245548641602,2.5317774238397757,0.879152837210388
+ActionSense frozen — all arms + baselines (TEST split only),slice,9,s2s_seq2seq_cnn,0.705821609371115,0.030836621108840206,2.4814666296513446,0.8616825505111784
+ActionSense frozen — all arms + baselines (TEST split only),slice,9,seasonal,0.6992623492541705,0.0,2.879792132472982,1.0
+ActionSense frozen — all arms + baselines (TEST split only),slice,9,persistence,0.6992623492541705,0.0,2.879792132472982,1.0

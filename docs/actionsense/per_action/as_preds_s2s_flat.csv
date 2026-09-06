@@ -1,0 +1,5 @@
+label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio
+ActionSense - as_preds_s2s_flat,peel,30,seq2seq_flatten,0.6087189320282117,0.011787132660833513,2.5599004318236664,0.8797249424750645
+ActionSense - as_preds_s2s_flat,peel,30,persistence,0.603396203934984,0.0,2.9098872934323174,1.0
+ActionSense - as_preds_s2s_flat,slice,45,seq2seq_flatten,0.6690899859995575,-0.06600423669369415,2.5879700262735317,0.8940681707539855
+ActionSense - as_preds_s2s_flat,slice,45,persistence,0.6873271512782612,0.0,2.894600334660214,1.0

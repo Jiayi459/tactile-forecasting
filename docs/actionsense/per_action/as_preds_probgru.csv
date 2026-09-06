@@ -1,0 +1,5 @@
+label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio
+ActionSense - as_preds_probgru,peel,30,probgru_aggregate,0.6502371350166517,0.11003747165884649,2.5978843197519987,0.8927783304925533
+ActionSense - as_preds_probgru,peel,30,persistence,0.603396203934984,0.0,2.9098872934323174,1.0
+ActionSense - as_preds_probgru,slice,45,probgru_aggregate,0.7328131887267021,0.12869349644067862,2.5522187302063606,0.8817171405827104
+ActionSense - as_preds_probgru,slice,45,persistence,0.6873271512782612,0.0,2.894600334660214,1.0
