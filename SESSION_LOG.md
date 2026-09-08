@@ -10559,3 +10559,29 @@ SESSION_LOG:9013 早记的 map 构成(slice 45 + peel 30 + pour 25 = 100)与本�
 **待用户在 CRC 确认** `ls ~/actionsense/states/clip_*.npy | wc -l`(本地口径为 100)。
 **推论**:本次 corpus∩maps(100 条/6 动作)三方对比自洽,但 Norm/折/类别均值均不同于
 旧 corpus-aggregate(290 条/14 动作),**不可同表**,也不会复现 −0.3716 / +0.1453。
+
+**核实(用户:"确认 6 维 F/CoP 全部都是从 raw tactile map 开始计算出来的")—— 确认成立。**
+链路:HDF5 `tactile_data` 每手套 (N,32,32)(probe_actionsense.py:58-68)→ `clip_for_interval`
+双手重采样 → `clip` (T,2,32,32) 原始 map(probe:80-97)→ `PS.clip_states(clip)`(probe:229)
+→ 每 taxel 减第 5 百分位 baseline + 逐帧 `frame_state`(physical_state.py:36-56):
+`F = p.sum()`(全 1024 taxel 求和)、`xbar,ybar = (p*g).sum()/F`(压力加权质心 = CoP)、
+二阶中心矩 sxx/syy/sxy → `state_<idx>.npy` (T,2,6) → `load_target` 每手取前 3 矩拼接
+(dataset.py:43-50,`MOMENTS_PER_HAND=3`)→ (T,6) = [F_L,CoPx_L,CoPy_L,F_R,CoPx_R,CoPy_R]。
+**无任何其他传感器来源。**
+
+**数值验证(非仅读码)**:由 `clip_1.npy` 重算并与磁盘 `state_1.npy` 比对 ——
+`baseline_pct=5.0`(默认)下六个矩 **r=+0.9999**;改用 1.0/10.0/None 相关性显著下降,
+反证 baseline 参数亦一致。F 相对误差中位数 2.0e-3、P99 9.3e-3;残差来自 `clip_*.npy`
+以 **float16** 存盘(1024 项求和相对分辨率 ~4.9e-4),且 `xbar` 在其自身趋零处相对误差被放大 ——
+非算法差异。
+
+**据此修正上一条措辞**:我称 aggregate 臂"输入不是 map",就网络吃进的张量而言无误,
+但**来源**上说轻了。probe:229 `state_*.npy` 对每条录制**无条件**写出;
+probe:231-232 `clip_*.npy` **仅**在标签匹配 `--save-clips-for` 时写。
+**故 299 条的 map 在内存中均存在过,只是 199 条的 32×32 场未落盘。**
+用户原话"在 299 个所有动作的 tactile map 上 train"在来源意义上成立。
+
+**对三方对比的重新表述**:三臂输入同源于 map,差别只在保留量 ——
+aggregate 见 map 的 6 个矩(0 阶+1 阶),flatten/cnn 见全部 1024 taxel。
+故该对比问的是"**除力与压心外,空间结构还额外带来多少可预测性**"。
+这也使 map 臂受限于 100 条更显刺眼:那 199 条并非没有 map,是 map 被丢弃了。
