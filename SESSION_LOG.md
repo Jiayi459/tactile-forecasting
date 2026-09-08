@@ -10894,10 +10894,11 @@ ActionSense 路径(`baseline_frames: 10`)逐位不变,由 `test_positive_baselin
 用全局 RNG,CPU 上可逐位复现;GPU 上 cuDNN 卷积/GRU 内核未强制 deterministic,故只是近似复现。)
 
 #### 测试
-`tests/test_val_selection_and_baseline.py`(新,6 个用例):零 baseline 不产生 NaN 且逐位等于原图、
+`tests/test_val_selection_and_baseline.py`(新,5 个用例):零 baseline 不产生 NaN 且逐位等于原图、
 正 baseline 仍照扣、`_balanced` 在"1 条录制 1000 窗口 vs 9 条各 1 窗口"下不被长录制主导、
 每条录制各 1 窗口时两口径相等、`_rec_ids` 与 `_materialize` 的顺序一致。
-**⚠ 本机 torch 装了但 dlopen 失败,这 6 个用例在本机 skip、未经实跑验证**,须在 CRC 上跑。
+**⚠ 本机 torch 装了但 dlopen 失败,这 5 个用例在本机 skip、未经实跑验证**,须在 CRC 上跑。
+**【2026-09-08 已验】CRC 上 `5 passed in 5.80s`,两处共用代码改动实跑通过。**
 (`importorskip` 不适用:失败是 OSError 不是 ImportError,已改为捕获 Exception 后 module 级 skip。)
 本机全套:**94 passed, 7 skipped**,无回归。
 
@@ -10908,3 +10909,41 @@ python -m pytest tests/test_val_selection_and_baseline.py -q   # 本机 skip 的
 python scripts/egotouch/profile_egotouch_states.py --states data/egotouch_states --histories 10 30
 ```
 第二条给出 1 s / 3 s 两臂下的 eligible 与端到端覆盖(此前只测了 20/40/80/100)。
+
+### 2026-09-08(续6)— 1 s/3 s 臂的 profiler 结果;`min_history` 第一次有了有原则的取值
+
+CRC 实测(补 `--histories 10 30`),与已有的 20/40/80/100 合并看:
+
+| min_history | 语义 | train elig | test_seen elig | unseen elig | test 端到端 | unseen 端到端 | unseen 组数 |
+|---|---|---|---|---|---|---|---|
+| 10 (1 s) | =最短臂 | 1439 | 177 | 84 | 85.1% | 57.1% | 9 |
+| **30 (3 s)** | **=最长臂** | **1135** | **132** | **56** | **63.5%** | **38.1%** | **8** |
+| 40 (4 s) | 沿袭 ActionSense | 1031 | 118 | 51 | 56.7% | 34.7% | 8 |
+
+**建议把 `eval.min_history` 从 40 改为 30**,理由三条(第一条是原则性的,后两条是白拿的):
+1. **30 = 最长那条臂的历史长度(3 s)。** `t_in` 不参与 eligibility,历史不足的窗口**补零**
+   (`data.py:137-139`)。若 `min_history < 30`,3 s 臂在靠前的 origin 上拿到的是**部分零填充**的历史,
+   而 1 s 臂拿到的是完整真实历史 —— 两臂的差距里就混进了**填充伪影**,不再纯粹是建模能力之差。
+   取 30 之后,**每一个被评分的 origin 上,两条臂的历史都是完整且真实的**。
+   (顺带记录一个既有事实:ActionSense 的 `min_history=40` 小于它 10 s 臂所需的 100 帧,
+   所以**它的 10 s 臂一直是在部分零填充的 origin 上被评分的**。EgoTouch 去掉 10 s 臂之后,
+   取 30 反而能首次做到"无填充评分",这是比沿袭 40 更干净的选择,不是放松标准。)
+2. **参照阶梯仍然成立。** `origins()` 的首个 origin 是 `t = min_history`(`baselines/base.py:46`),
+   AR 阶 p 需要 `t >= p-1`;`ar_orders` 上限 30 ⇒ 需 `t >= 29`,而 `t = 30`。**成立,还余 1 帧。**
+3. **多拿约 10-12% 的录制**:train 1031→1135,test_seen 118→132,unseen 51→56;
+   test_seen 端到端覆盖 56.7%→**63.5%**,unseen 34.7%→**38.1%**。
+
+**跨语料可比性不受影响**:`min_history` 是每个语料的 eligibility 阈值,真正必须对齐的是
+`fps/downsample/horizon`(三者与 ActionSense 逐字相同);skill 是在**同一 origin 集合内**对
+persistence 求的相对量,所以跨语料比 skill 依然成立。
+
+**其余读数**
+- **Q-C 再获确认**:`test_unseen` 的组数在 1 s 下也只有 **9**,3 s 下 **8**。且端到端覆盖
+  **无论 min_history 取多少都不会超过 57.1%**(受限于 npz 可得率 85/147)。主表/附录的安排不变。
+- **val 的 top-10 集中度在所有 history 下稳定在 36-38%**,与 min_history 无关 ⇒
+  clip-balanced 选择那处修复是必需的,不是某个特定设置下的边角问题。
+
+### OPEN QUESTION Q-E(需裁定,改的是被 hash 记录的冻结配置)
+`configs/egotouch/eval_harness.yaml` 的 `eval.min_history`:保持 **40**,还是改为 **30**?
+我推荐 **30**(理由如上)。这是被 `evaluate.py` 记 sha256 的冻结配置,**改它等于换一套 origin 定义**,
+所以**在你确认前不动**;确认后改动只有一行,且必须在任何正式跑之前定下来。
