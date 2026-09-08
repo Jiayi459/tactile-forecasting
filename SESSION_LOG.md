@@ -10759,3 +10759,31 @@ python scripts/egotouch/extract_egotouch_states.py --root datasets/EgoTouch --ou
 
 **下一步**:`--scope corpus` 现在会枚举到全部 299 条(map 齐备,`available_idxs` 不再筛减),
 可交付真正的全 corpus map/CNN/aggregate 三方对比。
+
+### 2026-09-08(续3)— EgoTouch 抽取在 CRC 跑通,数字与 HF 侧清点**逐项吻合**
+```
+wrote 1896 trajectories to data/egotouch_states  (skipped 0)
+  T frames @30Hz: min=43 p25=125 median=436 p75=1035 max=19853
+  seconds:        min=1.4 median=14.5 max=661.8
+  ELIGIBLE (T >= 150 raw frames = 5.0 s): 1324/1896 (69.8%)
+  split: train=1458 val=174 test(seen)=179 test_unseen=85
+    train 1458/1665 (87.6%)  val 174/208 (83.7%)
+    test_seen 179/208 (86.1%)  test_unseen 85/147 (57.8%)
+  DROPPED (37)
+```
+**四个 split 的保留数与本轮从 HF tree API 清点出的预测完全一致**(1458/174/179/85, 丢弃 37),
+`skipped=0` ⇒ 1896+37=1933 条 npz 全部可读、全部 21×21。**join key 与 NaN 处理均已被真实数据验证。**
+
+两个附带发现:
+- `download_egotouch.py` **没有 `--out` 参数**(只有 `--videos/--pressure-only/--workers`),交接命令里
+  那一行报错未执行。但抽取器数到 1933 = HF 上的确切总数,**说明 CRC 上的 pressure-only 早已下全**,
+  无需重下。交接文档里那条命令要修。
+- **长度分布极度偏斜**:min 43 / median 436 / max 19853 帧,跨度 **460 倍**。rolling-origin 是 stride=1,
+  单条录制贡献的窗口数正比于长度 ⇒ 一条 11 分钟的录制约产生 6.6k 个 origin,一条 5 秒的产生 1 个。
+  **不做 clip-balancing,少数超长录制就会主导训练采样与评估指标。**ActionSense 的长度分布远比这平坦,
+  所以这是 EgoTouch 特有的、必须显式处理的问题,不是可选的精细化。
+
+新增 `scripts/egotouch/profile_egotouch_states.py`:按 **split** 报告多个 history 长度下的
+eligible 数、窗口总数、**top-1%/top-10 条录制占窗口的比例**、以及仍有 ≥1 条 eligible 录制的
+(action,object) 组数。前者回答 Q-C(test_unseen 过滤后还剩多少、够不够支撑逐动作结论),
+后者量化偏斜是否 load-bearing。脚本已用合成 manifest 自测(含一条 19853 帧的录制)。
