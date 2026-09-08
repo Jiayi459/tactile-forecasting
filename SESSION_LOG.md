@@ -10787,3 +10787,55 @@ wrote 1896 trajectories to data/egotouch_states  (skipped 0)
 eligible 数、窗口总数、**top-1%/top-10 条录制占窗口的比例**、以及仍有 ≥1 条 eligible 录制的
 (action,object) 组数。前者回答 Q-C(test_unseen 过滤后还剩多少、够不够支撑逐动作结论),
 后者量化偏斜是否 load-bearing。脚本已用合成 manifest 自测(含一条 19853 帧的录制)。
+
+### 2026-09-08(续4)— profiler 结果读数:Q-C 有答案了,并查出一处真漏
+
+**用户裁定**:training history 只要 **1 s 与 3 s**(去掉 10 s 臂)。
+
+**关键机制(决定了这个改动的影响范围)**:`t_in` **不参与 eligibility**。历史不足 `t_in` 的窗口
+被**因果左侧零填充**(`tactile_map/data.py:137-139, 177-178`),origin 集合**只由
+`eval.min_history` 决定**。所以三条 history 臂本来就跑在**同一组 origin** 上 —— 这正是它们
+可比的原因,也意味着**去掉 10 s 臂不改变任何 eligibility 数字**。
+⇒ `configs/egotouch/tactile_map.yaml` 写 `histories_s: [1, 3]`,`eval.min_history` **保持 40**。
+保持 40 的理由:`ar_orders` 上限是 30,AR-30 在第一个 origin 就需要 30 帧历史,40 留出余量;
+降到 30 会让最高阶 AR 恰好卡在边界上,参照阶梯的顶端就不干净了。
+
+#### 读数一 — Q-C 有答案:`test_unseen` **不能进主表**,原因不是 85,是 **groups=8**
+| min_history | test_seen 组数 | test_unseen 组数 |
+|---|---|---|
+| 20 (2 s) | 89 | **8** |
+| 40 (4 s) | 79 | **8** |
+| 80 (8 s) | 68 | **7** |
+| 100 (10 s) | 66 | **7** |
+
+`test_unseen` 的 85 条录制只覆盖 **8 个 (action,object) 组**,长 history 下 7 个。逐动作表在 8 个
+格子上不成立;又因为只保留了官方 147 条中的 **57.8%**,它也**不能与原论文的 unseen 数字相比**。
+**建议**:主表只报 `test_seen`(@4 s:118 条 / 79 组);`test_unseen` 降为附录里的**单一聚合数字**,
+并显式标注 `n=51 条 / 8 组 / 覆盖官方 unseen 的 57.8%`。**这三个限定缺一不可**,否则读者会
+把它当成一个可比的泛化结论。(仍等用户最终确认。)
+
+#### 读数二 — 偏斜的分诊:两处安全,**一处真漏**
+- **评估侧 ✅ 安全**:`scripts/shared/score_preds_per_action.py:10-11, 216` 用
+  `clip_balanced_mean`,R²/skill 先按 recording 聚合。所以 test 的 top-10 占 46–52% 窗口
+  **不会**污染上报指标。
+- **训练侧 ✅ 安全**:train 有 1031 条(@4 s),top-10 只占 **8.4%** 窗口。长度成比例采样在这里无害。
+- **模型选择侧 ❌ 漏了**:`tactile_map/train.py:134 _val_nll` 是
+  `sum(NLL) / y.numel()` —— **纯窗口池化,不做 clip 平衡**。而 val 的 **top-10 占 39–44% 的窗口**。
+  即:`best-val-NLL` 挑 checkpoint 时,约 **40% 的选择信号来自 124 条里的 10 条**。
+  ActionSense 上这一点不显眼(长度分布平坦),**EgoTouch 上是实打实的**:
+  最长录制 662 s vs 中位 14.5 s,跨度 460 倍。
+
+#### 新增 `configs/egotouch/tactile_map.yaml`
+`histories_s: [1, 3]`;`preprocess.baseline_frames: 0` —— 把 released-as-is 从**目标**贯彻到
+**地图输入**(ActionSense 在 `data.py:74` 对地图输入做逐 taxel 因果前 N 帧扣除,EgoTouch 不能做)。
+**注意:共用 loader 目前不认 0**,它把 `baseline_frames` 当成无条件的切片均值;
+该键在 fork 实现之前只是意图声明,不是可用开关。config 注释里已写明这一点。
+
+### OPEN QUESTION Q-D(需裁定,涉及是否改动现役代码)
+`_val_nll` 的窗口池化要不要改成 clip-balanced(先按 recording 求均值,再跨 recording 平均)?
+- (a) **只在 EgoTouch fork 里改** —— 不碰 ActionSense 已发表数字的代码路径,但两个语料的
+  模型选择准则从此不同,需在论文里说明;
+- (b) **改共用函数,并重跑 ActionSense 验证数字不变** —— 口径统一,代价是要重跑验证;
+- (c) 不改,在论文里声明 val 选择是窗口池化的。
+我倾向 (b):长度偏斜是数据属性,不是传感器属性;两套选择准则会成为审稿人问的第一个问题。
+但 (b) 要重跑 ActionSense,**由用户决定是否值得**。

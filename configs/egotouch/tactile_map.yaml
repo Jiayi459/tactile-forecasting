@@ -1,0 +1,40 @@
+# Tactile-MAP -> aggregate-pressure/CoP forecaster for EgoTouch (21x21, 2 hands).
+# Rate / horizon / split / target come from the FROZEN harness (configs/egotouch/eval_harness.yaml);
+# this file only controls the map encoder + its preprocessing + optimization.
+
+preprocess:
+  # 0 = NO per-taxel causal baseline. This is the released-as-is decision (2026-09-08, OQ5)
+  # applied to the MAP INPUT, not just to the F/CoP target: the ActionSense arm subtracts the
+  # mean of the first N frames per taxel (src/actionsense/tactile_map/data.py:74), which would
+  # remove a quantity that is not a sensor offset on grids already normalized by tactile_max
+  # and possibly mixing tactile and bending channels.
+  #
+  # THE SHARED LOADER DOES NOT HONOUR 0 YET -- it takes `baseline_frames` as an unconditional
+  # slice mean. The EgoTouch fork must treat 0 as "skip the subtraction"; until it does, this
+  # key is a statement of intent, not a working switch.
+  baseline_frames: 0
+  alpha: 10.0            # log1p amplitude compression, unchanged (it is monotone, not a shift)
+
+model:
+  d: 64
+  hidden: 64
+
+optim:
+  epochs: 60
+  lr: 0.003
+  batch: 64
+  seed: 0
+
+sweep:
+  encoders: [aggregate, flatten, cnn]
+  # 1 s and 3 s only (user decision 2026-09-08). The 10 s arm is dropped.
+  #
+  # This does NOT change which origins are scored. `t_in` never gates eligibility: a window with
+  # fewer than t_in frames of history is causally LEFT-PADDED with zeros
+  # (src/actionsense/tactile_map/data.py:137-139, 177-178), so every history arm is evaluated on
+  # the SAME origin set, defined solely by `eval.min_history` in the harness config. That is what
+  # makes the arms comparable, and it is why dropping the 10 s arm changes no eligibility count.
+  histories_s: [1, 3]      # t_in -> {10, 30} frames @ 10 Hz
+
+paths:
+  out_dir: runs/egotouch_tactile_map
