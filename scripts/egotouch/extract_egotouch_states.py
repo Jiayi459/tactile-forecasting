@@ -43,9 +43,17 @@ THREE THINGS DIFFER FROM ACTIONSENSE, EACH DECIDED RATHER THAN DRIFTED INTO
    join key is the last three path components -- <scene>/<task>/<timestamp> -- which is exactly
    the trajectory directory. `test` in the emitted splits.json is `test_seen`; `test_unseen` is
    carried alongside as an extra key for the generalization arm (the harness ignores keys it
-   does not know). Trajectories the official split does not mention are NOT invented into a
-   split: they are recorded in the manifest with `split: null` and listed at the end, so the
-   count is visible rather than silently absorbed into train.
+   does not know).
+
+   The official split does NOT cover the release: it lists 2228 .hdf5 files, but only 1896 of
+   the 1933 trajectories that ship a pressure_grids.npz appear in it. Those 37 orphans are
+   DROPPED (user decision 2026-09-08, OQ-B) -- not written, not indexed, not counted in the
+   corpus -- so the corpus is 1896 and the phrase "we use the official split" stays literally
+   true. Folding them into train would be the easy move and would quietly make that phrase
+   false. They are listed in `unassigned_dropped.json` next to the states so the loss is on
+   the record and reversible, and the per-split retention (train 1458/1665, val 174/208,
+   test_seen 179/208, test_unseen 85/147) is printed at the end -- test_unseen keeps only
+   57.8% of its members, which is the number to quote whenever that arm is reported.
 
 Labels: the manifest `label` is the task directory with underscores turned into spaces
 (`grasp_cola` -> `"grasp cola"`). That is not cosmetic -- `eval_harness.splits.parse_label`
@@ -136,6 +144,18 @@ def main():
 
     for npz_path in npzs:
         key = traj_key(os.path.dirname(npz_path))
+
+        # Split first, and drop before doing any work: a trajectory the official split does
+        # not mention is not ours to place (OQ-B). Deciding this before load/write also keeps
+        # `idx` a dense index over the corpus we actually keep.
+        where = [k for k, members in official.items() if key in members]
+        if len(where) > 1:
+            raise SystemExit(f"{key} appears in more than one official split: {where}")
+        if not where:
+            unassigned.append(key)
+            continue
+        split = where[0]
+
         clip = load_clip(npz_path)
         if clip is None:
             skipped.append((key, "unreadable or wrong shape"))
@@ -148,14 +168,7 @@ def main():
             np.save(os.path.join(args.out, f"clip_{idx}.npy"), clip.astype(np.float32))
 
         scene, task, stamp = key.split("/")
-        where = [k for k, members in official.items() if key in members]
-        if len(where) > 1:
-            raise SystemExit(f"{key} appears in more than one official split: {where}")
-        split = where[0] if where else None
-        if split is None:
-            unassigned.append(key)
-        else:
-            split_of[split].append(idx)
+        split_of[split].append(idx)
 
         manifest.append({
             "idx": idx,
@@ -184,10 +197,13 @@ def main():
         "n": len(manifest),
         "source": "official split.json (EgoTouch release)",
         "join_key": "scene/task/timestamp",
-        "unassigned": len(unassigned),
+        "dropped_unassigned": len(unassigned),
+        "retention": {k: [len(split_of[k]), len(official[k])] for k in sorted(official)},
     }
     with open(os.path.join(args.out, "splits.json"), "w") as fh:
         json.dump(splits, fh, indent=2)
+    with open(os.path.join(args.out, "unassigned_dropped.json"), "w") as fh:
+        json.dump(sorted(unassigned), fh, indent=2)
 
     lens = sorted(r["T"] for r in manifest)
     need = 50 * 3     # 40 history + 10 horizon at 10 Hz == 150 raw frames at 30 Hz
@@ -200,12 +216,12 @@ def main():
         print(f"  ELIGIBLE (T >= {need} raw frames = 5.0 s): {ok}/{len(lens)} ({100*ok/len(lens):.1f}%)")
     print(f"  split: train={len(splits['train'])} val={len(splits['val'])} "
           f"test(seen)={len(splits['test'])} test_unseen={len(splits['test_unseen'])}")
+    for k in sorted(official):
+        kept, listed = splits["retention"][k]
+        print(f"    {k:12s} kept {kept:5d} / {listed:5d} listed  ({100*kept/max(listed,1):.1f}%)")
     if unassigned:
-        print(f"  NOT in the official split ({len(unassigned)}), left with split=null:")
-        for k in unassigned[:10]:
-            print(f"    {k}")
-        if len(unassigned) > 10:
-            print(f"    … and {len(unassigned) - 10} more")
+        print(f"  DROPPED ({len(unassigned)}): not in the official split (OQ-B). "
+              f"Listed in unassigned_dropped.json.")
     for k, why in skipped[:10]:
         print(f"  skipped {k}: {why}")
 

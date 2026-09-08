@@ -10700,3 +10700,33 @@ python scripts/egotouch/extract_egotouch_states.py --root datasets/EgoTouch --ou
 - **Q-C** `test_unseen` 只有 85 条(且长度过滤后更少)。(a) 照跑,报告时明确标注 n 与它只覆盖官方 147 条中的
   57.8%;(b) 主表只报 `test_seen`,`test_unseen` 降级为附录的定性观察;(c) 放弃 unseen 臂。
   —— 这条建议等抽取器打印出真实的 ELIGIBLE 数字后再定,不必现在拍板。
+
+### 2026-09-08(续2)— Q-A/Q-B 裁定,代码已按裁定收紧并推送
+- **Q-A = (a)**:那句"作为 output"是纯更正,不是改实验。**预测目标仍是 6 维 F/CoP**,
+  map→map 预报不做。现流程(encoder ∈ {aggregate, flatten, cnn} 作为**输入**表征,
+  输出恒为 6 维)保持不变,`tactile_map/models.py` 的解码端不动。
+- **Q-B = 丢弃那 37 条**。代码相应收紧:split 查询挪到 load/write **之前**,无归属者
+  `continue` —— 不落盘、不进 manifest、**不占用 idx**(idx 因此是保留语料上的稠密索引)。
+  语料 = **1896**。丢弃清单写入 `data/egotouch_states/unassigned_dropped.json`(可复核、可回退),
+  `splits.json` 增加 `dropped_unassigned` 与 `retention`(每个 split 的 kept/listed)。
+  收尾打印逐 split 保留率。**理由记档**:并入 train 是最省事的做法,但那样"我们使用官方 split"
+  这句话在论文里就不再字面为真;丢 1.9% 换一句说得出口的话。
+- **Q-C 待定**:`test_unseen` 只保留 85/147 (57.8%),等 CRC 上抽取器打印出真实
+  ELIGIBLE 数字后再决定它是进主表、降级附录、还是弃用。**这不阻塞下载与抽取。**
+- 测试同步更新(`test_extract_writes_official_splits_and_drops_unassigned`):断言 t3 不在 manifest、
+  不在磁盘、未占 idx,且 `retention` 正确。全套 **94 passed, 6 skipped**。
+
+### CRC 交接命令(Q-A/Q-B 已定,现在可以发)
+```bash
+git pull
+grep -c "baseline_pct=None" scripts/egotouch/extract_egotouch_states.py   # 必须 1
+grep -c "unassigned_dropped" scripts/egotouch/extract_egotouch_states.py  # 必须 >=1(证明是 OQ-B 之后的版本)
+python scripts/egotouch/download_egotouch.py --pressure-only --out datasets/EgoTouch
+python scripts/egotouch/extract_egotouch_states.py --root datasets/EgoTouch --out data/egotouch_states
+```
+抽取器会打印三行决定性数字,**先把它们贴回来再往下跑训练**:
+1. `T frames @30Hz` 的分位数与秒数;
+2. `ELIGIBLE (T >= 150 raw 帧 = 5.0 s): n/1896` ← 决定这个语料能不能做 rolling-origin 预报;
+3. 逐 split 保留率 ← Q-C 的输入。
+预期(据 HF 侧清点):train 1458 / val 174 / test_seen 179 / test_unseen 85,丢弃 37。
+**若打印出的数字与此不符,说明下载不完整或 join 出错,停下来查,不要继续。**

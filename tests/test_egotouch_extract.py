@@ -105,7 +105,7 @@ def test_manifest_label_round_trips_through_parse_label(task, want):
 
 # --- end to end -----------------------------------------------------------------------
 
-def test_extract_writes_official_splits_and_flags_unassigned(tmp_path, monkeypatch, capsys):
+def test_extract_writes_official_splits_and_drops_unassigned(tmp_path, monkeypatch, capsys):
     root, out = tmp_path / "EgoTouch", tmp_path / "states"
     for scene, task, stamp in [("Home", "grasp_cola", "t0"), ("Home", "grasp_cola", "t1"),
                                ("Retail", "pick_up_fruit", "t2"), ("Home", "drag_chair", "t3")]:
@@ -123,12 +123,19 @@ def test_extract_writes_official_splits_and_flags_unassigned(tmp_path, monkeypat
     rows = [json.loads(l) for l in (out / "manifest.jsonl").read_text().splitlines()]
     by_traj = {r["traj"]: r for r in rows}
 
-    assert len(rows) == 4
-    assert sp["unassigned"] == 1 and by_traj["t3"]["split"] is None
-    assert by_traj["t3"]["idx"] not in sp["train"] + sp["val"] + sp["test"] + sp["test_unseen"]
+    # t3 is in no official split, so it is DROPPED entirely (OQ-B): absent from the manifest,
+    # absent from disk, and it must not have consumed an index.
+    assert len(rows) == 3 and "t3" not in by_traj
+    assert sp["dropped_unassigned"] == 1
+    assert json.loads((out / "unassigned_dropped.json").read_text()) == ["Home/drag_chair/t3"]
+    assert sorted(r["idx"] for r in rows) == [0, 1, 2]
+    assert not (out / "state_3.npy").exists()
+
     assert sp["train"] == [by_traj["t0"]["idx"]]
     assert sp["test"] == [by_traj["t2"]["idx"]]          # test == official test_seen
+    assert sp["retention"]["test_seen"] == [1, 1] and sp["retention"]["test_unseen"] == [0, 0]
     assert by_traj["t0"]["label"] == "grasp cola" and by_traj["t0"]["fps"] == 30.0
+    assert by_traj["t0"]["split"] == "train"
     assert np.load(out / f"state_{by_traj['t0']['idx']}.npy").shape == (6, 2, 6)
     assert np.load(out / f"clip_{by_traj['t0']['idx']}.npy").shape == (6, 2, 21, 21)
-    assert "NOT in the official split (1)" in capsys.readouterr().out
+    assert "DROPPED (1)" in capsys.readouterr().out
