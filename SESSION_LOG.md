@@ -10947,3 +10947,250 @@ persistence 求的相对量,所以跨语料比 skill 依然成立。
 `configs/egotouch/eval_harness.yaml` 的 `eval.min_history`:保持 **40**,还是改为 **30**?
 我推荐 **30**(理由如上)。这是被 `evaluate.py` 记 sha256 的冻结配置,**改它等于换一套 origin 定义**,
 所以**在你确认前不动**;确认后改动只有一行,且必须在任何正式跑之前定下来。
+
+---
+
+## 2026-09-08 — OpenTouch / ActionSense error 聚合口径全仓审计（进行中）
+
+### 用户请求
+通读代码库，判断 OpenTouch 与 ActionSense 各自报告的 error 到底是 **clip-balanced**、
+**window-pooled**，还是其他聚合方式；结论必须落实到具体代码。
+
+### 审计计划
+1. 先区分三层，避免把同名的 loss/error 混为一谈：训练 loss、validation/checkpoint 选择、
+   最终 test/report metric。
+2. 沿 OpenTouch 的 dataset/origin → baseline/model prediction → `evaluate` → `aggregate` → report/CSV
+   全链路追踪分子、分母和 mask；同时检查 GRU/map 等训练入口是否使用另一种口径。
+3. 沿 ActionSense 的 eval harness、tactile-map、state forecast/action dynamics、共享 per-action scorer
+   做同样追踪；区分 frozen split、corpus CV 与最终汇总。
+4. 用测试、配置和论文正文交叉核对代码意图；列出任何“名字写 clip-balanced、实现却 pooled”或
+   “最终报告 clip-balanced、checkpoint 却按 window 选”的混合口径。
+5. 本轮只做只读诊断与记录，不改模型/指标实现；若发现需修改之处，先作为 OPEN QUESTION 提请裁定。
+
+### OPEN QUESTIONS
+- “error”可能指最终论文表格，也可能指训练/选模 error。为避免猜测，本轮将两者都审计并分别作答。
+
+### 审计结论（完成）
+
+#### 一句话答案
+- **当前论文主表的 test error：两边都是 recording/clip-balanced。** OpenTouch 叫
+  clip-balanced；ActionSense 叫 recording-balanced，但这里一条 `clip_*.npz` 就是一条 recording，
+  数学是同一个 estimator。
+- **但端到端 pipeline 不是全程 balanced。** 两边的训练 loss 都按窗口池化；OpenTouch 的
+  checkpoint/history 选择仍按窗口池化；ActionSense 当前代码刚在 `3e244a7` 改成默认按 recording
+  平衡选择，但论文现存预测早于该 commit，故现有 ActionSense 主表也是“旧 pooled 选 checkpoint，
+  新 balanced 做最终 test 重评分”。
+
+#### OpenTouch：具体代码链
+1. `baselines.predict_series_by_clip` 为每个 rolling origin 保存 clip id；`clip_stats` 再按 clip
+   累计 `n_valid/sum_y/sum_y2/SSE`（`src/opentouch/baselines/base.py:59-84`；
+   `src/opentouch/aggregate.py:127-166`）。
+2. 最终 report 的核心是 `clip_equal_ratio`：先算每条 clip 的 `SSE_k/n_k`，再跨 clip 等权平均，
+   最后做 ratio；不是 per-clip ratio 的平均（`aggregate.py:226-245`）。`r2` 与 `skill` 都走这条
+   函数（`:270-289`）。`opentouch_report.py:162-188` 明确用它写论文 source CSV。
+3. 论文 Table OpenTouch 的数字与 report CSV 对上，例如 ProbGRU skill
+   `[.2905,.4517,.4780]`；所以**论文 OpenTouch test 是 clip-balanced**。
+4. 但 `src/opentouch/metrics.py:21-49` 与 `evaluate.py:45-53` 会把各 clip 的 origin 全部拼在一起后
+   直接求和/计数；`run_opentouch_exploratory.py:89-104,243-255` 写 `opentouch_cv4*.csv` 并先做
+   **fold 内 window/origin×horizon pooled**，再对 4 个 fold 等权平均。它不是 report estimator。
+5. OpenTouch 的 learned arms 训练与选模也 pooled：
+   - Seq2Seq map：`tactile_map.py:276-289,329-335`，window-pooled Gaussian NLL 选 checkpoint；
+   - ProbGRU：`prob_gru.py:284-308,358-416`，window-pooled NLL（默认）或 MSE 选 checkpoint；
+   - 旧 deterministic aggregate：`gru_aggregate.py:162-205`，window-pooled MSE。
+   AR 阶数选择同样是把 VAL origins 拼起来后 `.mean()`（`opentouch/baselines/ar.py:76-89`）。
+
+#### ActionSense：具体代码链
+1. frozen harness 是明确的 pooled estimator：`predict_series` 丢掉 recording id，把所有 origin 拼成
+   `(N_total,H,6)`（`eval_harness/baselines/base.py:52-64`），随后 `masked_*_mse` 对所有有效
+   origin×horizon point 直接 `sum/den`（`eval_harness/metrics.py:16-42`）。
+   `evaluate._result/build_rows` 直接把它写表（`evaluate.py:39-46,75-100`）。所以
+   `docs/actionsense/harness_baselines.csv` 是 **window-pooled（带 CoP mask）**。
+2. neural `tactile_map` 的直接 CV 输出也是 pooled：`evaluate` 在 `train.py:224-228` 对 test
+   window/horizon 直接 `.mean((0,1))`；每 fold 得一个 skill 后，driver 在
+   `scripts/actionsense/train_tactile_map.py:92-103` 对 fold 等权平均。因此 `cv_*.csv` 是
+   **fold 内 window-pooled，再 fold-mean（无 CoP mask）**，不是 recording-balanced。
+3. 保存后的 full-corpus 预测由 `scripts/shared/score_preds_per_action.py` 重评分：
+   `:205-206` 建 `ClipStats`，`:220-243` 同时输出 `skill`（recording-balanced）与
+   `skill_pooled`（全局 window-pooled）。论文 Table ActionSense 读的是前者：
+   Seq2Seq `0.1276` 而 pooled 是 `0.1453`；ProbGRU `-0.7225` 而 pooled 是 `-0.3716`。
+   `main.tex:301-326` 的 source 注释与表值逐项确认。因此**论文 ActionSense test 是
+   recording-balanced、无 CoP mask**。
+4. 当前 ActionSense checkpoint 选择在 `3e244a7` 后默认 balanced：先把每 window 的 NLL 在
+   horizon/channel 内求均值，再按 recording 求均值，最后 recording 等权
+   （`tactile_map/train.py:102-147,151-184`）。但训练梯度仍是 batch/window-pooled
+   (`:108-114,124-128`)，最终直接 CV 仍 pooled（`:211-238,376-395`）。
+5. **现有论文 ActionSense weights 并非由新 balanced criterion 选出。** corpus CV 文件时间为
+   2026-09-06，重评分文件为 2026-09-08 17:15；balanced-selection commit `3e244a7` 是
+   2026-09-08 19:44。旧代码 `_val_nll` 是 `sum(NLL)/y.numel()`。所以现有主表的准确描述是：
+   pooled NLL 训练 + pooled VAL 选 checkpoint + recording-balanced TEST 重评分。
+
+#### “其他”口径与不能混淆之处
+- clip-balanced 只消除**跨 clip 的时长权重**；clip 内仍把所有 `(origin,horizon-step)` 当点。
+  stride=1 使一个真实 target frame 最多重复 H 次，故它不是“每个唯一 frame 等权”。代码已在
+  `aggregate.py:26-28` 明说。
+- Hausdorff 是另一条 estimator：每个 origin 得一个曲线距离，先 clip 内平均，再 clip 间平均；
+  最后对 persistence 做 ratio（`opentouch_report.py:114-142`；共享 scorer `:154-158,231-237`）。
+- Gaussian NLL 是训练/选模 error，不是论文 pointwise MSE/skill。ProbGRU/Seq2Seq 的 variance
+  参与 NLL，但最终 point metric 只评 mean。
+- headline scalar 还会对 channel 等权平均；这又是一个聚合层，不能把它叫 window 或 clip 权重。
+- OpenTouch pointwise report 使用每 fold TRAIN 估计的低力 CoP mask；ActionSense 论文 full-corpus
+  scorer用 `--mask none`。所以两边虽同为 clip/recording-balanced，**有效点集合仍不同**。
+
+#### 查出的文档/实现不一致
+1. `main.tex:116-120` 文字称 clip-balanced，但公式只写裸 `sum`；照字面是 pooled。应把
+   `mean_k(SSE_k/n_k)` 明写进公式，否则方法段与实现矛盾。
+2. `score_preds_per_action.py:10-13` 称 aggregate 定义被“every OpenTouch number”使用，过强；
+   `opentouch_cv4*.csv` 明明走 pooled metrics。应限定为 final report / rescore numbers。
+3. 当前代码只把 ActionSense `tactile_map` 的 VAL selection 改成 balanced；OpenTouch 三条 learned
+   path 与 AR order selection仍 pooled。若论文要声称选择和评估统一，目前不成立。
+4. `frame-pooled` 是仓库沿用名，但实现计数单位其实是 `(forecast origin, horizon step)`，重叠窗口会
+   重复目标帧。严谨表述应是 `origin×horizon-point pooled (window-pooled)`。
+
+#### 数值交叉检查与测试
+- OpenTouch report 与 cv4 的 estimator 差异已从现存 CSV 实证：ProbGRU F skill
+  balanced `0.2905` vs 4-fold mean pooled `0.3862`；Seq2Seq F `0.3179` vs `0.3596`。
+- ActionSense full-corpus：Seq2Seq balanced `0.1276` vs global pooled `0.1453`；ProbGRU
+  balanced `-0.7225` vs global pooled `-0.3716`。这不是措辞差异，会改变效应大小。
+- 定向测试：`tests/test_opentouch_g2.py tests/test_harness.py tests/test_harness_opentouch.py`
+  共 **43 passed**；balanced sufficient-statistics、mask 与 harness pooled 实现均通过。
+
+### 本轮修改
+- 仅更新本日志；未修改任何模型、metric、论文或结果文件。
+
+### OPEN QUESTIONS（待用户裁定后再改）
+1. 是否把 OpenTouch 的 checkpoint/history/AR 选择也统一为 clip-balanced，并重跑论文两边的模型？
+2. 是否先做最小修正：改 `main.tex` 的 R²/skill 公式与术语、收紧 shared scorer docstring，明确现有
+   数字是 pooled-selected + balanced-scored？
+
+### 2026-09-08 — pooled training/selection 与 balanced report 的方法论；EgoTouch 建议（未实施）
+
+#### 用户问题与本轮范围
+- 用户问：training/checkpoint window-pooled、report clip-balanced 是否是好方法；新数据集
+  EgoTouch 应如何计算 error。本轮为解释与协议建议，不授权改模型或冻结配置。
+- 计划：复核共享训练/选模实现、EgoTouch 配置和此前长度统计，区分评估权重与误差函数，提出
+  有条件的默认方案；仅记录日志。无新增需要阻塞分析的开放问题。
+
+#### 证据与概念
+- `src/actionsense/tactile_map/train.py:104,113,127,131,156-184`：当前训练仍 pooled Gaussian
+  NLL；默认 checkpoint 已是 recording-balanced NLL，不是 pooled。旧 checkpoint 不因此改变。
+- `src/opentouch/aggregate.py:226-245,284-289`：balanced skill 为
+  `1 - mean_recording(MSE_model) / mean_recording(MSE_persistence)`，不是逐录制 skill 的均值。
+  按通道过滤无有效点的录制，模型与参考使用相同有效集合。
+- EgoTouch 此前实测原始长度 median=436、max=19853 帧@30Hz，约14.5s与661.8s；此前最新
+  history 扫描的 VAL top10 window 占比约36–38%（旧分析39–44%），来源是本日志现存实测，
+  本轮未重新运行数据扫描。
+- pooled 风险是按有效预测点数对录制加权；balanced 风险先录制内平均再录制间等权。前者回答
+  随机预测时点的表现，后者回答随机录制的平均表现；不存在脱离目标总体的普遍优胜口径。
+- 外部原始研究：Vogel et al., Weighted Empirical Risk Minimization (2020),
+  https://arxiv.org/abs/2002.05145 。论文支持训练分布与目标风险不同可通过加权对齐的一般原理；
+  本项目 recording 权重选择是据此与本地代码作出的判断，不是论文验证过的 EgoTouch 结论。
+
+#### 建议与理由
+1. pooled training + pooled VAL selection + balanced TEST 是可解释、非自动无效的协议，也不是
+   仅凭权重不同就产生 test leakage；但选模与报告给录制的权重不同，不宜作为新实验无说明的默认。
+2. 对“每次独立录制同等重要”的 EgoTouch 主任务，推荐 TEST 主指标 recording-balanced，pooled
+   作为辅助指标同时报告；保持原始录制为单位，不因切出更多子片段增加某录制权重。该口径不等于
+   action-balanced 或 subject-balanced。若任务目标明确是按实际运行时长衡量，则 pooled 可作主指标。
+3. checkpoint/history/AR 等验证选择也应采用 recording-balanced 权重。另需预先指定误差函数：
+   若主任务是点预测，按预先固定的 balanced 点预测主分数选模；若概率预测主任务，则 balanced
+   NLL 合理。NLL 与 MSE/skill 不等价，normalized MSE 与跨通道 mean skill 也不必等价。
+4. 训练 pooled Gaussian NLL 可保留作兼容现有实验的基线；balanced 训练是值得在 VAL 上比较的
+   备选，不声称 pooled 无害或 balanced 必胜。可均匀采录制再均匀采其窗口，或按窗口数反比加权
+   （二者勿重复使用）；这不要求永久丢弃长录制数据。固定验证主指标后比较，不能按 TEST 结果
+   改指标或选方案。balanced VAL 不会自动消除 pooled training 的优化偏向。
+5. VAL/TEST 使用同一有效点/mask规则；阈值仅由 TRAIN 得出（EgoTouch 配置:29-32）。官方
+   test_seen/test_unseen 分开报告（配置:41-45），不重新混合随机切分。不同长度录制的 eligible
+   集合仍由 min_history/horizon 决定；balanced 不会补回被过滤的短录制。
+6. 以上是建议，不是已落实的 EgoTouch pipeline：ActionSense driver :48 固定 `load_config()`，
+   :50 仅合并 preprocess/model/optim；只传 EgoTouch tactile_map YAML 不等于完成数据集接线。
+
+#### 对此前分析的纠正
+- 本日志旧结论“TRAIN top10只占8.4%，长度成比例采样无害”证据不足：1031条录制等权时top10
+  仅约0.97%，8.4%仍体现明显时长权重。是否损害目标泛化必须看预先固定的VAL指标。
+- ActionSense top10/15占84% 与 EgoTouch top10/~124占约40%，分母录制数不同，不能仅凭这两个
+  百分比就断言前者长度不均衡更严重；等权基准分别约66.7%与8.1%。
+
+#### 修改、验证与待决项
+- 仅追加 SESSION_LOG.md；没有修改训练、选模、scorer、配置或论文，没有新跑训练或测试。
+- 若用户下一步要求实施，须先确认点预测还是概率预测为主要选模目标，并确定是否增加
+  balanced-training 对照；本轮不将建议当作用户裁定，也不改变已有 Q-E 等待决事项。
+
+## 2026-09-08(续7)— 【EgoTouch 实验设计 v1】模型与 OT/AS 保持一致,按数据特征调整;PLAN,未写代码,OPEN QUESTIONS 在尾部等裁定
+
+**用户指令**:开始设计实验;model 方面与 OpenTouch/ActionSense 保持一致;按 EgoTouch 数据特征调整;
+有问题记录在 log 并提问。
+
+### D0. 先核实的"一致性基准" —— OT/AS 到底跑的是什么(逐文件证据)
+- **同一套模型**(`src/actionsense/tactile_map/models.py` + `src/opentouch/tactile_map.py` 头部自证):
+  三个 per-frame encoder(aggregate/flatten/cnn)共享**同一个概率 GRU 头**,"the encoder is the
+  only variable";d=64, hidden=64, lr=3e-3, batch=64, epochs=60;Gaussian NLL,logvar clamp [-6,4];
+  log1p 压缩 α=10;seq2seq = one-shot residual-over-persistence;probgru = 自回归、动作条件、
+  绝对目标(`models.py:82`:"The same backbone as src/opentouch/prob_gru.py, so the two sensors'
+  probGRU arms are one model")。
+- **协议不同源**:AS 用 **5-fold CV by recording**(`cross_validate`,随机折,seed 0;Norm+模型
+  fit 在折内 TRAIN,sigma 在 TRAIN 的 VAL 子集上校准);OT 用显式 `train_ids/val_ids`
+  (shard/location 切分)。**两家共享模型,不共享切分协议** —— 协议本来就是随数据来的。
+- **probGRU 的动作条件已经带泛化机制**:词表从 **TRAIN 的 verb** 构建,`OTHER=0` 保留给
+  "rare-in-TRAIN or unseen-at-TEST"(`data.py:31,55,60`)。
+- **算力基准**:AS corpus 299 条 @mh40 = **92,095** 个训练窗口(本机由 manifest 实算)。
+
+### D1. 设计总则
+**模型、超参、损失、压缩、归一化、输出格式:逐字沿用**(上面 D0 第一条全部)。
+**改的只有协议与形状,且每一处都由数据特征强制**,照 OT fork 的规矩"DECIDED RATHER THAN
+DRIFTED INTO"逐条记录:
+
+| # | 与 AS 的差异 | 强制它的数据特征 | 已裁定? |
+|---|---|---|---|
+| 1 | 网格 2×21×21(FLAT=882) | 传感器几何 | 是(结构事实) |
+| 2 | **官方 split 单切分,不做 5-fold CV** | 数据集自带 train/val/test_seen/test_unseen;CV 折会把官方 test 混进训练,"我们用官方 split"即告作废 | **设计推论,见 Q-F0** |
+| 3 | histories {1,3} s | 用户裁定 2026-09-08 | 是 |
+| 4 | map 输入 baseline_frames=0 | released-as-is(网格已归一化) | 是(OQ5) |
+| 5 | checkpoint 选择 clip-balanced | 460× 长度偏斜(Q-D(b)) | 是 |
+| 6 | sigma 校准在**官方 val** 上 | 单切分下自然替代"TRAin 的 VAL 子集" | 随差异2 |
+| 7 | min_history 30 | 最长臂=3 s,无填充评分 | **待裁定(Q-E)** |
+
+### D2. 实验矩阵(待 Q-F 定后冻结)
+- **E1 参照阶梯**(CPU,便宜,先跑):`evaluate.py` + `configs/egotouch/eval_harness.yaml`,
+  persistence / seasonal / AR,`fit_scope: group`,官方 split。
+- **E2 神经臂**:encoders {aggregate, flatten, cnn} × histories {1 s, 3 s} × backbones(Q-F)。
+  协议:fit=官方 train;逐 epoch 用官方 val 选 checkpoint(clip-balanced);sigma 校准=官方 val;
+  评估=test_seen;test_unseen 只出聚合数(附录,n=8 组口径)。
+- **E3 产出**:`--save-preds` 沿用 OT overlay npz 格式与 merge 语义(`save_predictions` 的防截断
+  检查原样保留);test_seen 与 test_unseen **分目录**,绝不混进同一 npz 群体;
+  之后 `score_preds_per_action.py` → `build_skill_comparison.py` 加 EgoTouch 列。
+
+### D3. 代码工作清单(全部等裁定后动工)
+- **W1(Q-G)** 网格形状:推荐**参数化共用 models.py**(encoder 从输入张量推断 (C,G,G),
+  `FlattenEncoder` 构造时接收 flat 维度;AS 默认值不变 + 回归测试),而非照 OT 再 fork 一份。
+  理由:Q-D(b) 已确立"共用代码、统一口径、AS 数字验证不变"的路线;三个传感器一套代码是
+  "one model" 主张的最强形式。OT 的 fork 不动。
+- **W2** 驱动 `scripts/egotouch/train_tactile_map.py`:**单切分协议**(不复用 `cross_validate`),
+  读 `data/egotouch_states/splits.json`,写 per-recording npz。
+- **W3** CRC job 脚本(打印 scope+population size,失败要响,按 CLAUDE.md 指令 6)。
+- **W4 必核项**(实现前逐一验证并记录):
+  (a) **test_unseen 的 group 在 TRAIN 中不存在**时,seasonal/AR 的 `predict(hist,H,group)`
+      行为 —— fallback 是否存在?若无,须显式加"未知 group → global/persistence"并测试;
+  (b) `action_vocab` 的 rare-verb keep 阈值在 EgoTouch(~100+ 动词,vs AS 的 2 个)下产生的
+      词表规模与 OTHER 占比 —— 打印并记录,不静默;
+  (c) MapNorm/Norm 均只 fit 官方 train;
+  (d) probgru 的 absolute-target + 动作嵌入在 n_act 大时的嵌入维度是否仍合理。
+- **W5** 算力预估:train 窗口 **494k @mh30 = AS corpus 的 5.4×**/epoch;矩阵 8-12 个模型 × 60
+  epochs。**默认不做**训练窗口 stride 降采样;仅当 GPU 时间不允许时作为 Q-I 提请。
+
+### OPEN QUESTIONS(设计裁定点,按重要度)
+- **Q-F0(结构性,必须先答)** 确认协议:**官方 split 单切分、放弃 5-fold CV**?
+  (CV 与官方 split 互斥;我认为单切分是"主实验用官方 split"的必然推论,但这改变了与 AS 结果的
+  误差条语义,所以要你确认。)
+- **Q-E(重申,阻塞冻结配置)** `min_history`:**30**(推荐,无填充评分+AR-30 成立+多 10% 数据)
+  还是 40(沿袭 AS)?
+- **Q-F** backbone×encoder 矩阵:(a) 全交叉 {seq2seq,probgru}×{agg,flat,cnn}×{1,3}s = 12 个模型;
+  (b) **AS/OT 实跑过的组合**:seq2seq×3 encoders + probgru×aggregate,×2 histories = **8 个**(推荐,
+  与"保持一致"字面吻合;注意 commit 7f7c72f:AS corpus 当时只跑了 aggregate 臂,map 臂是 re-stream
+  之后才可能);(c) 更小。
+- **Q-G** 网格形状:参数化共用代码(推荐)还是 fork `src/egotouch/tactile_map.py`?
+- **Q-H** 单切分没有折方差,不确定性用什么:(a) **bootstrap CI over recordings**(推荐,零额外训练,
+  与 scorer 的 clip-balanced 口径同构);(b) 3 seeds × 全矩阵(算力 ×3);(c) 两者(主表 bootstrap,
+  附录挑 1-2 臂做 seed 敏感性)。
+- **Q-K** 参照阶梯的 `fit_scope`:group(与 AS 一致;但 EgoTouch train 有 ~168 个 (action,object)
+  组,大量组只有 1-2 条录制,AS 只有 5 组)还是 global?我建议:**保持 group** 但把 W4(a) 的
+  fallback 核实清楚 + 顺跑一次 global 作稳健性对照(CPU 便宜)。
