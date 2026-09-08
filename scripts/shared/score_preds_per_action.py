@@ -218,13 +218,30 @@ def score(preds_dir, label, mask_mode, manifest, min_clips, want_models=None):
     # dataset's mean, which is what rows=None gives. Same for Hausdorff, averaged clip-equal
     # over every clip rather than over the per-action means (actions have unequal clip counts).
     for m in models + [PERS]:
-        r2 = float(np.nanmean(aggregate.r2(st, m).per_channel))
-        sk = float(np.nanmean(aggregate.skill(st, m, PERS)))
-        hd = float(np.nanmean([np.nanmean(hd_rows[i][m]) for i in hd_rows]))
-        hp = float(np.nanmean([np.nanmean(hd_rows[i][PERS]) for i in hd_rows]))
-        rows.append(dict(label=label, action=ALL, n_clips=len(hd_rows), model=m,
-                         r2=r2, skill=sk, hausdorff=hd,
-                         hausdorff_ratio=hd / hp if hp else float("nan")))
+        r2c = aggregate.r2(st, m).per_channel
+        skc = aggregate.skill(st, m, PERS)
+        # FRAME-POOLED skill: one ratio of summed SSE over every valid point, which is the
+        # estimator OpenTouch's cv4 table reports as SS_vs_persistence and the one
+        # docs/skill_comparison.md tabulates. aggregate.skill above is CLIP-BALANCED -- each
+        # clip's mean formed first -- and the two differ by a lot when the horizon's early
+        # steps have small denominators. Both are emitted, named, so a table never has to
+        # guess which it is holding.
+        num, den = st.sse[m].sum(0), st.sse[PERS].sum(0)
+        skp = 1.0 - np.divide(num, den, out=np.full_like(den, np.nan), where=den > 0)
+        hdc = np.nanmean(np.stack([hd_rows[i][m] for i in hd_rows]), axis=0)
+        hpc = np.nanmean(np.stack([hd_rows[i][PERS] for i in hd_rows]), axis=0)
+        row = dict(label=label, action=ALL, n_clips=len(hd_rows), model=m,
+                   r2=float(np.nanmean(r2c)), skill=float(np.nanmean(skc)),
+                   skill_pooled=float(np.nanmean(skp)),
+                   hausdorff=float(np.nanmean(hdc)),
+                   hausdorff_ratio=float(np.nanmean(hdc) / np.nanmean(hpc))
+                   if np.nanmean(hpc) else float("nan"))
+        for ci, ch in enumerate(chans):
+            row[f"r2_{ch}"] = float(r2c[ci])
+            row[f"skill_{ch}"] = float(skc[ci])
+            row[f"skill_pooled_{ch}"] = float(skp[ci])
+            row[f"hausdorff_{ch}"] = float(hdc[ci])
+        rows.append(row)
     for a, clips in sorted(by_action.items()):
         if len(clips) < min_clips:
             continue
@@ -255,6 +272,8 @@ def to_markdown(rows, models, label, n_clips_total):
             e = every[0]
             out += [f"**model `{m}`** — whole dataset ({e['n_clips']} recordings): "
                     f"R² **{e['r2']:.4f}**, skill **{e['skill']:+.4f}**, "
+                    f"skill (frame-pooled, OpenTouch's estimator) "
+                    f"**{e['skill_pooled']:+.4f}**, "
                     f"Hausdorff **{e['hausdorff']:.3f}** "
                     f"({e['hausdorff_ratio']:.3f}× persistence). This is measured against the "
                     f"whole dataset's mean, so it is **not** the average of the rows below, "
@@ -294,12 +313,16 @@ def main():
     label = a.label or os.path.basename(a.preds.rstrip("/"))
     rows, models, chans, n_acts = score(a.preds, label, a.mask, a.manifest,
                                        a.min_clips, a.models)
+    fields = list(rows[0])
+    for r in rows:                      # per-action rows lack the per-channel extras
+        for k in fields:
+            r.setdefault(k, "")
     os.makedirs(a.out, exist_ok=True)
     stem = os.path.join(a.out, os.path.basename(a.preds.rstrip("/")))
 
     import csv
     with open(stem + ".csv", "w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=list(rows[0]))
+        w = csv.DictWriter(fh, fieldnames=fields)
         w.writeheader(); w.writerows(rows)
     with open(stem + ".md", "w") as fh:
         fh.write(to_markdown(rows, models, label, n_acts))

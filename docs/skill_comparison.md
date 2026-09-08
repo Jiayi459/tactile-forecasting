@@ -162,13 +162,18 @@ actions, 5-fold CV by recording, both backbones, 3 s history
 different class mean, different folds. Read it as a separate sensor-scale entry, never as an
 update to the frozen column.
 
-**Its skill cells are empty on purpose.** The per-channel pooled skill is computed inside
-`cross_validate` as `skill_ch` and only ever *printed*; `cv_*.csv` stores the per-step values,
-whose ratios cannot be pooled back. Filling those cells would mean averaging per-step skills
--- a third estimator, not the frame-pooled one every other column uses -- and this document
-already says such cells cannot be compared. Writing `skill_ch` to the CSV is the one-line fix.
-The Hausdorff cells *are* filled: `cv_*.csv` carries per-channel Hausdorff directly, on the
-same per-clip estimator as the `ActionSense` column.
+**Its skill cells are empty pending one rescore, not for want of a definition.** The
+estimator these tables use is settled: OpenTouch's numbers are `SS_vs_persistence` from its
+`cv4` driver table -- frame-pooled over every valid (window, horizon-step) point, averaged
+over folds -- and ActionSense's identical quantity is `evaluate`'s `skill_ch`. The
+**channel-averaged** values are known from the job logs: Seq2Seq **+0.145** (3 s) / **+0.137**
+(1 s), probGRU **−0.309** / **−0.324**. What is missing is the *per-channel* split, because
+`cross_validate` prints `skill_ch` and never writes it, and `cv_*.csv` keeps only per-step
+ratios, which cannot be pooled back. Filling the cells from a per-step average would import a
+third estimator into a table this document already forbids mixing.
+`score_preds_per_action.py` now emits `skill_pooled` per channel, so one rescore -- seconds,
+no GPU -- fills this column properly. The Hausdorff cells *are* filled: `cv_*.csv` carries
+per-channel Hausdorff directly, on the same per-clip estimator as the `ActionSense` column.
 
 ## F_R
 

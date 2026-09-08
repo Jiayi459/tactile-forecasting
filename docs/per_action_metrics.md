@@ -134,12 +134,16 @@ forecasts; source tables in `docs/actionsense/results/corpus-aggregate/`.
 
 ### 4.1 Whole dataset
 
-| run | R² | skill vs persistence | Hausdorff | HD ratio |
-|---|---:|---:|---:|---:|
-| seq2seq, 3 s | **0.7414** | +0.1276 | **2.419** | 0.830 |
-| seq2seq, 1 s | **0.7410** | +0.1243 | **2.408** | 0.826 |
-| probGRU, 3 s | **0.6374** | -0.7225 | **2.627** | 0.901 |
-| probGRU, 1 s | **0.6428** | -0.7203 | **2.629** | 0.902 |
+**Which skill?** OpenTouch's tables report `SS_vs_persistence` from its `cv4` driver table — **frame-pooled**, one ratio of summed squared error over every valid (window, horizon-step) point, averaged over folds. ActionSense's equivalent is `evaluate`'s `skill_ch`. To stay comparable with OpenTouch, **read the frame-pooled column**; the clip-balanced one is kept beside it because that is what `aggregate.skill` computes and it is the estimator the per-action tables below use.
+
+| run | R² | skill (frame-pooled, **matches OpenTouch**) | skill (clip-balanced) | Hausdorff | HD ratio |
+|---|---:|---:|---:|---:|---:|
+| seq2seq, 3 s | **0.7414** | **+0.1450** | +0.1276 | **2.419** | 0.830 |
+| seq2seq, 1 s | **0.7410** | **+0.1370** | +0.1243 | **2.408** | 0.826 |
+| probGRU, 3 s | **0.6374** | **-0.3090** | -0.7225 | **2.627** | 0.901 |
+| probGRU, 1 s | **0.6428** | **-0.3240** | -0.7203 | **2.629** | 0.902 |
+
+_The frame-pooled column above is read from the job logs (`logs/tactile_map.o14168xx`), because `cross_validate` prints `skill_ch` and never writes it. `score_preds_per_action.py` now emits it as `skill_pooled`; the next rescore will source this column from the CSV instead._
 
 Persistence, for reference (same rows, same denominator):
 

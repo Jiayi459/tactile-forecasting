@@ -10316,3 +10316,191 @@ step-1 主导;clip-balanced 则先按 clip 归一。**三者都为负,结论稳�
 **教训**:这个错误从 2026-08-25 起被我写进日志与两份文档,期间多次复述而未核。
 **"两个东西不可比"是一个需要证明的断言,不是一个安全的默认。** 我当时从"目标空间不同"
 直接推出"参照不同",跳过了实际去读 `evaluate` 里分母怎么算的这一步。
+
+## 2026-09-08 — 【EgoTouch 复跑调查】数据不在仓库里;代码残存三类;端到端移植计划(PLAN,未动代码,等裁定)
+
+### 用户请求
+"把整套预测流程在新的 dataset EgoTouch 上面跑;先检查这个 repo 里是否还保留了 EgoTouch 的
+dataset。" 并给出论文链接 arXiv 2605.13083 与项目页 TouchAnything-Website。
+
+### 一句话结论
+**数据没有了**(本机 0 字节,且按设计从来没进过 git);**代码留了三类**(下载器、像素期探针、
+以及传感器无关、可直接复用的核心);**上游 HF 仓库仍在线可下**;但**本机现在连下载都做不了
+——磁盘只剩 99 MiB**。因此这不是"改几行就能跑"的任务,先要定跑在哪台机器上。
+
+### 一、"仓库里是否还保留 EgoTouch 数据集" —— 否。逐条证据
+1. `datasets/` 下只有一个**空目录** `grasp_hold_lift_tactile/`(0 B,0 个文件);
+   `datasets/EgoTouch/` 不存在。`find $HOME -name 'pressure_grids.npz'` → 0 命中。
+2. `.gitignore:2` = `/datasets/` —— EgoTouch **从未被 git 跟踪过**,所以任何 clone、任何
+   `git pull` 都不可能带回它。这是 Session 1(2026-06-17)刻意的决定(15 GB 不进 git)。
+3. 原始 14.91 GB 那份是在 **Windows 机器** `c:\Users\haoji\TouchAnything` 上下载的
+   (SESSION_LOG:20-21),本机是 macOS `/Users/haojiayi/TouchAnything`,不是同一台。
+4. `~/.cache/huggingface/hub` 里只有 3 个无关 repo,**没有 EgoTouch 的 HF 缓存**。
+5. 2026-08-06 的数据可用性审计(SESSION_LOG:2074)记 EgoTouch = "Yes, on CRC / part of
+   gitignored `datasets/` ~15 GB / not local; deprecated 2026-07-03"。**CRC 上那份是否还在,
+   本轮无法验证**(本机没有 CRC 会话),需要一条 `ls` 去确认 —— 见 OQ1。
+
+### 二、残存下来的 EgoTouch 相关资产(代码与派生结果都在,只有原始数据不在)
+**A. 下载器(仍可用)** `scripts/egotouch/download_egotouch.py`
+   - `--pressure-only` → 只拉 `*/*/*/pressure_grids.npz` + `split.json`,SESSION_LOG:232 记 ~1.7 GB;
+   - 默认(`ignore_patterns=["*.mp4"]`)→ ~15 GB;`--videos` → ~88.5 GB。
+**B. 像素期(deprecated)的探针 4 个**:`categorize_actions.py`、`probe_egotouch.py`、
+   `tactile_predictability_probe.py`、`prepare_grasp_tactile.py`。它们读的是 **21×21 像素图本身**,
+   属于旧的 pixel forecaster 路线,**不是**现在这套 F/CoP 预报流程。
+**C. 动作分类法(活的、被现役代码 import)** `src/tactile_pixel/categories.py::categorize`
+   —— verb→23 类的单一真源,`scripts/egotouch/*` 与旧 pixel train.py 共用。
+**D. 派生结果(仍在 git 里)** `docs/actionsense/predictability_by_category{,_full}.csv`
+   (29 行:temporal_pattern + action_category 两种分组,n=1493/1929),以及
+   `docs/ACTION_CATEGORIES.md` §3、§4b、`docs/PROJECT_CONCLUSIONS.md` 里的 EgoTouch 段落。
+   **即:结论活着,原始数据死了。**
+
+### 三、上游可用性(本轮实测,2026-09-08)
+`GET https://huggingface.co/api/datasets/zhouzhoujy/EgoTouch` → 200,`private:false`、
+`gated:false`、`disabled:false`,`lastModified 2026-05-16`,downloads 15,951。
+文件清单实测:**22,897 个文件 / 5 个 scene / 213 个 task / 1,933 条 trajectory**,
+其中 `pressure_grids.npz` **1,933 个(覆盖率 100%)**。抽样单条 `Home/arrange_pillow/
+20260412_101136_379/pressure_grids.npz` = **0.27 MB**(同目录 chest/left/right/visualization
+四个 mp4 合计 47 MB —— 这就是为什么只拉 npz 便宜两个数量级)。
+注:1,933 与 Session 2 记的 1,933 一致;README 宣称的 1,891 episodes 略少,差额是
+`Home/metadata` 之类非轨迹目录 + 质量剔除,**不影响本计划**。
+
+### 四、本轮发现的三个阻塞项(按严重度)
+- **B1(硬阻塞)磁盘**:`/System/Volumes/Data` 228 Gi 用了 199 Gi,**可用 99 MiB**。
+  本轮调查中途真的把盘写满了 —— 一条普通 python 命令因 `ENOSPC` 无法写工具输出而失败,
+  删掉一个 1.7 MB 的临时 json 才恢复。**pressure-only 的 1.7 GB 在本机放不下**,
+  metadata-only 的 15 GB 更不可能。
+- **B2 环境**:本机唯一可用解释器 `/opt/anaconda3/bin/python` (3.11.7) 有
+  numpy 1.26.4 / scipy / pandas / h5py / yaml / matplotlib,**没有 torch,也没有 huggingface_hub**。
+  即:本机既下不动,也训不动;`snapshot_download` 还要先 `pip install huggingface_hub`。
+- **B3 CRC 未知**:EgoTouch 是否还在 CRC、`tactile` conda env 是否还在、home 100 GB 配额还剩多少,
+  三件事都未验证。`scripts/crc/README.md` 已警告 `/scratch365` 在 2026-08-19 起不存在,
+  且 netid `jhao3` 在 `/temp180`、`/bluefs`、`/goldfs` 上**没有目录**(要向 crcsupport 申请)。
+
+### 五、"整套预测流程"当前是什么(移植的靶子)
+以 ActionSense corpus 臂为准,七步链条:
+1. **抽取** → `data/<ds>_states/`:`state_<idx>.npy` (T, n_hands, 6) = `[F,xbar,ybar,sxx,syy,sxy]`
+   (`src/actionsense/physical_state.frame_state`)、可选 `clip_<idx>.npy` (T,C,H,W) 原始压力图、
+   `manifest.jsonl`(idx/label/cat/fps/T/features/has_clip)、`splits.json`。
+2. **配置** → `configs/<ds>/eval_harness.yaml`(channels / force_idx / cop_idx / fps_raw /
+   downsample / horizon_s / mask.percentile / baselines / split / eval.{stride,min_history} / paths / actions)。
+3. **目标与归一化** → `eval_harness/dataset.py`:取每只手的矩 0..2 → 6 维
+   `[F_L,CoPx_L,CoPy_L,F_R,CoPx_R,CoPy_R]`,TRAIN 上拟合全局逐通道 z-score。
+4. **参照阶梯** → `eval_harness/baselines/{persistence,seasonal,ar}.py` + `evaluate.py`。
+5. **预报器** → `src/actionsense/tactile_map/{data,models,train}.py`:
+   encoder ∈ {aggregate, flatten, cnn} × backbone ∈ {seq2seq(残差), probgru(绝对,动作条件, AR rollout)},
+   驱动脚本 `scripts/actionsense/train_tactile_map.py --scope {frozen,corpus} --save-preds`。
+6. **评分** → `scripts/shared/score_preds_per_action.py`(逐动作 R² / skill / Hausdorff,
+   clip-balanced,persistence 现场合成)+ `scripts/crc/score_and_plot_runs.sh`(按数据推断输出目录)。
+7. **汇总与图** → `scripts/shared/{export_per_action_metrics,build_skill_comparison}.py`、
+   `scripts/actionsense/plot_*.py` → `docs/actionsense/results/<scope>-<input>/`。
+
+### 六、移植到 EgoTouch 要改什么(已核到行,非估计)
+**EgoTouch 在四个语料里几何上最接近 ActionSense**,这是本轮最有用的发现:
+**2 只手**(→ 目标恰好也是 6 维,`dataset.py` 的 `HANDS=2` 无需改)、**30 Hz**
+(→ `downsample: 3` 得到 10 Hz,与 ActionSense 逐字相同,horizon 10 步 = 1 s 可直接对齐)。
+唯一的几何差异是 **21×21 vs 32×32**。
+
+**(a) 传感器无关、可原样复用**
+- `src/actionsense/physical_state.py` —— 坐标已归一化到 [-1,1],docstring 明写
+  "comparable across the 16/21/32-wide gloves",**21 就是 EgoTouch**。
+- `eval_harness/` 的 config / dataset / splits / masking / metrics / baselines / evaluate 全部。
+- `scripts/shared/score_preds_per_action.py`、`src/shape_metrics.py`、`src/opentouch/aggregate.py`。
+**(b) 必须改的硬编码**
+- `src/actionsense/tactile_map/models.py:12` `IN_CH, GRID = 2, 32`;`:13` `FLAT = 2048`;
+  `:35-36` 两个 stride-2 卷积的注释 32→16→8(21→11→6,数值上能跑,注释会说谎)。
+- `src/actionsense/tactile_map/data.py:196` `recording_windows` 的空返回 fallback
+  写死 `np.zeros((0,t_in,2,32,32))`;以及全文件 docstring 里的 (T,2,32,32)。
+- **先例**:`src/opentouch/tactile_map.py` 就是为此把整套压成一个模块并改 `IN_CH,GRID = 1,16`
+  (其 docstring 第 1 条明确"THREE THINGS DIFFER, EACH DECIDED RATHER THAN DRIFTED INTO")。
+  EgoTouch 应照此办理 —— **fork 一份 `src/egotouch/tactile_map.py`,不要把 GRID 参数化后
+  改动现役 ActionSense 模块**(会动到已发表数字的代码路径)。
+**(c) 必须新写的**:`scripts/egotouch/extract_egotouch_states.py`
+  —— 读 `pressure_grids.npz` 的 `left_pressure_grid`/`right_pressure_grid` (T,21,21),
+  NaN→0,stack 成 (T,2,21,21),过 `frame_state` 得 (T,2,6),写 state/clip/manifest/splits。
+  模板:`scripts/opentouch/extract_opentouch.py` 与 `scripts/d256/extract_d256_states.py`。
+**(d) 一个免改的技巧**:`splits.parse_label('Slice a cucumber') -> ('slice','cucumber')` 取
+  首 token 与末 token。只要抽取时把 manifest 的 `label` 写成 `task.replace('_',' ')`
+  (`grasp_cola` → `"grasp cola"`),`parse_label` **一行不改**就得到 (verb, object),
+  `group_keys` 的 `action-object` 分组、`eligible_recordings` 的前缀匹配也随之全部可用。
+**(e) 已知风险 —— 轨迹长度**:`eval.min_history=40` + `horizon=10` ⇒ 每条录制在 10 Hz 下至少
+  需 **50 帧 = 30 Hz 下 150 帧 ≈ 5 s** 才产生 1 个 origin;3 s history 的臂还要更长。
+  OpenTouch 正是在这里被卡住(clip 中位 2.80 s,10 s history 只剩 90/2958 条,OQ-H)。
+  EgoTouch 全语料的时长分布**本轮无法测**(数据不在),但旧的
+  `scripts/egotouch/prepare_grasp_tactile.py` 已经会打印 T 的 min/max/mean/median,
+  数据一落地就该先跑它 —— **这必须是下载后的第一个动作,早于任何训练**。
+
+### 七、拟议执行计划(分 4 阶段;**未实现,等裁定**)
+- **P0 选址与体检**(无 GPU):确认跑在哪台机器;若 CRC:`ls ~/data/egotouch`、`quota`、
+  `conda env list`;若本机:先腾出 ≥ 5 GB。产出:一行"数据在 X、可用空间 Y、torch 版本 Z"。
+- **P1 落地与画像**:`download_egotouch.py --pressure-only`(1,933 个 npz);跑长度/NaN/活跃度
+  画像(复用 prepare_grasp_tactile 的统计);产出 `docs/egotouch/profile.md`
+  —— **含"多少条录制满足 ≥50 帧@10Hz"这一个决定性数字**。
+- **P2 抽取与配置**:`extract_egotouch_states.py` → `data/egotouch_states/`;
+  `configs/egotouch/eval_harness.yaml`;`configs/egotouch/tactile_map.yaml`;
+  新增 `tests/test_egotouch_extract.py`(至少:形状契约、NaN 处理、label→parse_label 往返、
+  splits 无泄漏)。**先过 pytest 再训练**,与 `train_tactile_map_gpu.job` 的既定纪律一致。
+- **P3 跑流程**:参照阶梯(persistence / seasonal / AR)→ aggregate × {seq2seq, probgru} ×
+  history → map 臂(flatten / cnn,**EgoTouch 是唯一 100% 有 raw map 的语料**,见 OQ6)
+  → `score_preds_per_action.py` → `build_skill_comparison.py` 加 `EgoTouch` 列。
+
+### OPEN QUESTIONS(按 CLAUDE.md 指令 5,未动代码,等用户逐条裁定)
+1. **在哪跑?** (a) CRC(需先验证 B3;有 GPU;数据可能已在);(b) 本机(必须先腾 ≥5 GB,
+   且**没有 torch**,只能跑抽取+参照阶梯,跑不了神经臂);(c) 第三台机器。**此题决定其余一切。**
+2. **下哪一份?** (a) `--pressure-only` ~1.7 GB / 1,933 npz —— 足够跑完整的 F/CoP + raw-map
+   全流程(**推荐**);(b) metadata-only ~15 GB —— 只有在要用 wilor/hamer 手部姿态或
+   `manual_contact_annotation` 时才需要;(c) 带 mp4 ~88.5 GB(与本项目无关)。
+3. **Split 用谁的?** (a) EgoTouch 官方 `split.json`(train/val/test_seen/test_unseen)
+   —— 可与原论文对齐,且自带 unseen-object 泛化轴;(b) 我们自己的 (action,object) 分层
+   60/20/20 seed 0 —— 与 ActionSense/OpenTouch/d256 **口径一致、可同表**。二者不可兼得,
+   混用会重演 P3("先选定基线再相信数字")。
+4. **群体范围?** (a) 全 1,933 条 / 213 task / 23 verb 类(= ActionSense 的 corpus scope 对应物);
+   (b) 先冻一个小 scope(如 core-grasp 8 task)做管线打通,再放大。
+5. **baseline correction 口径?** EgoTouch 网格已被 `tactile_max` 归一化到 [0,1] **且含 NaN**。
+   三选一:(a) ActionSense 的因果前 N 帧均值;(b) OpenTouch 的 per-taxel 中位数;(c) 不做。
+   **不能默认沿用 ActionSense 那条** —— OpenTouch 的 docstring 已记录过这个坑(clip 若从接触中
+   开始,前 N 帧均值就是错的)。需要先看 P1 的画像再定。
+6. **跑哪些臂 / 目标是什么?** EgoTouch 是**唯一 raw map 覆盖率 100% 的语料**
+   (ActionSense 只有 100/299),所以它是目前唯一能在同一群体上同时给出
+   **完整 reference ladder(H1)+ representation ordering(H3)** 的数据集 —— 而这两条现在
+   全靠 OpenTouch 独撑(见 2026-09-06续7)。是否按这个定位来设计跑法?
+7. **产出去向?** (a) 进 ICRA 正文当第四个传感器(则需冻结 harness、bootstrap CI、
+   `build_skill_comparison.py` 加列);(b) 仅探索,不进正文。这决定要不要走"冻结"纪律。
+
+### 本轮未改动任何代码,未下载任何数据。
+附:`git status` 当前有 **3 个未跟踪文件** —— `main.tex`(43 KB,ICRA 手稿)、
+`scripts/actionsense/plot_corpus_action_predictability.py`、
+`docs/actionsense/results/corpus-aggregate/action_predictability.png`。
+按 CLAUDE.md 指令 6,**在把任何命令交到别的机器上跑之前**,这三个要么提交并推送,要么明确
+说明它们与该次运行无关。`git log origin/main..HEAD` 目前为空(HEAD 与 origin/main 一致)。
+
+### 2026-09-08续 — 确认 OpenTouch 用的是哪个估计量,ActionSense 改为与之一致
+
+**用户要求**:查明 OpenTouch 的 probGRU skill 用哪种算法,ActionSense 与之保持一致。
+
+**核查(反推数值,非读注释)**。`docs/skill_comparison.md` 的 `## F_R` 表里 `d1_pg` 的
+probGRU = **0.386**。两个候选源都对不上:report CSV(clip-balanced)是 **0.2905**,
+cv4 CSV 的 step-1 是 **0.3493**。逐一试聚合方式后确定:
+`opentouch_cv4_d1_pg.csv` 的 `SS_vs_persistence`,**对折与 horizon step 的简单平均 = 0.3862**;
+该文件里 `horizon_step="all"` 的行按折平均同样是 **0.3862**(三种算法一致)。
+**故 OpenTouch 的约定 = frame-pooled(对窗口与 horizon 步一起池化)后对折平均。**
+
+**ActionSense 的同一量是 `evaluate` 的 `skill_ch`**
+(train.py:182 `1 - em.mean((0,1))/ep.mean((0,1))`,同样对 (N,H) 池化),经
+train_tactile_map.py:96 对折平均——**即作业日志里打印的那个数**:
+seq2seq **+0.145 / +0.137**、probGRU **−0.309 / −0.324**。
+**而我此前放进 §4.1 的是 clip-balanced 的 −0.7225**(`aggregate.skill` 经 `clip_equal_ratio`),
+与 OpenTouch **不同**约定。已改为**以 frame-pooled 为首列并标注"matches OpenTouch"**,
+clip-balanced 保留在旁并注明它是 per-action 表所用的估计量。
+
+**代码补齐**:`score_preds_per_action.py` 的全数据集行新增
+`skill_pooled`(frame-pooled,由 `st.sse[m].sum(0) / st.sse[PERS].sum(0)` 直接得到,
+因 `clip_stats` 的 `sse` 本就是每 clip 的 SSE 之和)以及**逐通道**的
+`r2_<ch>` / `skill_<ch>` / `skill_pooled_<ch>` / `hausdorff_<ch>`。
+per-action 行用空串补齐列以保持 CSV 矩形。**一次重跑(秒级、无需 GPU)即可**:
+(a) 让 §4.1 的 frame-pooled 列改从 CSV 读取而非日志;
+(b) 填上 `skill_comparison.md` 中 `AS_corpus` 的三张逐通道 skill 表。
+冒烟验证:clip-balanced 0.7284 vs frame-pooled 0.7235,逐通道六列齐全,CSV 矩形。
+
+**结论未变,证据更强**:probGRU 在 corpus 上落在 persistence 之下,
+在**与 OpenTouch 同一约定**下是 **−0.309 / −0.324**;R²(0.637/0.643 对 persistence 的 0.6925)
+与 Hausdorff 独立指向同一结论。

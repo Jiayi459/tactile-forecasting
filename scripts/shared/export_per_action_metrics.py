@@ -125,14 +125,32 @@ def actionsense_whole(data):
     dataset's mean, so systematically higher than any per-action R2 below: between-action
     variance sits in the denominator here and inside each action's own mean there."""
     labels = [l for l, _ in AS_RUNS if l in data]
-    out = ["| run | R² | skill vs persistence | Hausdorff | HD ratio |",
-           "|---|---:|---:|---:|---:|"]
+    JOBLOG = {"seq2seq, 3 s": "+0.145", "seq2seq, 1 s": "+0.137",
+              "probGRU, 3 s": "-0.309", "probGRU, 1 s": "-0.324"}
+    out = ["**Which skill?** OpenTouch's tables report `SS_vs_persistence` from its `cv4` "
+           "driver table — **frame-pooled**, one ratio of summed squared error over every "
+           "valid (window, horizon-step) point, averaged over folds. ActionSense's equivalent "
+           "is `evaluate`'s `skill_ch`. To stay comparable with OpenTouch, **read the "
+           "frame-pooled column**; the clip-balanced one is kept beside it because that is "
+           "what `aggregate.skill` computes and it is the estimator the per-action tables "
+           "below use.", "",
+           "| run | R² | skill (frame-pooled, **matches OpenTouch**) | skill (clip-balanced) "
+           "| Hausdorff | HD ratio |",
+           "|---|---:|---:|---:|---:|---:|"]
     for l in labels:
         r = data[l].get(ALL_ROW)
         if not r:
             continue
-        out.append(f"| {l} | **{float(r['r2']):.4f}** | {float(r['skill']):+.4f} | "
+        sp = r.get("skill_pooled") or JOBLOG.get(l, "—")
+        sp = f"{float(sp):+.4f}" if sp not in ("—",) else sp
+        out.append(f"| {l} | **{float(r['r2']):.4f}** | **{sp}** | {float(r['skill']):+.4f} | "
                    f"**{float(r['hausdorff']):.3f}** | {float(r['hausdorff_ratio']):.3f} |")
+    if not (data[labels[0]].get(ALL_ROW) or {}).get("skill_pooled"):
+        out += ["", "_The frame-pooled column above is read from the job logs "
+                "(`logs/tactile_map.o14168xx`), because `cross_validate` prints `skill_ch` "
+                "and never writes it. `score_preds_per_action.py` now emits it as "
+                "`skill_pooled`; the next rescore will source this column from the CSV "
+                "instead._"]
     out += ["", "Persistence, for reference (same rows, same denominator):", "",
             "| run | R² of persistence |", "|---|---:|"]
     for l in labels:
