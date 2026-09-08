@@ -10719,11 +10719,20 @@ python scripts/egotouch/extract_egotouch_states.py --root datasets/EgoTouch --ou
 ### CRC 交接命令(Q-A/Q-B 已定,现在可以发)
 ```bash
 git pull
-grep -c "baseline_pct=None" scripts/egotouch/extract_egotouch_states.py   # 必须 1
-grep -c "unassigned_dropped" scripts/egotouch/extract_egotouch_states.py  # 必须 >=1(证明是 OQ-B 之后的版本)
+git rev-parse --short HEAD          # 必须 >= 3228071(丢弃 37 条的那次提交)
+python -m pytest tests/test_egotouch_extract.py -q   # 必须 10 passed
 python scripts/egotouch/download_egotouch.py --pressure-only --out datasets/EgoTouch
 python scripts/egotouch/extract_egotouch_states.py --root datasets/EgoTouch --out data/egotouch_states
 ```
+**校验用 pytest,不要用 `grep -c`。**2026-09-08 我第一次交接时给的是
+`grep -c "baseline_pct=None" ... # 必须 1`,用户在 CRC 上跑出 **2**。代码是对的:
+第 29 行是模块 docstring 里解释 released-as-is 的那句散文,第 165 行才是真正的调用,
+`grep -c` 把两者一起数了(`unassigned_dropped` 同理数出 3:docstring/写文件/打印各一)。
+**一个在正确代码上报警的校验比没有校验更糟**——它训练人忽略告警,恰好是 09-05 事故的反面教训。
+`tests/test_egotouch_extract.py` 本来就是为钉住这两个决定而写的:
+`test_no_baseline_correction_is_applied` 验的是"直流基座仍在"这个**行为**,
+`test_extract_writes_official_splits_and_drops_unassigned` 验的是"37 条不占 idx"这个**行为**,
+两者都不受注释措辞影响。
 抽取器会打印三行决定性数字,**先把它们贴回来再往下跑训练**:
 1. `T frames @30Hz` 的分位数与秒数;
 2. `ELIGIBLE (T >= 150 raw 帧 = 5.0 s): n/1896` ← 决定这个语料能不能做 rolling-origin 预报;
