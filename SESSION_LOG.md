@@ -10545,3 +10545,17 @@ preds 为 96 条而非 100:另 4 条长度不足 t_in=30 + horizon 10,不产生�
 **交付决定**:两个 backbone 各提交一个作业(用户选"两个都跑"),
 **SAVE_PREDS 分目录**——合并是"读-改-写",两个作业并发写同一 npz 会竞争损坏。
 tests 全绿 139 passed。
+
+**核实(用户质疑:"之前的 full corpus training 是在 299 个所有动作的 tactile map 上 train 的")**
+—— 规模对,输入不对。那四个 run 的模型名是 `{seq2seq,probgru}_aggregate`,
+结果目录 `results/corpus-aggregate/`,`n_clips=290`、动作数 14;
+models.py:44-46 明载 AggEncoder "input is the aggregate F/CoP history (**no map**)"。
+SESSION_LOG:10224 记有生成命令 `--scope corpus --encoders aggregate`,
+SESSION_LOG:9939 记有"只有 aggregate 有 corpus run"。
+机制在 train_tactile_map.py:57 —— **只跑 aggregate 时 `need_maps=False`**,
+故不过 `available_idxs` 过滤,得以吃满 299;加入 flatten/cnn 后才降到有 map 的 100。
+**结论:map 臂从未在 corpus 范围跑过**,只在 frozen(75 条)跑过(`frozen-flatten/`、`frozen-cnn/`)。
+SESSION_LOG:9013 早记的 map 构成(slice 45 + peel 30 + pour 25 = 100)与本轮按完整标签清点一致。
+**待用户在 CRC 确认** `ls ~/actionsense/states/clip_*.npy | wc -l`(本地口径为 100)。
+**推论**:本次 corpus∩maps(100 条/6 动作)三方对比自洽,但 Norm/折/类别均值均不同于
+旧 corpus-aggregate(290 条/14 动作),**不可同表**,也不会复现 −0.3716 / +0.1453。
