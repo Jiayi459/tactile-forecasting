@@ -112,6 +112,13 @@ def main():
                     help="comma-separated label substrings; save the raw resampled (T,C,H,W) "
                          "clip (float16) as clip_N.npy for matching activities (cache for local "
                          "re-processing). Requires --extract-states.")
+    ap.add_argument("--save-all-clips", action="store_true",
+                    help="save EVERY activity's raw clip, not just the ones --save-clips-for "
+                         "matches. Omitting --save-clips-for saves nothing rather than "
+                         "everything, which is how the corpus ended up with F/CoP for all 299 "
+                         "recordings but maps for only the 100 matching Pour/Slice/Peel -- the "
+                         "map arms could then never run at corpus scope. ~4 KB per frame "
+                         "(2 hands x 32 x 32 x float16), so the full corpus is ~1.3 GB.")
     ap.add_argument("--out", default=os.path.join("docs", "predictability_actionsense.csv"))
     args = ap.parse_args()
     import csv
@@ -120,6 +127,8 @@ def main():
     # physical-state extraction (append across streamed files)
     sdir = args.extract_states
     clip_filters = [s.strip() for s in args.save_clips_for.split(",")] if args.save_clips_for else []
+    if args.save_all_clips and clip_filters:
+        ap.error("--save-all-clips and --save-clips-for are mutually exclusive")
     s_manifest = None
     s_n = 0
     if sdir:
@@ -228,7 +237,8 @@ def main():
                     st = PS.clip_states(clip).astype("float32")  # (T, C, 6), baseline-corrected
                     np.save(os.path.join(sdir, f"state_{s_n}.npy"), st)
                     saved_clip = False
-                    if clip_filters and any(sub in label for sub in clip_filters):
+                    if args.save_all_clips or (clip_filters
+                                               and any(sub in label for sub in clip_filters)):
                         np.save(os.path.join(sdir, f"clip_{s_n}.npy"), clip.astype("float16"))
                         saved_clip = True
                     s_manifest.write(json.dumps({

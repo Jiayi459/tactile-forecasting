@@ -4,6 +4,15 @@
 # Per-clip metrics accumulate in acc.jsonl; a final --report-only pass prints the ranking.
 # Subjects S00-S05 (tactile). Usage (from anywhere):
 #   bash scripts/crc/stream_actionsense.sh [DEST_DIR]        # default ~/actionsense
+#   CLIPS=all  bash scripts/crc/stream_actionsense.sh          # save EVERY activity's raw map
+#   CLIPS=Pour,Slice,Peel bash scripts/crc/stream_actionsense.sh   # the old, narrow behaviour
+#
+# CLIPS defaults to `all`. It used to be hardcoded to "Pour,Slice,Peel", which is why the corpus
+# carries F/CoP for all 299 recordings but raw maps for only 100 of them -- F/CoP is computed
+# from the map in memory, and the map was then thrown away for every other activity, so the
+# flatten/cnn arms could never run at corpus scope. The maps cost ~4 KB per frame (2 hands x
+# 32 x 32 x float16) = ~1.3 GB for the whole corpus, which is nothing beside the ~47 GB this
+# script downloads to produce them; discarding them was never the saving it looked like.
 set -uo pipefail
 
 REPO="$HOME/TouchAnything"
@@ -19,6 +28,33 @@ python -c "import numpy, h5py, scipy" 2>/dev/null || {
   echo "ERROR: the tactile env is not active (import numpy/h5py/scipy failed)."
   echo "       Run 'conda activate tactile' first, then re-run this script."; exit 1; }
 mkdir -p "$DEST"
+
+CLIPS="${CLIPS:-all}"
+if [ "$CLIPS" = "all" ]; then CLIP_ARG=(--save-all-clips); else CLIP_ARG=(--save-clips-for "$CLIPS"); fi
+echo "clip policy: ${CLIP_ARG[*]}"
+
+# One HDF5 is ~4.3 GB and is deleted before the next is fetched, so peak disk is a single file
+# plus the outputs (~1.3 GB of maps + ~15 MB of states). Fail here rather than 40 GB into a
+# download that cannot finish.
+AVAIL_KB=$(df -Pk "$DEST" | awk 'NR==2{print $4}')
+if [ "${AVAIL_KB:-0}" -lt 12000000 ]; then
+  echo "ERROR: only $((AVAIL_KB / 1024)) MB free at $DEST; need ~12 GB (one 4.3 GB HDF5 at a"
+  echo "       time + ~1.3 GB of maps + headroom). Point DEST_DIR at a larger allocation."
+  exit 1
+fi
+
+# The recording index is a counter that increments across files, and splits.json plus every
+# result under docs/ is keyed by it. Re-streaming rebuilds the manifest from scratch, so the
+# numbering only survives if the URL list and the accept/reject logic are unchanged. Keep the
+# old manifest and diff (idx, label) against the new one at the end: a renumbering must fail
+# loudly here, not show up later as results silently attached to the wrong recordings.
+OLD_MANIFEST=""
+if [ -f "$DEST/states/manifest.jsonl" ]; then
+  OLD_MANIFEST="$DEST/manifest.jsonl.before-restream"
+  cp "$DEST/states/manifest.jsonl" "$OLD_MANIFEST"
+  echo "kept previous manifest ($(wc -l < "$OLD_MANIFEST") rows) at $OLD_MANIFEST for comparison"
+fi
+
 rm -f "$DEST"/*.hdf5 "$ACC"          # clear any partial files + old accumulator
 rm -rf "$DEST/states"                # clear old state extraction (avoid duplicate append)
 
@@ -46,11 +82,25 @@ for URL in "${URLS[@]}"; do
     echo "  WARN: download failed (disk? net?), skipping"; rm -f "$f"; continue
   fi
   python "$PROBE" --data-dir "$DEST" --jsonl "$ACC" --extract-states "$DEST/states" \
-      --save-clips-for "Pour,Slice,Peel" || echo "  WARN: probe error on this file"
+      "${CLIP_ARG[@]}" || echo "  WARN: probe error on this file"
   # KEEP=1 retains the HDF5 (download once to a large /temp180 or /bluefs allocation and
   # re-process for free); default deletes each file to bound disk on the 100 GB home quota.
   [ "${KEEP:-0}" = "1" ] || rm -f "$f"
 done
+
+echo ""
+echo "=== inventory ==="
+echo "  recordings (manifest rows): $(wc -l < "$DEST/states/manifest.jsonl")"
+echo "  state_*.npy: $(ls "$DEST"/states/state_*.npy 2>/dev/null | wc -l)"
+echo "  clip_*.npy (raw maps): $(ls "$DEST"/states/clip_*.npy 2>/dev/null | wc -l)"
+
+if [ -n "$OLD_MANIFEST" ]; then
+  echo ""
+  echo "=== recording-index check against the previous manifest ==="
+  python "$REPO/scripts/actionsense/check_manifest_indices.py" \
+      "$OLD_MANIFEST" "$DEST/states/manifest.jsonl" || {
+    echo "FATAL: recording indices changed; see above."; exit 1; }
+fi
 
 echo ""
 echo "=== aggregating all streamed clips ==="

@@ -10585,3 +10585,38 @@ probe:231-232 `clip_*.npy` **仅**在标签匹配 `--save-clips-for` 时写。
 aggregate 见 map 的 6 个矩(0 阶+1 阶),flatten/cnn 见全部 1024 taxel。
 故该对比问的是"**除力与压心外,空间结构还额外带来多少可预测性**"。
 这也使 map 臂受限于 100 条更显刺眼:那 199 条并非没有 map,是 map 被丢弃了。
+
+### 2026-09-08续 — 重新下载全部 ActionSense raw tactile map(准备与交付)
+
+**用户决定**:下载全部 ActionSense raw tactile map,取得全 299 条 / 14 动作的 map。
+(此前已核实:F/CoP 由 map 在内存中算出,map 仅对匹配 `--save-clips-for` 的 100 条落盘。)
+
+**成本清点(实测,非估计)**:单个 HDF5 `Content-Length = 4,298,028,730` B ≈ **4.30 GB**,
+共 11 个 URL → 下载总量 **~47 GB**;脚本逐个下载并在处理后删除,故**峰值磁盘 ~5 GB**。
+输出:map 为 4096 B/帧(= 2 手 × 32 × 32 × float16,精确值),缺失的 199 条共 217,922 帧
+= **0.89 GB**,全 299 条合计 **1.31 GB**。本机 `~/actionsense/*.hdf5` 已不存在
+(stream_actionsense.sh:52 默认 `rm -f`),必须重下。**本机仅剩 5.0 GB 可用,故只能在 CRC 跑。**
+
+**代码改动**
+1. `probe_actionsense.py` 新增 `--save-all-clips`。原逻辑 `if clip_filters and ...` 意味着
+   **不传 `--save-clips-for` 等于一个都不存**,而非存全部 —— 这正是 100/299 落差的成因。
+   与 `--save-clips-for` 互斥(`ap.error`)。
+2. `stream_actionsense.sh` 的 `Pour,Slice,Peel` 硬编码改为环境变量 `CLIPS`,
+   **默认改为 `all`**(旧行为可用 `CLIPS=Pour,Slice,Peel` 恢复)。理由:map 仅 1.31 GB,
+   相对 47 GB 下载可忽略;重下 47 GB 后才发现又被过滤才是更坏的失败。
+3. **新增磁盘前置校验**:`DEST` 可用空间 < 12 GB 即退出,避免下载 40 GB 后失败。
+4. **新增录制索引完整性校验**(关键):stream_actionsense.sh:23 的 `rm -rf "$DEST/states"`
+   会删除现有全部 299 个 `state_*.npy` 与 manifest 重建;而 idx 是跨文件递增计数器,
+   `splits.json` 与 `docs/` 下每一份结果都按 idx 索引。若 URL 列表或接受/拒绝规则有任何变化,
+   重编号会**静默**使既有结果指向错误的录制。故脚本现在在删除前备份 manifest,
+   结束时用新增的 `scripts/actionsense/check_manifest_indices.py` 逐行比对 (idx, label),
+   不一致即 `exit 1` 并打印首个分歧点。
+
+**验证**:索引校验脚本四例实测 —— 相同→exit 0;改一个 label→exit 1 并指出
+"idx 2 was 'Peel a cucumber', is now 'Something else'";截断→exit 1 并报前缀差异;
+真实 299 行自比对→exit 0。`--save-all-clips` 与 `--save-clips-for` 互斥已触发 ap.error。
+`bash -n` 通过。`pytest tests/ -q` → 139 passed。
+
+**交付**:CRC 上 `CLIPS=all bash scripts/crc/stream_actionsense.sh`(需 nohup,
+下载 ~47 GB 耗时长)。完成后必须看到 "clip_*.npy (raw maps): 299" 与
+"OK: 299 recordings, every idx maps to the same label as before."。
