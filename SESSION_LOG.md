@@ -10730,3 +10730,23 @@ python scripts/egotouch/extract_egotouch_states.py --root datasets/EgoTouch --ou
 3. 逐 split 保留率 ← Q-C 的输入。
 预期(据 HF 侧清点):train 1458 / val 174 / test_seen 179 / test_unseen 85,丢弃 37。
 **若打印出的数字与此不符,说明下载不完整或 join 出错,停下来查,不要继续。**
+
+**重新 stream 完成(CRC,用户执行)** —— manifest 299 行、`state_*.npy` 299、`clip_*.npy` **299**、
+`du -sh` = **1.3 GB**(与预估 1.31 GB 一致),无 WARN/ERROR,
+索引校验输出 `OK: 299 recordings, every idx maps to the same label as before.`
+**全 299 条 / 14 动作的 raw tactile map 现已齐备。**
+
+**两项善后核实(均通过)**
+1. **`splits.json` 被 `rm -rf "$DEST/states"` 删除** —— 无害。`load_splits`(splits.py:74-82)
+   在文件缺失时由 `make_splits` 重建,而后者是确定性的(seeded RNG + `sorted(groups)` +
+   `sorted(groups[key])`,splits.py:49-71)。**本地实证**:重新生成与现有 `splits.json`
+   **完全一致**(train/val/test = 45/15/15)。该确定性以 manifest 不变为前提,
+   而索引校验已证实这一点。
+2. **重新生成的 `state_*.npy` 与旧的一致** —— `physical_state.py` 末次改动 2026-07-20
+   (仅目录搬迁),早于 states 生成日 2026-08-05;本次 `probe_actionsense.py` 的改动经 diff
+   确认**纯属新增**(新 flag + 互斥校验 + 放宽"是否保存 clip"的条件),
+   未触及 `load_tactile` / `resample` / `clip_for_interval` / `PS.clip_states(clip)`。
+   **故既有 corpus-aggregate 与 frozen-* 结果依然有效,且与后续新结果可比。**
+
+**下一步**:`--scope corpus` 现在会枚举到全部 299 条(map 齐备,`available_idxs` 不再筛减),
+可交付真正的全 corpus map/CNN/aggregate 三方对比。
