@@ -1,0 +1,64 @@
+# Frozen evaluation harness for EgoTouch (aggregate pressure + CoP).
+# Same contract as configs/actionsense/eval_harness.yaml: this file is the SINGLE source of
+# truth for horizon / masking / splits, and evaluate.py records sha256(this file).
+#
+# EgoTouch is geometrically the CLOSEST corpus to ActionSense: 2 hands (so the target is the
+# same 6 dims) and 30 Hz raw (so `downsample: 3` gives the same 10 Hz and the same 10-step,
+# 1 s horizon). The only geometric difference is the 21x21 grid vs 32x32, which the aggregate
+# target does not see at all -- physical_state normalizes the coordinate grid to [-1, 1].
+
+target:
+  # 6-dim RAW target, both hands, hand order (L, R): straight from state_<idx>.npy.
+  #
+  # UNITS WARNING: `F` here is NOT newtons and is NOT unit-comparable to ActionSense's or
+  # OpenTouch's F. EgoTouch's grids ship already normalized by `tactile_max`, and a grid may
+  # mix separately-normalized tactile and bending channels, so this channel is the sum of an
+  # already-normalized, possibly mixed-modality field. The paper calls it AGGREGATE NORMALIZED
+  # PRESSURE / PRESSURE MASS (P_Sigma). The channel NAMES are kept as F_*/CoP* on purpose so
+  # the cross-sensor result tables still join on channel; the rename is a text-level rename.
+  # Skill and R^2 are scale-free, so cross-sensor SKILL comparison remains valid.
+  channels: [F_L, CoPx_L, CoPy_L, F_R, CoPx_R, CoPy_R]
+  force_idx: [0, 3]        # aggregate-pressure channels (never masked)
+  cop_idx:   [1, 2, 4, 5]  # CoP channels (masked at low pressure)
+
+rate:
+  fps_raw: 30.0            # EgoTouch release rate
+  downsample: 3            # -> 10 Hz, identical to the ActionSense arm
+  horizon_s: 1.0           # 10 steps of 100 ms
+
+mask:
+  # CoP is undefined with no contact. A CoP TARGET frame is excluded from CoP metrics iff that
+  # hand's raw aggregate pressure < the TRAIN per-hand `percentile`th pct. Fit on TRAIN only.
+  percentile: 5
+
+baselines:
+  fit_scope: group
+  ar_orders: [2, 5, 10, 15, 20, 30]
+  seasonal_period_min_s: 0.3
+  seasonal_period_max_s: 3.0
+  seasonal_min_autocorr: 0.1
+
+split:
+  # INERT. splits.json is written by scripts/egotouch/extract_egotouch_states.py from the
+  # dataset's OWN split.json (train / val / test_seen / test_unseen), so eval_harness.splits
+  # loads it read-only and never calls make_splits. These keys are kept only to satisfy the
+  # config schema; changing them changes nothing. `test` == the official `test_seen`.
+  train: 0.6
+  val: 0.2
+  test: 0.2
+  seed: 0
+
+eval:
+  stride: 1
+  min_history: 40          # with horizon 10 -> a recording needs >= 50 frames @10Hz = 5.0 s
+  seed: 0
+
+paths:
+  states_root: data/egotouch_states
+  split_file: data/egotouch_states/splits.json
+  out_csv: docs/egotouch/harness_baselines.csv
+
+# Full corpus: every verb. `eligible_recordings` filters with
+# `label.startswith(tuple(actions))`, and "" is a prefix of every string, so this admits all
+# 213 tasks. Narrow it to a verb list to run a sub-scope.
+actions: [""]

@@ -10620,3 +10620,83 @@ aggregate 见 map 的 6 个矩(0 阶+1 阶),flatten/cnn 见全部 1024 taxel。
 **交付**:CRC 上 `CLIPS=all bash scripts/crc/stream_actionsense.sh`(需 nohup,
 下载 ~47 GB 耗时长)。完成后必须看到 "clip_*.npy (raw maps): 299" 与
 "OK: 299 recordings, every idx maps to the same label as before."。
+
+## 2026-09-08(续)— 【EgoTouch】用户裁定七问;官方 split 与实际数据**对不齐**(硬证据);抽取器+config+测试已写并推送
+
+### 用户裁定(逐条,直接作为约束写进代码注释)
+| OQ | 裁定 |
+|----|------|
+| 1 在哪跑 | **CRC** |
+| 2 下哪份 | **`--pressure-only`,全 1933 corpus** |
+| 3 split | **主实验用官方 `split.json`** |
+| 5 baseline correction | **released-as-is:不再额外扣 baseline,只做 NaN mask** |
+| 6 raw map | 用户指出 **AS 与 OpenTouch 也是 raw map 全覆盖**(见下"更正")+"作为 output"(**待澄清,见 Q-A**) |
+| 命名 | 因数值已归一化、且网格可能同时含 separately normalized tactile/bending 通道,**论文中把 \(F\) 改称 aggregate normalized pressure / pressure mass \(P_\Sigma\)** —— 这正是 EgoTouch 与 OpenTouch/ActionSense 的差别所在 |
+| 推送 | `main.tex` 与 plot.py **可以推** |
+
+### 更正我上一轮的一个错误陈述
+我说"ActionSense 只有 100/299 raw map,EgoTouch 是唯一 100% 覆盖的语料"。**这是旧数据的状态,不是代码的状态**:今天的 `ddd801f` 已把 `--save-all-clips` 设为默认(commit message 明写此前"omitting --save-clips-for saved no maps at all rather than all of them"),OpenTouch 也是除非 `--no-clips` 否则全存。所以**重抽之后 AS 与 OpenTouch 都是全覆盖,EgoTouch 并不独特**,OQ6 的立论前提作废。
+唯一仍成立的事实:**本机 `data/actionsense_states/manifest.jsonl` 现在仍是 `has_clip=70/299`(23.4%)**,即 re-stream 尚未执行;CRC 上是否已重抽未验证。
+
+### 本轮取得的硬证据 —— 官方 split 与可用数据**对不齐**
+直接抓下官方 `split.json`(313 KB)并与 HF 上 1,933 个 `pressure_grids.npz` 做交集(遍历 26 页 tree API,不落盘):
+
+```
+split.json 条目 = 2228(train 1665 / val 208 / test_seen 208 / test_unseen 147),互不重叠
+npz 轨迹      = 1933
+  train        listed=1665  有 npz=1458  (87.6%)
+  val          listed= 208  有 npz= 174  (83.7%)
+  test_seen    listed= 208  有 npz= 179  (86.1%)
+  test_unseen  listed= 147  有 npz=  85  (57.8%)   ← 最弱的一臂
+有 split 归属的 npz = 1896 / 1933      无任何 split 归属 = 37
+```
+`split.json` 里是作者机器上的绝对路径,指向 `.hdf5`;**join key = 末三段 `<scene>/<task>/<timestamp>`**,恰好等于轨迹目录名(已写成测试 `test_traj_key_agrees_between_split_path_and_trajectory_dir`)。
+
+**两个后果,都影响结论可信度:**
+- **37 条轨迹官方没给 split**。抽取器**不替它们编造归属**:manifest 记 `split: null`,并在结尾显式列出、计数。(默默并进 train 是最省事也最危险的做法。)
+- **`test_unseen` 只剩 85 条**,而且这是**未经长度过滤的上限**。再过 `min_history=40 + horizon=10` ⇒ 需 ≥150 raw 帧(5.0 s)这一关之后只会更少。见 Q-C。
+
+### 已实现并推送(测试先行,数据未动)
+- **`scripts/egotouch/extract_egotouch_states.py`**(新)
+  - 读 `<root>/<scene>/<task>/<ts>/pressure_grids.npz` 的 `left/right_pressure_grid` (T,21,21);
+    NaN→0(`nan_to_num`,含 ±inf);stack 成 (T,2,21,21),手序 (L,R)。
+  - **`clip_states(clip, baseline_pct=None)`** —— 用户裁定的 released-as-is,一行代码即此决定。
+  - 输出与 `data/actionsense_states/` **同构**:`state_<idx>.npy` (T,2,6)、`clip_<idx>.npy`、
+    `manifest.jsonl`、`splits.json` ⇒ 冻结的 `src/actionsense/eval_harness/` **一行不用改**。
+  - `label = task.replace("_"," ")` ⇒ `parse_label("grasp cola") == ("grasp","cola")`,
+    (action,object) 分组、逐动作 scorer 全部免改地可用。
+  - `splits.json` 的 `test` **就是官方 `test_seen`**;`test_unseen` 作为额外键并存(harness 忽略未知键)。
+  - 结束时打印 T 的分位数 + **"ELIGIBLE (T ≥ 150 raw 帧 = 5.0 s) 的条数与占比"** —— 这是数据一落地
+    就必须先看的那个决定性数字(OpenTouch 正是死在这一关)。
+- **`configs/egotouch/eval_harness.yaml`**(新):`fps_raw 30 / downsample 3 → 10 Hz / horizon 1.0 s = 10 步`,
+  与 ActionSense **逐字相同**,可直接同表。`split:` 段标注为 **INERT**(splits.json 由抽取器写死,
+  `load_splits` 只读)。`actions: [""]` 收全 213 个 task(`startswith("")` 恒真),并注明如何窄化。
+  通道名**仍叫 `F_L/F_R`**(不改,否则跨传感器结果表 join 不上);单位语义与 \(P_\Sigma\) 更名写在注释里。
+- **`tests/test_egotouch_extract.py`**(新,10 个用例全过;全套 `pytest tests/` = **94 passed, 6 skipped**)
+  - 其中 `test_no_baseline_correction_is_applied` 专门钉住"不扣 baseline":造一个带 +5.0 直流基座的
+    网格,断言 state 等于逐帧原始矩且基座**仍在**。若日后有人恢复 `baseline_pct`,这条会红。
+
+**推送**:`main.tex` + `plot_corpus_action_predictability.py` + 对应 PNG 已提交推送(directive 6 的前置条件);
+本轮三个新文件同样已推送。`git status --porcelain` 空,`git log origin/main..HEAD` 空。
+
+### CRC 交接(等 Q-A/B/C 定了再发命令;此处先固化"跑什么、怎么验")
+```bash
+git pull                                     # 必须包含本轮 commit
+grep -c "baseline_pct=None" scripts/egotouch/extract_egotouch_states.py   # 必须 == 1,否则代码是旧的
+python scripts/egotouch/download_egotouch.py --pressure-only --out datasets/EgoTouch
+python scripts/egotouch/extract_egotouch_states.py --root datasets/EgoTouch --out data/egotouch_states
+# ↑ 读它打印的 ELIGIBLE 行与 split 行,再决定是否往下跑训练
+```
+失败要响:`grep -c` 返回 0 就说明 `git pull` 没带回新代码(2026-09-05 静默跑错 scope 的同一类事故)。
+
+### OPEN QUESTIONS(仍未解,代码里没有替你猜)
+- **Q-A(澄清)**"AS and opentouch are both raw map 全覆盖,**作为 output**"—— 这句的"作为 output"是指
+  (a) 只是补充说明它们的 raw map 也齐,所以 EgoTouch 不独特(=纯更正,现流程不变,目标仍是 6 维 F/CoP);
+  还是 (b) **把 raw map 本身当预测目标**(map→map 预报,目标从 6 维变成 2×21×21)?
+  (b) 是一次实质性的实验改动:要改目标构造、metrics(R²/skill 要在 taxel 上定义)、以及
+  `tactile_map/models.py` 的解码端,不是换个 encoder。**没有裁定前不动。**
+- **Q-B** 那 37 条无 split 归属的轨迹:(a) 丢弃,corpus = 1896(**推荐**,保持官方 split 纯净,只损失 1.9%);
+  (b) 并入 train(train→1495,但就不再是"官方 split"了,论文里不能这么说);(c) 单独留作 held-out。
+- **Q-C** `test_unseen` 只有 85 条(且长度过滤后更少)。(a) 照跑,报告时明确标注 n 与它只覆盖官方 147 条中的
+  57.8%;(b) 主表只报 `test_seen`,`test_unseen` 降级为附录的定性观察;(c) 放弃 unseen 臂。
+  —— 这条建议等抽取器打印出真实的 ELIGIBLE 数字后再定,不必现在拍板。
