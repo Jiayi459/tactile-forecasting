@@ -10719,7 +10719,7 @@ python scripts/egotouch/extract_egotouch_states.py --root datasets/EgoTouch --ou
 ### CRC 交接命令(Q-A/Q-B 已定,现在可以发)
 ```bash
 git pull
-git rev-parse --short HEAD          # 必须 >= 3228071(丢弃 37 条的那次提交)
+git rev-parse --short HEAD          # 必须包含 6d256ad(丢弃 37 条的那次提交)
 python -m pytest tests/test_egotouch_extract.py -q   # 必须 10 passed
 python scripts/egotouch/download_egotouch.py --pressure-only --out datasets/EgoTouch
 python scripts/egotouch/extract_egotouch_states.py --root datasets/EgoTouch --out data/egotouch_states
