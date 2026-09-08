@@ -1,31 +1,31 @@
-label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio
-ActionSense - as_preds_seq2seq_corpus,(all actions),290,seq2seq_aggregate,0.741410553924306,0.1276175865253486,2.4194917294430183,0.8302107053516735
-ActionSense - as_preds_seq2seq_corpus,(all actions),290,persistence,0.6924776487020504,0.0,2.914310444139759,1.0
-ActionSense - as_preds_seq2seq_corpus,clean,55,seq2seq_aggregate,0.6339043651610156,0.10993409931765295,2.3429924593966973,0.809179630993003
-ActionSense - as_preds_seq2seq_corpus,clean,55,persistence,0.5668896646515597,0.0,2.8955158652738717,1.0
-ActionSense - as_preds_seq2seq_corpus,clear,28,seq2seq_aggregate,0.6132011847899173,0.11766524122765358,2.5006409747851763,0.8540403042733177
-ActionSense - as_preds_seq2seq_corpus,clear,28,persistence,0.5544147422461352,0.0,2.9280128376527985,1.0
-ActionSense - as_preds_seq2seq_corpus,get,30,seq2seq_aggregate,0.49603602531096663,0.16512021550208697,2.442327291038471,0.8296161326786798
-ActionSense - as_preds_seq2seq_corpus,get,30,persistence,0.395061384839311,0.0,2.9439245391150237,1.0
-ActionSense - as_preds_seq2seq_corpus,get/replace,15,seq2seq_aggregate,0.5376339064863547,0.15832922706305844,2.435119808559096,0.8307292505639887
-ActionSense - as_preds_seq2seq_corpus,get/replace,15,persistence,0.4376928785663183,0.0,2.9313037995302005,1.0
-ActionSense - as_preds_seq2seq_corpus,load,5,seq2seq_aggregate,0.5672536655512428,0.15462032360337594,2.5081140004304077,0.8422363692462391
-ActionSense - as_preds_seq2seq_corpus,load,5,persistence,0.4854557867932769,0.0,2.9779217474009685,1.0
-ActionSense - as_preds_seq2seq_corpus,open,6,seq2seq_aggregate,0.2594013439048246,0.12374598230156177,2.3473423388596966,0.8076192604219165
-ActionSense - as_preds_seq2seq_corpus,open,6,persistence,0.14189048962147738,0.0,2.9064962339226508,1.0
-ActionSense - as_preds_seq2seq_corpus,open/close,9,seq2seq_aggregate,0.3474935794801426,0.17813532429139675,2.2827542804932848,0.7963828241967165
-ActionSense - as_preds_seq2seq_corpus,open/close,9,persistence,0.19157427107314495,0.0,2.866403206015674,1.0
-ActionSense - as_preds_seq2seq_corpus,peel,30,seq2seq_aggregate,0.6807908890699514,0.19096637745306233,2.3608324747419567,0.811314060194156
-ActionSense - as_preds_seq2seq_corpus,peel,30,persistence,0.6033962039349839,0.0,2.9098872934323174,1.0
-ActionSense - as_preds_seq2seq_corpus,pour,21,seq2seq_aggregate,0.41372823246680096,0.01214564015478701,2.7470817010061173,0.9524312377080941
-ActionSense - as_preds_seq2seq_corpus,pour,21,persistence,0.3967434524823932,0.0,2.884283497060243,1.0
-ActionSense - as_preds_seq2seq_corpus,set,6,seq2seq_aggregate,0.5966413905920456,0.16107035429303837,2.4962304474685286,0.8401612196012515
-ActionSense - as_preds_seq2seq_corpus,set,6,persistence,0.5011599405924856,0.0,2.971132669814567,1.0
-ActionSense - as_preds_seq2seq_corpus,slice,45,seq2seq_aggregate,0.7360623087556081,0.14003300860084164,2.3725887780997783,0.819660230702726
-ActionSense - as_preds_seq2seq_corpus,slice,45,persistence,0.6873271512782612,0.0,2.8946003346602134,1.0
-ActionSense - as_preds_seq2seq_corpus,spread,30,seq2seq_aggregate,0.6501033331702287,0.10485425015293066,2.3906527135997755,0.8154614060390161
-ActionSense - as_preds_seq2seq_corpus,spread,30,persistence,0.5907055647063174,0.0,2.931656478032504,1.0
-ActionSense - as_preds_seq2seq_corpus,stack,5,seq2seq_aggregate,0.46245490574878406,0.2537173941536545,2.325300652958684,0.7848465497524759
-ActionSense - as_preds_seq2seq_corpus,stack,5,persistence,0.27100154206752297,0.0,2.962745588538339,1.0
-ActionSense - as_preds_seq2seq_corpus,unload,5,seq2seq_aggregate,0.45310758024299974,0.1820568188645486,2.4400776445813284,0.8251878429508042
-ActionSense - as_preds_seq2seq_corpus,unload,5,persistence,0.33273690202519945,0.0,2.9569965983209476,1.0
+label,action,n_clips,model,r2,skill,skill_pooled,hausdorff,hausdorff_ratio,r2_F_L,skill_F_L,skill_pooled_F_L,hausdorff_F_L,r2_CoPx_L,skill_CoPx_L,skill_pooled_CoPx_L,hausdorff_CoPx_L,r2_CoPy_L,skill_CoPy_L,skill_pooled_CoPy_L,hausdorff_CoPy_L,r2_F_R,skill_F_R,skill_pooled_F_R,hausdorff_F_R,r2_CoPx_R,skill_CoPx_R,skill_pooled_CoPx_R,hausdorff_CoPx_R,r2_CoPy_R,skill_CoPy_R,skill_pooled_CoPy_R,hausdorff_CoPy_R
+ActionSense - as_preds_seq2seq_corpus,(all actions),290,seq2seq_aggregate,0.741410553924306,0.1276175865253486,0.14528711280569304,2.4194917294430183,0.8302107053516736,0.8921206988745523,0.03161484774174694,0.038021627551577786,2.4507344944337803,0.8909657695830104,0.09257457155269133,0.12423222566688319,2.37027553055004,0.6214979298091254,0.13964149885500043,0.13888326783993232,2.391521347819085,0.7978535921054819,0.12404112788066768,0.1297442282036455,2.5601321741512653,0.5501618629217206,0.23507991707227394,0.23494382839021755,2.285012136481315,0.6958634702519448,0.1427535560497113,0.20589749918190192,2.4592746932226235
+ActionSense - as_preds_seq2seq_corpus,(all actions),290,persistence,0.6924776487020504,0.0,0.0,2.9143104441397587,1.0,0.888598765817634,0.0,0.0,2.9576270852527706,0.8798422140279256,0.0,0.0,2.881127006131794,0.5600647059485682,0.0,0.0,2.8931778021081067,0.769228425753099,0.0,0.0,2.9579604817027763,0.4119148560506777,0.0,0.0,2.879703462197902,0.6452169246143973,0.0,0.0,2.9162668274452015
+ActionSense - as_preds_seq2seq_corpus,clean,55,seq2seq_aggregate,0.6339043651610156,0.10993409931765295,,2.3429924593966973,0.809179630993003,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,clean,55,persistence,0.5668896646515597,0.0,,2.8955158652738717,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,clear,28,seq2seq_aggregate,0.6132011847899173,0.11766524122765358,,2.5006409747851763,0.8540403042733177,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,clear,28,persistence,0.5544147422461352,0.0,,2.9280128376527985,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,get,30,seq2seq_aggregate,0.49603602531096663,0.16512021550208697,,2.442327291038471,0.8296161326786798,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,get,30,persistence,0.395061384839311,0.0,,2.9439245391150237,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,get/replace,15,seq2seq_aggregate,0.5376339064863547,0.15832922706305844,,2.435119808559096,0.8307292505639887,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,get/replace,15,persistence,0.4376928785663183,0.0,,2.9313037995302005,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,load,5,seq2seq_aggregate,0.5672536655512428,0.15462032360337594,,2.5081140004304077,0.8422363692462391,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,load,5,persistence,0.4854557867932769,0.0,,2.9779217474009685,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,open,6,seq2seq_aggregate,0.2594013439048246,0.12374598230156177,,2.3473423388596966,0.8076192604219165,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,open,6,persistence,0.14189048962147738,0.0,,2.9064962339226508,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,open/close,9,seq2seq_aggregate,0.3474935794801426,0.17813532429139675,,2.2827542804932848,0.7963828241967165,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,open/close,9,persistence,0.19157427107314495,0.0,,2.866403206015674,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,peel,30,seq2seq_aggregate,0.6807908890699514,0.19096637745306233,,2.3608324747419567,0.811314060194156,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,peel,30,persistence,0.6033962039349839,0.0,,2.9098872934323174,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,pour,21,seq2seq_aggregate,0.41372823246680096,0.01214564015478701,,2.7470817010061173,0.9524312377080941,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,pour,21,persistence,0.3967434524823932,0.0,,2.884283497060243,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,set,6,seq2seq_aggregate,0.5966413905920456,0.16107035429303837,,2.4962304474685286,0.8401612196012515,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,set,6,persistence,0.5011599405924856,0.0,,2.971132669814567,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,slice,45,seq2seq_aggregate,0.7360623087556081,0.14003300860084164,,2.3725887780997783,0.819660230702726,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,slice,45,persistence,0.6873271512782612,0.0,,2.8946003346602134,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,spread,30,seq2seq_aggregate,0.6501033331702287,0.10485425015293066,,2.3906527135997755,0.8154614060390161,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,spread,30,persistence,0.5907055647063174,0.0,,2.931656478032504,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,stack,5,seq2seq_aggregate,0.46245490574878406,0.2537173941536545,,2.325300652958684,0.7848465497524759,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,stack,5,persistence,0.27100154206752297,0.0,,2.962745588538339,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,unload,5,seq2seq_aggregate,0.45310758024299974,0.1820568188645486,,2.4400776445813284,0.8251878429508042,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_seq2seq_corpus,unload,5,persistence,0.33273690202519945,0.0,,2.9569965983209476,1.0,,,,,,,,,,,,,,,,,,,,,,,,

@@ -1,31 +1,31 @@
-label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio
-ActionSense - as_preds_probgru_corpus_h1,(all actions),290,probgru_aggregate,0.6427990322784664,-0.7202917243108932,2.6285466262968433,0.901944620066972
-ActionSense - as_preds_probgru_corpus_h1,(all actions),290,persistence,0.6924776487020504,0.0,2.914310444139759,1.0
-ActionSense - as_preds_probgru_corpus_h1,clean,55,probgru_aggregate,0.47228077464478213,-0.9901915479049498,2.9731038800077707,1.0267959211221798
-ActionSense - as_preds_probgru_corpus_h1,clean,55,persistence,0.5668896646515597,0.0,2.8955158652738717,1.0
-ActionSense - as_preds_probgru_corpus_h1,clear,28,probgru_aggregate,0.6085084696560812,0.10356241151171759,2.641736289185167,0.9022283834325258
-ActionSense - as_preds_probgru_corpus_h1,clear,28,persistence,0.5544147422461352,0.0,2.9280128376527985,1.0
-ActionSense - as_preds_probgru_corpus_h1,get,30,probgru_aggregate,0.51487101722396,0.19524830619445208,2.5521170702821085,0.8669098125216562
-ActionSense - as_preds_probgru_corpus_h1,get,30,persistence,0.395061384839311,0.0,2.9439245391150237,1.0
-ActionSense - as_preds_probgru_corpus_h1,get/replace,15,probgru_aggregate,0.5331075058816376,0.14828812446617642,2.5176269193548397,0.8588761491587257
-ActionSense - as_preds_probgru_corpus_h1,get/replace,15,persistence,0.4376928785663183,0.0,2.9313037995302005,1.0
-ActionSense - as_preds_probgru_corpus_h1,load,5,probgru_aggregate,0.543862272807004,0.10934350888617721,2.665944346498451,0.8952365349509935
-ActionSense - as_preds_probgru_corpus_h1,load,5,persistence,0.4854557867932769,0.0,2.9779217474009685,1.0
-ActionSense - as_preds_probgru_corpus_h1,open,6,probgru_aggregate,0.2916554745784519,0.16126535974735431,2.381653827175581,0.8194243637333963
-ActionSense - as_preds_probgru_corpus_h1,open,6,persistence,0.14189048962147738,0.0,2.9064962339226508,1.0
-ActionSense - as_preds_probgru_corpus_h1,open/close,9,probgru_aggregate,0.3466999050114025,0.1787640780751304,2.426333361705515,0.8464731537466217
-ActionSense - as_preds_probgru_corpus_h1,open/close,9,persistence,0.19157427107314495,0.0,2.866403206015674,1.0
-ActionSense - as_preds_probgru_corpus_h1,peel,30,probgru_aggregate,0.6711314441910082,0.16435092056937395,2.4706337829340184,0.8490479299697605
-ActionSense - as_preds_probgru_corpus_h1,peel,30,persistence,0.6033962039349839,0.0,2.9098872934323174,1.0
-ActionSense - as_preds_probgru_corpus_h1,pour,21,probgru_aggregate,0.42091795881804717,0.02375334713846731,2.713417817757958,0.9407597486597843
-ActionSense - as_preds_probgru_corpus_h1,pour,21,persistence,0.3967434524823932,0.0,2.884283497060243,1.0
-ActionSense - as_preds_probgru_corpus_h1,set,6,probgru_aggregate,0.5620189923980484,0.03227771085699427,2.6704939736624467,0.8988134393302324
-ActionSense - as_preds_probgru_corpus_h1,set,6,persistence,0.5011599405924856,0.0,2.971132669814567,1.0
-ActionSense - as_preds_probgru_corpus_h1,slice,45,probgru_aggregate,0.7291665423327839,0.11579826143711104,2.528239783810858,0.873433113904355
-ActionSense - as_preds_probgru_corpus_h1,slice,45,persistence,0.6873271512782612,0.0,2.8946003346602134,1.0
-ActionSense - as_preds_probgru_corpus_h1,spread,30,probgru_aggregate,0.6216028742740599,-0.05439114575802073,2.4944037103136667,0.8508512948241852
-ActionSense - as_preds_probgru_corpus_h1,spread,30,persistence,0.5907055647063174,0.0,2.931656478032504,1.0
-ActionSense - as_preds_probgru_corpus_h1,stack,5,probgru_aggregate,0.44654423655550923,0.23613640990248094,2.4755920474760496,0.8355736169359634
-ActionSense - as_preds_probgru_corpus_h1,stack,5,persistence,0.27100154206752297,0.0,2.962745588538339,1.0
-ActionSense - as_preds_probgru_corpus_h1,unload,5,probgru_aggregate,0.47708623253005356,0.21228663470484052,2.580003591519985,0.8725081364601406
-ActionSense - as_preds_probgru_corpus_h1,unload,5,persistence,0.33273690202519945,0.0,2.9569965983209476,1.0
+label,action,n_clips,model,r2,skill,skill_pooled,hausdorff,hausdorff_ratio,r2_F_L,skill_F_L,skill_pooled_F_L,hausdorff_F_L,r2_CoPx_L,skill_CoPx_L,skill_pooled_CoPx_L,hausdorff_CoPx_L,r2_CoPy_L,skill_CoPy_L,skill_pooled_CoPy_L,hausdorff_CoPy_L,r2_F_R,skill_F_R,skill_pooled_F_R,hausdorff_F_R,r2_CoPx_R,skill_CoPx_R,skill_pooled_CoPx_R,hausdorff_CoPx_R,r2_CoPy_R,skill_CoPy_R,skill_pooled_CoPy_R,hausdorff_CoPy_R
+ActionSense - as_preds_probgru_corpus_h1,(all actions),290,probgru_aggregate,0.6427990322784664,-0.7202917243108932,-0.3799827980746165,2.6285466262968424,0.9019446200669717,0.35746940779783387,-4.767715204576021,-2.9177192208525145,3.005909093792946,0.8661658912698942,-0.11381969672119263,0.014910317764739056,2.6166581318870787,0.608120355550859,0.10923344921872269,0.09866843211179599,2.5687401442941566,0.7950396070753023,0.1118473165788958,0.12193659359124476,2.6357869712751976,0.5447578501205076,0.22589074972667145,0.21191384032962324,2.41743854147153,0.6852410818564016,0.11281303990756397,0.19039324860741202,2.5267468750601485
+ActionSense - as_preds_probgru_corpus_h1,(all actions),290,persistence,0.6924776487020504,0.0,0.0,2.9143104441397587,1.0,0.888598765817634,0.0,0.0,2.9576270852527706,0.8798422140279256,0.0,0.0,2.881127006131794,0.5600647059485682,0.0,0.0,2.8931778021081067,0.769228425753099,0.0,0.0,2.9579604817027763,0.4119148560506777,0.0,0.0,2.879703462197902,0.6452169246143973,0.0,0.0,2.9162668274452015
+ActionSense - as_preds_probgru_corpus_h1,clean,55,probgru_aggregate,0.47228077464478213,-0.9901915479049498,,2.9731038800077707,1.0267959211221798,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,clean,55,persistence,0.5668896646515597,0.0,,2.8955158652738717,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,clear,28,probgru_aggregate,0.6085084696560812,0.10356241151171759,,2.641736289185167,0.9022283834325258,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,clear,28,persistence,0.5544147422461352,0.0,,2.9280128376527985,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,get,30,probgru_aggregate,0.51487101722396,0.19524830619445208,,2.5521170702821085,0.8669098125216562,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,get,30,persistence,0.395061384839311,0.0,,2.9439245391150237,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,get/replace,15,probgru_aggregate,0.5331075058816376,0.14828812446617642,,2.5176269193548397,0.8588761491587257,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,get/replace,15,persistence,0.4376928785663183,0.0,,2.9313037995302005,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,load,5,probgru_aggregate,0.543862272807004,0.10934350888617721,,2.665944346498451,0.8952365349509935,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,load,5,persistence,0.4854557867932769,0.0,,2.9779217474009685,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,open,6,probgru_aggregate,0.2916554745784519,0.16126535974735431,,2.381653827175581,0.8194243637333963,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,open,6,persistence,0.14189048962147738,0.0,,2.9064962339226508,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,open/close,9,probgru_aggregate,0.3466999050114025,0.1787640780751304,,2.426333361705515,0.8464731537466217,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,open/close,9,persistence,0.19157427107314495,0.0,,2.866403206015674,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,peel,30,probgru_aggregate,0.6711314441910082,0.16435092056937395,,2.4706337829340184,0.8490479299697605,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,peel,30,persistence,0.6033962039349839,0.0,,2.9098872934323174,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,pour,21,probgru_aggregate,0.42091795881804717,0.02375334713846731,,2.713417817757958,0.9407597486597843,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,pour,21,persistence,0.3967434524823932,0.0,,2.884283497060243,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,set,6,probgru_aggregate,0.5620189923980484,0.03227771085699427,,2.6704939736624467,0.8988134393302324,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,set,6,persistence,0.5011599405924856,0.0,,2.971132669814567,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,slice,45,probgru_aggregate,0.7291665423327839,0.11579826143711104,,2.528239783810858,0.873433113904355,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,slice,45,persistence,0.6873271512782612,0.0,,2.8946003346602134,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,spread,30,probgru_aggregate,0.6216028742740599,-0.05439114575802073,,2.4944037103136667,0.8508512948241852,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,spread,30,persistence,0.5907055647063174,0.0,,2.931656478032504,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,stack,5,probgru_aggregate,0.44654423655550923,0.23613640990248094,,2.4755920474760496,0.8355736169359634,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,stack,5,persistence,0.27100154206752297,0.0,,2.962745588538339,1.0,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,unload,5,probgru_aggregate,0.47708623253005356,0.21228663470484052,,2.580003591519985,0.8725081364601406,,,,,,,,,,,,,,,,,,,,,,,,
+ActionSense - as_preds_probgru_corpus_h1,unload,5,persistence,0.33273690202519945,0.0,,2.9569965983209476,1.0,,,,,,,,,,,,,,,,,,,,,,,,

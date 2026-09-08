@@ -2,7 +2,7 @@
 
 290 recordings scored. Ranked by **R²**, high → low. Hausdorff is **lower = better**; `HD ratio` < 1 beats persistence.
 
-**model `seq2seq_aggregate`** — whole dataset (290 recordings): R² **0.7414**, skill **+0.1276**, Hausdorff **2.419** (0.830× persistence). This is measured against the whole dataset's mean, so it is **not** the average of the rows below, each of which uses its own action's mean.
+**model `seq2seq_aggregate`** — whole dataset (290 recordings): R² **0.7414**, skill **+0.1276**, skill (frame-pooled, OpenTouch's estimator) **+0.1453**, Hausdorff **2.419** (0.830× persistence). This is measured against the whole dataset's mean, so it is **not** the average of the rows below, each of which uses its own action's mean.
 
 per action:
 
