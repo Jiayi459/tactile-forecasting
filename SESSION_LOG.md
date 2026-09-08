@@ -10504,3 +10504,44 @@ per-action 行用空串补齐列以保持 CSV 矩形。**一次重跑(秒级、�
 **结论未变,证据更强**:probGRU 在 corpus 上落在 persistence 之下,
 在**与 OpenTouch 同一约定**下是 **−0.309 / −0.324**;R²(0.637/0.643 对 persistence 的 0.6925)
 与 Hausdorff 独立指向同一结论。
+
+### 2026-09-08续 — corpus 上 map/CNN/aggregate 三方对比(3 s 输入)的交付准备
+
+**用户要求**:生成在 ActionSense 全 corpus 上、3 s 输入、map/CNN/aggregate 三个 encoder 的命令行。
+
+**术语落位**:`map/CNN/aggregate` = models.py:125 的 encoder 注册表 `{flatten, cnn, aggregate}`,
+其中 "map" = `flatten`(configs 注释称 flatten/cnn 同为 map encoder,aggregate 是无 map 的
+6 维 F/CoP 神经 AR)。"3input" = `--histories 3`(3 s @ 10 Hz = t_in 30 帧)。
+
+**发现一(阻断性):"全 corpus" 跑 map/CNN 做不到,且会静默降级。**
+train_tactile_map.py:57-60 —— encoder 含 flatten/cnn 时 `need_maps=True` →
+`corpus_recordings(require_maps=True)` → `available_idxs` 按 `clip_<idx>.npy` 是否存在过滤。
+清点:manifest 299 条、`state_*.npy` 299 个,但 map `clip_*.npy` **只有 100 个**。
+根因 scripts/crc/stream_actionsense.sh:49 硬编码 `--save-clips-for "Pour,Slice,Peel"`。
+有 map 的恰是 6 个标签(Pour 25 / Peel 黄瓜 15 / Slice 黄瓜 15 / Peel 土豆 15 / Slice 土豆 15 /
+Slice 面包 15 = 100),其余 16 个标签(Clear cutting board 28、Get items 24、Spread/Clean 各 15…)
+**map 数为 0**。故 `--scope corpus` + map encoder 实际跑 100 条 / 6 动作,却 exit 0 ——
+正是 2026-09-05 记录的那类静默错 scope。
+**用户决定:先跑 corpus∩maps 的 100 条**,三个 arm 共享同一 population(因 `need_maps` 对整个
+encoder 列表求 `any`,recs 只算一次,aggregate 也被同样限制在 100)→ 三者直接可比。
+标注必须写作 corpus∩maps,不得称"全 299"。
+
+**发现二(会毁结果的 bug):`save_predictions` 整文件覆写。**
+train.py:242 每个 encoder 都往同一 `--save-preds` 目录写 `clip_<idx>.npz`,
+`np.savez_compressed` 截断重写 → flatten,cnn,aggregate 跑完 npz 里**只剩最后一个 arm**,
+而日志仍称保存了三次;`score_preds_per_action.py` 从 `mu_*` 键发现模型,会把"只有一个模型
+对比 persistence"渲染得像三方对比。
+**修复**:改为**读回已有 npz 再并入** `mu_*`/`sigma_*` 键;同名 arm 重跑则替换自身。
+并加**防串味校验**:已有文件的 `y`/`origins` 与待写不一致即 `raise ValueError`
+(不同 scope 或不同 t_in 会改变每个窗口的 origin),拒绝把两个 population 混进一个 npz。
+新增两个回归测试(tests/test_tactile_map.py):三 arm 共存 + 重跑只替换自身;混 population 报错。
+
+**验证**:本地冒烟 `--scope corpus --encoders aggregate,flatten,cnn --histories 3
+--folds 2 --epochs 1`,header 打印 `scope=corpus 100 recordings`(与清点一致),
+日志出现 `merged into 96 existing; arms now: ['seq2seq_aggregate','seq2seq_flatten']`
+—— 合并修复在真实 driver 中生效。10 分钟本地超时于 cnn(CPU 卷积慢),故交付为 GPU 作业。
+preds 为 96 条而非 100:另 4 条长度不足 t_in=30 + horizon 10,不产生窗口。
+
+**交付决定**:两个 backbone 各提交一个作业(用户选"两个都跑"),
+**SAVE_PREDS 分目录**——合并是"读-改-写",两个作业并发写同一 npz 会竞争损坏。
+tests 全绿 139 passed。

@@ -233,20 +233,54 @@ def _per_recording(model, ds, tnorm, H):
 
 
 def save_predictions(store: dict, cfg: Config, out_dir: str, verbs: dict):
-    """Write one clip_<idx>.npz per recording, in the OpenTouch overlay format."""
+    """Write one clip_<idx>.npz per recording, in the OpenTouch overlay format.
+
+    MERGES into an existing clip_<idx>.npz rather than replacing it. The sweep calls this once
+    per encoder, all into one --save-preds directory, and `np.savez_compressed` truncates the
+    file it opens -- so a flatten,cnn,aggregate run used to leave only `mu_cnn` behind, the two
+    earlier arms silently gone, and the per-action scorer would compare one model against
+    persistence while appearing to compare three.
+
+    Merging is only safe while the arms describe the SAME recordings, so `y` and `origins` from
+    the existing file must match what is being written. They will not match across scopes or
+    histories (a different t_in shifts every window origin), and there the merge raises instead
+    of interleaving two populations into one npz that nothing downstream could tell apart.
+    """
     import json
     os.makedirs(out_dir, exist_ok=True)
     idxs = sorted({i for d in store.values() for i in d})
+    n_merged = 0
     for i in idxs:
         first = next(d[i] for d in store.values() if i in d)
+        y, origins = first[0], first[1]
+        keep = {}
+        path = os.path.join(out_dir, f"clip_{i}.npz")
+        if os.path.exists(path):
+            with np.load(path, allow_pickle=False) as z:
+                if z["y"].shape != y.shape or not np.allclose(z["y"], y, equal_nan=True) \
+                        or z["origins"].shape != origins.shape \
+                        or not np.array_equal(z["origins"], origins):
+                    raise ValueError(
+                        f"{path} holds a different recording than the one being saved "
+                        f"(y {z['y'].shape} vs {y.shape}, origins {z['origins'].shape} vs "
+                        f"{origins.shape}). That means this --save-preds directory is already "
+                        f"holding another scope or history; point --save-preds at a fresh "
+                        f"directory rather than mixing two populations into one npz.")
+                keep = {k: z[k] for k in z.files
+                        if k.startswith(("mu_", "sigma_"))}
+                n_merged += bool(keep)
+        arms = {f"mu_{m}": d[i][2] for m, d in store.items() if i in d}
+        arms |= {f"sigma_{m}": d[i][3] for m, d in store.items() if i in d}
         np.savez_compressed(
-            os.path.join(out_dir, f"clip_{i}.npz"),
-            y=first[0], origins=first[1], fps=cfg.fps,
+            path,
+            y=y, origins=origins, fps=cfg.fps,
             action=verbs.get(i, ""), object_name="",
             channels=np.array(cfg.channels), tag="actionsense",
-            **{f"mu_{m}": d[i][2] for m, d in store.items() if i in d},
-            **{f"sigma_{m}": d[i][3] for m, d in store.items() if i in d})
-    print(f"  saved {len(idxs)} recordings of forecasts -> {out_dir}")
+            **{**keep, **arms})            # a re-run of the same arm replaces its own keys
+    have = sorted({k[3:] for k in np.load(os.path.join(out_dir, f"clip_{idxs[0]}.npz")).files
+                   if k.startswith("mu_")}) if idxs else []
+    print(f"  saved {len(idxs)} recordings of forecasts -> {out_dir}"
+          f"{f' (merged into {n_merged} existing)' if n_merged else ''}; arms now: {have}")
     return len(idxs)
 
 

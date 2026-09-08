@@ -202,3 +202,63 @@ def test_corpus_recordings_ignores_the_action_filter(tmp_path):
     got = T.corpus_recordings(cfg)
     assert got == [0, 1, 2], got              # clean + pour kept; the state-less idx 3 dropped
     assert 1 in got and 2 in got, "the action filter leaked into the corpus enumeration"
+
+
+# --- (x) one --save-preds directory holds every encoder arm, not just the last one ---
+def test_save_predictions_merges_arms_instead_of_clobbering(tmp_path):
+    """The sweep calls save_predictions once per encoder, all into one --save-preds directory.
+
+    `np.savez_compressed` truncates the file it opens, so a flatten,cnn,aggregate run used to
+    leave only the last arm behind while the log still claimed three had been saved -- and the
+    per-action scorer, which discovers models from the `mu_*` keys, would then compare a single
+    model against persistence and look like it had compared three. Each arm must survive the
+    ones written after it.
+    """
+    from src.actionsense.tactile_map import train as T
+
+    cfg = make_cfg()
+    out = str(tmp_path / "preds")
+    rng = np.random.default_rng(0)
+    y, origins = rng.standard_normal((80, 6)).astype(np.float32), np.arange(30, 70)
+
+    def arm():
+        return (y, origins, rng.standard_normal((40, 3, 6)).astype(np.float32),
+                np.abs(rng.standard_normal((40, 3, 6))).astype(np.float32))
+
+    for enc in ("aggregate", "flatten", "cnn"):
+        T.save_predictions({f"seq2seq_{enc}": {7: arm()}}, cfg, out, {7: "Slice a potato"})
+
+    with np.load(os.path.join(out, "clip_7.npz")) as z:
+        got = sorted(k[3:] for k in z.files if k.startswith("mu_"))
+        assert got == ["seq2seq_aggregate", "seq2seq_cnn", "seq2seq_flatten"], got
+        assert sorted(k[6:] for k in z.files if k.startswith("sigma_")) == got
+        assert str(z["action"]) == "Slice a potato"
+
+    # a re-run of one arm replaces its own keys and leaves the other two untouched
+    T.save_predictions({"seq2seq_cnn": {7: arm()}}, cfg, out, {7: "Slice a potato"})
+    with np.load(os.path.join(out, "clip_7.npz")) as z:
+        assert len([k for k in z.files if k.startswith("mu_")]) == 3
+
+
+def test_save_predictions_refuses_to_mix_populations(tmp_path):
+    """Merging is only safe while the arms describe the same recordings.
+
+    A different scope or history changes `y`/`origins`, and merging those would interleave two
+    populations into one npz that nothing downstream could tell apart -- the silent-wrong-scope
+    failure mode SESSION_LOG 2026-09-05 records. It must raise instead.
+    """
+    from src.actionsense.tactile_map import train as T
+
+    cfg = make_cfg()
+    out = str(tmp_path / "preds")
+    rng = np.random.default_rng(1)
+    origins = np.arange(30, 70)
+
+    def arm(n_t):
+        return (rng.standard_normal((n_t, 6)).astype(np.float32), origins,
+                rng.standard_normal((40, 3, 6)).astype(np.float32),
+                np.ones((40, 3, 6), np.float32))
+
+    T.save_predictions({"seq2seq_cnn": {7: arm(80)}}, cfg, out, {7: ""})
+    with pytest.raises(ValueError, match="another scope or history"):
+        T.save_predictions({"probgru_cnn": {7: arm(81)}}, cfg, out, {7: ""})
