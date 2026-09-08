@@ -421,12 +421,20 @@ low-amplitude wiping with the shortest median length among the large groups (101
 10 Hz), and an absolute-target autoregressive rollout has nothing anchoring it to the level on
 such a signal -- but that is a hypothesis, not a measurement, and no run here tests it.
 
-**Read Hausdorff, not skill, for the head-to-head.** The two backbones are not scored against
-the same reference: Seq2Seq's persistence is the zero forecast in residual space, probGRU's is
-persistence itself in absolute space, which at one step ahead is nearly unbeatable. Hausdorff
-is computed on residual curves for both and is invariant to the shared anchor, so it *is* a
-common yardstick. It says Seq2Seq, at both histories, and in **13 of 14 actions** individually
-(`docs/per_action_metrics.md` §4) -- the same direction as the nine-of-nine OpenTouch result.
+**Skill is a valid head-to-head, and an earlier version of this section wrongly said it was
+not.** The claim was that the two arms are scored against different references because one
+predicts the residual and the other the absolute target. They are not. `evaluate` forms
+`1 - mean(mu-y)^2 / mean(pers-y)^2` for both, and the denominators are the same quantity:
+Seq2Seq's `y = z[t+1..t+H] - z[t]` with `pers = 0` gives `(z[t+h]-z[t])^2`, and probGRU's
+`y = z[t+1..t+H]` with `pers = z[t]` gives `(z[t]-z[t+h])^2`. **Persistence is the value at the
+same origin `t` in both**; the residual parameterization has already subtracted it from the
+target, which is why its persistence *reads* as zero. Checked numerically against the real
+`AggWindows`: identical to the bit. So probGRU's deficit is a real difference in forecast
+quality, not an artefact of the reference, and it needs no hedging.
+
+Hausdorff agrees, on a genuinely independent yardstick -- shape rather than squared error --
+saying Seq2Seq at both histories and in **13 of 14 actions** individually
+(`docs/per_action_metrics.md` §4), the same direction as the nine-of-nine OpenTouch result.
 
 **A third estimator exists, and it is not the one in this table.** `cv_*.csv` stores skill per
 forecast step; averaging those ten values is *not* the frame-pooled number above, because

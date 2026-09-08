@@ -118,13 +118,18 @@ forecasts; source tables in `docs/actionsense/results/corpus-aggregate/`.
 > population from 75 slice/peel recordings to 290 changes the `Norm`, the class-mean
 > denominator and the CV folds. Nothing about the frozen protocol was altered to produce them.
 
-> **`skill` is not comparable across the two backbones, and the run-level numbers show why.**
-> Seq2Seq predicts the residual over persistence, so its reference is the zero forecast;
-> probGRU predicts the absolute target, so its reference is persistence itself — which at
-> step 1 is nearly unbeatable. Pooled over the corpus that gives seq2seq **+0.14** and probGRU
-> **−0.79**, the latter driven by a step-1 value of −4.25. The two arms are not being scored
-> against the same thing. **R² (against the class mean) and Hausdorff are common-denominator
-> and are the comparable columns.**
+> **Skill IS comparable across the two backbones.** An earlier version of this file said it
+> was not; that was wrong, and the correction matters because it changes what the numbers are
+> allowed to say. `evaluate` computes `1 - mean(mu-y)^2 / mean(pers-y)^2` for both arms, and
+> the denominators are *algebraically identical*: Seq2Seq's target is `z[t+1..t+H] - z[t]`
+> with `pers = 0`, giving `(z[t+h]-z[t])^2`; probGRU's is `z[t+1..t+H]` with
+> `pers = z[t]`, giving `(z[t]-z[t+h])^2` — the same number. Persistence is the value at the
+> **same** origin `t` in both. Verified numerically on the real `AggWindows`: the denominators
+> match bit for bit and the numerators match under the change of variable. The residual/absolute
+> split changes what the network must emit, not what it is measured against.
+>
+> What *is* not interchangeable is the **weighting**. Three different pooled values exist for
+> the same run and are labelled at every use; see §4.4.
 
 
 ### 4.1 Whole dataset
@@ -273,7 +278,7 @@ Highest R²: **slice** (0.7292). Lowest Hausdorff: **open** (2.382). They are no
 | 13 | open/close | 2.283 | 2.268 | 2.429 | 2.426 |
 | 14 | open | 2.347 | 2.309 | 2.442 | 2.382 |
 
-**Skill against persistence** — comparable *down* a column, **not across the backbone boundary**: Seq2Seq's reference is the zero forecast in residual space, probGRU's is persistence itself in absolute space.
+**Skill against persistence** — comparable **both ways**: the denominator is `(z[t+h] - z[t])^2` for both arms, persistence being the value at the same origin `t` in each. Only the weighting differs between pooled estimators.
 
 | # | action | seq2seq, 3 s | seq2seq, 1 s | probGRU, 3 s | probGRU, 1 s |
 |---:|---|---:|---:|---:|---:|
@@ -334,7 +339,7 @@ This matters for how the corpus-level result is read. probGRU's pooled skill ove
 | unload | -0.0224 | -0.1071 | +0.1821 | +0.2116 |
 | pour | -0.0241 | +0.0474 | +0.0121 | +0.0488 |
 
-**5. On the whole dataset, probGRU is below persistence on R² too — and R² has no reference ambiguity.** Persistence scores **0.6925** against the corpus mean; the arms score seq2seq, 3 s **0.7414**, seq2seq, 1 s **0.7410**, probGRU, 3 s **0.6374**, probGRU, 1 s **0.6428**. Both probGRU runs land *under* the trivial predictor, both Seq2Seq runs above it. Skill said the same thing but could be waved away as a reference mismatch between the backbones; R² shares one denominator with persistence and with the other arm, so it cannot. The one cell where Hausdorff also crosses its reference is probGRU on `clean`, at ratio **1.033** — the only value above 1.0 in the entire table, meaning a forecast worse-shaped than assuming nothing changes.
+**5. On the whole dataset, probGRU is below persistence on R² too — and R² has no reference ambiguity.** Persistence scores **0.6925** against the corpus mean; the arms score seq2seq, 3 s **0.7414**, seq2seq, 1 s **0.7410**, probGRU, 3 s **0.6374**, probGRU, 1 s **0.6428**. Both probGRU runs land *under* the trivial predictor, both Seq2Seq runs above it. Skill already said this, and — contrary to an earlier note in this file — skill was entitled to: both arms divide by the same `(z[t+h]-z[t])^2`. R² is a second, independent denominator reaching the same verdict. The one cell where Hausdorff also crosses its reference is probGRU on `clean`, at ratio **1.033** — the only value above 1.0 in the entire table, meaning a forecast worse-shaped than assuming nothing changes.
 
 **6. History is inert.** Median |R²(3 s) − R²(1 s)| = **0.0061**, at or below the ~5e-3 replicate noise floor recorded in `docs/ICRA_PAPER_PLAN.md`. Both histories sit under the harness's `min_history = 40`, so neither ever zero-pads a window; the comparison is clean, and it says the axis does not matter.
 

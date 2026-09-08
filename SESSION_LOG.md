@@ -10130,6 +10130,26 @@ forecasts + skill；level/evolution ambiguity → absolute R² + Hausdorff。
 - citation keys 与 bibitems 一一对应，无缺失或 orphan。
 - Pandoc LaTeX 结构解析返回 0；输出仅含原有 aligned/custom-macro 数学转换 warning。
 
+### 2026-09-06续6 — 以 ActionSense full-corpus 结果补全 Section 6
+
+**用户指示**:完整检查 `docs/` 下现有文件，重点核对 `per_action_metrics.md` 与
+`skill_comparison.md`，再依据本日志中的实验运行顺序追查生成结果的代码；保持 Section 6 结构与
+已有内容不变，在明确证据范围内补写结果并控制篇幅。
+
+**计划**:
+1. 建立 `docs/` 全文件清单，逐一检查文本、表格、运行记录与图像产物；D256 仅登记存在，不纳入
+   论文证据。
+2. 从 `SESSION_LOG.md` 还原 ActionSense full-corpus 的执行顺序，将核心表中的列、aggregation、
+   baseline、horizon 与模型标签追溯到生成脚本和命令。
+3. 交叉核对 `per_action_metrics.md`、`skill_comparison.md`、corpus-aggregate/frozen-* 结果及原始
+   CSV，区分可直接比较、仅描述性比较和仍不可比较的结果。
+4. 在现有 Section 6 四个 subsection 内保留原文和 placeholder，只补入有明确文件与代码依据的
+   ActionSense 结果；不改变章节层级，不填补任何不确定结论。
+5. 复核所有数值、字数、LaTeX 结构和引用，并记录证据文件、代码入口与剩余空缺。
+
+**OPEN QUESTIONS**: 无。用户已授权直接修改；沿用既定边界：忽略 D256，结构不变，缺乏可比
+依据的结论继续留空。
+
 ### 2026-09-06续3 — 重组把驱动脚本写死的输出路径变成了错的;改为从数据推断
 
 **用户重跑评分后报告两件事**:产物落在 `docs/actionsense/{per_action,forecast}/`(旧路径),
@@ -10193,3 +10213,106 @@ probGRU corpus 3s:frame-pooled(作业日志)**−0.309**;clip-balanced(评分器
   并提示 0.884× 掩盖了 `clean` 的 1.033×。
 - 明确标注 `AS_corpus` 与 `ActionSense` 是**不同群体**(corpus vs 冻结 slice+peel),
   不是对后者的更新。
+
+### 2026-09-06续7 — Section 6 full-corpus 写作前的共同评分器审计
+
+**本轮范围**：只补 `main.tex` 的 Section 6，并为与新结果直接冲突的 Section 4
+估计量说明做最小一致性修正；不改 Section 6 的四个 subsection 及 synthesis 结构，
+不把 D256、frozen ActionSense 或未跑出的 corpus map/AR/seasonal 数字混入结果表。
+
+**执行链复核**：`corpus_recordings` 枚举 299 个 state 录制；四个 5-fold corpus run
+由 `train_tactile_map.py --scope corpus --encoders aggregate` 生成，`_per_recording`
+把 Seq2Seq residual 加回 origin anchor 并将两种 backbone 都反归一化到 raw absolute
+量纲；`score_and_plot_runs.sh` 随后用 `score_preds_per_action.py --mask none` 读取四套
+`clip_*.npz`，为每套都按 `y[origin]` 重建同一个 persistence，再调用同一套
+clip/recording-balanced R²、skill 和 Hausdorff 定义。9 个短录制没有有效 origin，最终
+共同评分人口为 **290 recordings / 14 actions / 6 channels**。
+
+**关键勘误（paper 以代码和原始 CSV 为准）**：当前生成的
+`docs/per_action_metrics.md` 仍声称 corpus Seq2Seq 与 probGRU 的 skill 参照不同、不可横比；
+这对 `score_preds_per_action.py` 的四份 CSV 不成立。保存预测前 residual 已恢复为 absolute，
+评分时两种 backbone 又明确使用同一个 raw persistence，因此这些 CSV 的
+recording-balanced skill **可横比**。不可混用的是该 scorer 的 clip-balanced skill、
+训练作业日志的 frame-pooled skill 与 `cv_*.csv` 的逐步 skill。本文只引用前者。
+
+**可写结论边界**：ActionSense corpus 只跑了 physical-state aggregate，因为只有
+100/299 个录制有 raw map；corpus scope 没有 seasonal/AR。故 H1 的完整 reference ladder
+和 H3 representation ordering 仍由 OpenTouch 回答；ActionSense 用于共同人口上的
+persistence、architecture、history 和 per-action 检验。逐动作只报告点估计；尚无该
+full-corpus contrast 的 bootstrap CI，smooth/abrupt 不能写成正式组间结论。
+
+**图表计划修正**：保留 Section 6 已有 action-level `figure*` 位置和 label，但原始 CSV
+已足够，因此用可复现脚本将 placeholder 换成 3 s 两模型的 per-action R²、skill 和
+Hausdorff ratio 描述图；无误差条，并在 caption 明示 point estimates。
+
+**OPEN QUESTIONS**：无。数值均从四份 corpus CSV 逐项读取并在改稿后自动核对。
+
+**完成修改**：
+- `main.tex` Section 6 的四个 subsection 与 synthesis 顺序保持不变；删除所有
+  ActionSense pending 语句，加入 290-recording full-corpus 表、两套 3 s representative
+  forecast overlays、逐动作结果和边界明确的 synthesis。
+- Section 4 只改一处估计量说明：full-corpus aggregate scorer 是 recording-balanced、
+  `--mask none`，可回答 architecture/action，但不可回答 frozen reference/representation；
+  Section 7 同步改一个 limitation 句，避免把新 corpus scorer 误写成 frame-pooled。
+- 新增 `scripts/actionsense/plot_corpus_action_predictability.py`，只读取两份 3 s
+  shared-scorer CSV 与预注册 trait 表，输出
+  `docs/actionsense/results/corpus-aggregate/action_predictability.png`。图按 Seq2Seq R² 排序，
+  并列 R²、skill、HD ratio，显示 persistence 参照、样本数及 [A]/[S]；不伪造误差条。
+
+**写入的 ActionSense whole-corpus 数值（共同 scorer）**：persistence
+R²/HD = **.6925/2.914**；Seq2Seq 3 s **.7414/.1276/2.419/.830**，1 s
+**.7410/.1243/2.408/.826**；ProbGRU 3 s **.6374/−.7225/2.627/.901**，1 s
+**.6428/−.7203/2.629/.902**（顺序 R²/skill/HD/ratio）。
+
+**验证**：
+- 自动从四份 raw CSV 重读并 assert manuscript 中所有 whole-corpus 舍入值，同时核对
+  persistence 与 290/100-of-299 coverage 表述：通过。
+- 逐动作相关系数、13/14、clean/slice/open/open-close 数值均由 raw CSV 独立复算；
+  ActionSense/OpenTouch mean Rdiff 由 `docs/predictability_floor.csv` 重算为 .649083/1.040667。
+- 新图以 2115×1035、300 dpi 生成并人工检查；三条指标轴、图例、[A]/[S] 与样本数可读。
+- LaTeX 环境 begin/end 计数一致，新增图片都存在且由 `\IfFileExists` 防护；本机无
+  `ieeeconf.cls`/LaTeX executable，故最终版面仍需 Overleaf 编译确认。
+- `pytest -q`：**137 passed, 5 expected warnings**（40.75 s）。
+- Pandoc 的 Section 6 文本计数为 **622 words**；其转换不计 resizebox 内 OpenTouch 表，
+  因而实际正文+表注接近此前 650–750 words 的目标。
+
+### 2026-09-08 — 更正一个我反复写入文档的错误:两个 backbone 的 skill **是**可比的
+
+**用户提问**:seq2seq 与 probGRU 的 skill 公式分别是什么?是不是 persistence 取的时间点不同?
+那三个 skill 数字各自在哪里算的、属于哪个 run?
+
+**核查结果:我此前"两臂参照不同、skill 不可比"的说法是错的。** 逐行核对 + 数值验证:
+`evaluate`(train.py:181-182)对两臂用**同一个公式**
+`skill_c = 1 - mean_{N,H}[(mu-y)^2] / mean_{N,H}[(pers-y)^2]`,而两个分母**代数上恒等**:
+- Seq2Seq(`residual=True`):`y = z[t+1..t+H] - z[t]`、`pers = 0`(train.py:134
+  `np.zeros_like`)⇒ `ep = (z[t+h]-z[t])^2`
+- probGRU(`residual=False`):`y = z[t+1..t+H]`、`pers = repeat(z[t],H)`
+  ⇒ `ep = (z[t]-z[t+h])^2` —— **同一个数**
+
+**persistence 在两臂里都是同一时间点 `t` 的值**;残差参数化只是**已经把 z[t] 从目标里减掉了**,
+所以它的 persistence "读起来"是 0。分子在换元 `mu_abs = mu_res + z[t]` 下同样恒等。
+**用真实 `AggWindows` 数值验证**:分母 `max|diff| = 0.0`(逐位相同),分子 `max|diff| = 3.9e-7`
+(浮点)。**故 probGRU 的赤字是真实的预测质量差距,不是参照造成的假象,无需任何对冲措辞。**
+
+**幸存的部分**:残差参数化"有 0 的地板"这一论证**依然成立**,但它是关于**可学习性**而非度量——
+Seq2Seq 只要输出 0 就精确得到 skill=0;probGRU 要达到同一点必须学会精确复现 `z[t]`,
+即把输入原样吐出。这解释了**为什么 probGRU 是那个可能掉到负值的臂**,与度量无关。
+
+**三个 skill 数字的出处(全部同一个 run:probGRU / corpus / 3s)——差别只在【加权】,不在参照**
+| 值 | 估计量 | 计算于 | 落在哪 |
+|---|---|---|---|
+| **−0.309** | frame-pooled:对 (N 窗口, H 步) 一起取均值后再作比 | `evaluate` 的 `skill_ch`(train.py:182),再经 train_tactile_map.py:96-97 对折、对通道取均值 | **只 print**,`logs/tactile_map.o1416831` |
+| **−0.7225** | clip-balanced:先按 clip 取均值(除以 n_k)再对 clip 取均值,最后作比 | `src/opentouch/aggregate.skill` → `clip_equal_ratio` | `as_preds_probgru_corpus.csv`,`action="(all actions)"` 行 |
+| **−0.7934** | 逐步 skill 的算术平均 | **我自己在分析时算的,仓库里没有任何代码产出它** | 由 `cv_probgru_agg_corpus.csv` 的 10 行 `mean_skill` 平均而来 |
+
+**为什么差这么多**:step-1 的 `ep` 极小(1 步之后 persistence 几乎完美),故 `1-em/ep` 在该步
+剧烈为负(−4.25)。frame-pooled 按 `ep` 的绝对大小加权,step-1 权重最低;逐步平均给每步同等权重,
+step-1 主导;clip-balanced 则先按 clip 归一。**三者都为负,结论稳健,但数值不可混用。**
+
+**已更正的文档**:`docs/per_action_metrics.md`(AS_INTRO 警告块、skill 表标题、结论第 5 条)与
+`docs/skill_comparison.md`(原"Read Hausdorff, not skill, for the head-to-head"一段)。
+两处都**明写"此前版本说错了"**而非静默改写。
+
+**教训**:这个错误从 2026-08-25 起被我写进日志与两份文档,期间多次复述而未核。
+**"两个东西不可比"是一个需要证明的断言,不是一个安全的默认。** 我当时从"目标空间不同"
+直接推出"参照不同",跳过了实际去读 `evaluate` 里分母怎么算的这一步。

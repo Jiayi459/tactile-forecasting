@@ -193,9 +193,9 @@ def actionsense_tables(data, n):
               "**Hausdorff** — lower is better; computed on residual curves for both "
               "backbones and invariant to the shared anchor, so also **comparable**."),
         block("skill", "{:+.4f}",
-              "**Skill against persistence** — comparable *down* a column, **not across the "
-              "backbone boundary**: Seq2Seq's reference is the zero forecast in residual "
-              "space, probGRU's is persistence itself in absolute space."),
+              "**Skill against persistence** — comparable **both ways**: the denominator is "
+              "`(z[t+h] - z[t])^2` for both arms, persistence being the value at the same "
+              "origin `t` in each. Only the weighting differs between pooled estimators."),
     ]))
 
 
@@ -266,9 +266,10 @@ def actionsense_analysis(data, n):
                   f"and R² has no reference ambiguity.** Persistence scores "
                   f"**{pr2:.4f}** against the corpus mean; the arms score {cells}. Both "
                   f"probGRU runs land *under* the trivial predictor, both Seq2Seq runs above "
-                  f"it. Skill said the same thing but could be waved away as a reference "
-                  f"mismatch between the backbones; R² shares one denominator with "
-                  f"persistence and with the other arm, so it cannot. The one cell where "
+                  f"it. Skill already said this, and — contrary to an earlier note in this "
+                  f"file — skill was entitled to: both arms divide by the same "
+                  f"`(z[t+h]-z[t])^2`. R² is a second, independent denominator reaching the "
+                  f"same verdict. The one cell where "
                   f"Hausdorff also crosses its reference is probGRU on `clean`, at ratio "
                   f"**1.033** — the only value above 1.0 in the entire table, meaning a "
                   f"forecast worse-shaped than assuming nothing changes."]
@@ -489,13 +490,18 @@ forecasts; source tables in `docs/actionsense/results/corpus-aggregate/`.
 > population from 75 slice/peel recordings to 290 changes the `Norm`, the class-mean
 > denominator and the CV folds. Nothing about the frozen protocol was altered to produce them.
 
-> **`skill` is not comparable across the two backbones, and the run-level numbers show why.**
-> Seq2Seq predicts the residual over persistence, so its reference is the zero forecast;
-> probGRU predicts the absolute target, so its reference is persistence itself — which at
-> step 1 is nearly unbeatable. Pooled over the corpus that gives seq2seq **+0.14** and probGRU
-> **−0.79**, the latter driven by a step-1 value of −4.25. The two arms are not being scored
-> against the same thing. **R² (against the class mean) and Hausdorff are common-denominator
-> and are the comparable columns.**
+> **Skill IS comparable across the two backbones.** An earlier version of this file said it
+> was not; that was wrong, and the correction matters because it changes what the numbers are
+> allowed to say. `evaluate` computes `1 - mean(mu-y)^2 / mean(pers-y)^2` for both arms, and
+> the denominators are *algebraically identical*: Seq2Seq's target is `z[t+1..t+H] - z[t]`
+> with `pers = 0`, giving `(z[t+h]-z[t])^2`; probGRU's is `z[t+1..t+H]` with
+> `pers = z[t]`, giving `(z[t]-z[t+h])^2` — the same number. Persistence is the value at the
+> **same** origin `t` in both. Verified numerically on the real `AggWindows`: the denominators
+> match bit for bit and the numerators match under the change of variable. The residual/absolute
+> split changes what the network must emit, not what it is measured against.
+>
+> What *is* not interchangeable is the **weighting**. Three different pooled values exist for
+> the same run and are labelled at every use; see §4.4.
 
 """
 
