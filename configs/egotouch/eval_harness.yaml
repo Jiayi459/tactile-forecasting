@@ -50,7 +50,13 @@ split:
 
 eval:
   stride: 1
-  min_history: 40          # with horizon 10 -> a recording needs >= 50 frames @10Hz = 5.0 s
+  # 30 = the LONGEST history arm (3 s). t_in never gates eligibility -- shorter-history
+  # origins are left-padded with zeros -- so 30 is the first value at which every scored
+  # origin gives BOTH remaining arms (1 s, 3 s) full real history: no padding artefact in the
+  # arm comparison. AR-30, the top of the ladder, needs t >= 29 and the first origin is t=30.
+  # (User ruling 2026-09-09, Q-E. ActionSense keeps 40; its 10 s arm was always scored on
+  # partially padded origins, so 30 here is stricter, not looser.)
+  min_history: 30          # with horizon 10 -> a recording needs >= 40 frames @10Hz = 4.0 s
   seed: 0
 
 paths:

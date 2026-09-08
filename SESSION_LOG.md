@@ -11194,3 +11194,312 @@ DRIFTED INTO"逐条记录:
 - **Q-K** 参照阶梯的 `fit_scope`:group(与 AS 一致;但 EgoTouch train 有 ~168 个 (action,object)
   组,大量组只有 1-2 条录制,AS 只有 5 组)还是 global?我建议:**保持 group** 但把 W4(a) 的
   fallback 核实清楚 + 顺跑一次 global 作稳健性对照(CPU 便宜)。
+
+## 2026-09-08 — EgoTouch 设计 v1 问题答复与实现前审查（建议，非用户裁定）
+
+### Material Passport
+
+- Origin Skill: academic-research-suite / experiment-agent
+- Origin Mode: plan
+- Origin Date: 2026-09-08
+- Verification Status: UNVERIFIED（设计可行性未通过真实 EgoTouch 训练验证；下列代码边界已合成实核）
+- Version Label: egotouch_design_v1_review_1
+- Upstream Dependencies: 本日志续7 EgoTouch 实验设计 v1、续6 profiler 读数、此前 metric 审计
+- Repro Lock: null（本轮没有正式实验运行）
+
+### 请求、计划与工作范围
+
+- 用户明确要求先读 v1 计划，再回答 Q-F0/Q-E/Q-F/Q-G/Q-H/Q-K。本轮只给设计建议，
+  不启动 W1/W2/E1/E2，不把助手建议标成用户已裁定，不提交或推送。
+- 已完整阅读 v1、W4、各问与相关历史裁定；按 experiment-agent 的计划检查框架核对
+  比较变量、切分边界、不确定性来源和可复现性。另读模型/data/train、baseline、scorer、
+  split/extractor/profiler 相关代码，做无文件写入的合成边界检查。
+
+### 总原则的修订建议
+
+- 保留“模型机制与训练配方一致，协议随数据明确设计”的方向；但“每处修改均被数据强制”
+  过强。21×21 是结构事实；不做内部 CV、min_history=30、clip-balanced 等是有理由的
+  设计选择，不是唯一数学解。建议差异表区分“结构约束”“已有用户裁定”“研究目标驱动选择”。
+- same model 应解释为同一架构族/共享实现/同一训练配方，不是不同网格拥有逐字相同参数张量：
+  flatten 输入从2048到882，首层权重规模必然改变。记录参数量，不要求为了等参数量改 hidden/d。
+- 不把跨数据集同一 skill 公式说成无混杂的传感器比较：split 难度、目标定义、覆盖率和
+  eligibility 仍然不同。EgoTouch 的压力质量不是 Newtons。
+
+### 逐项建议
+
+**Q-F0：推荐官方单切分；纠正“CV 与官方 split 互斥”。**
+
+- 本轮主协议 fit=official TRAIN，checkpoint/超参/sigma=official VAL，主评估=test_seen，
+  test_unseen 为单独附录输出。测试集合不参与选择、校准或重新归一化。
+- 不能对 train+val+test 的全集调用 AS `cross_validate`（train.py:331-351），但只在
+  official TRAIN 内做内部 CV 与保留 official TEST 完全兼容。v1 不做内部 CV 是成本与
+  简洁性的合理选择，不是官方 split 的唯一必然推论。
+- split 文件缺失/来源不符必须 fail closed。共用 `load_splits` 在文件缺失或 rebuild=True
+  时调用 make_splits 并写随机划分（splits.py:74-84）；EgoTouch driver 不能照搬此回退。
+- 同一个 VAL 先选 checkpoint 再拟合一个 sigma scalar 可以作为普通开发集协议；不要把该
+  VAL 上95%覆盖率当独立校准检验或声称有限样本覆盖保证。需在封存 TEST 上报告实际覆盖。
+
+**Q-E：推荐30，所有模型/baseline使用相同 origin 集合；先纠正计数器。**
+
+- 首个 origin t=30，数据窗口含当前帧，3s 输入为 t-29..t（data.py:147-152,187-191）；
+  无需额外10帧作为“AR余量”。AR-30有足够历史（base.py:44-49; ar.py:91-94）。严格说
+  29也可提供30个观测，但本次给定30/40两选中选30，按3s warmup表达且不另扩问题。
+- profiler `origins` 使用 `floor(T_raw/3)-mh-H+1`（profile_egotouch_states.py:29-32），
+  实际读取 `[::3]` 后长度是 `ceil(T_raw/3)`，真实 origins 是
+  `arange(mh, T_down-H)`，stride1数量为 `max(0,ceil(T_raw/3)-mh-H)`。
+- mh30/H10 的合成实核：raw_T120 => profiler1/实际0；121=>1/1；123=>2/1；124=>2/2；
+  150=>11/10。故旧1135/132/56等覆盖数及494k窗口是待重新核定的旧 profiler 读数，不能
+  直接作为冻结后的精确 population count。mh30实际需 T_down>=41，不是>=40。
+- `eligible_recordings` 另用 floor(T_raw/3)>=mh+H（splits.py:39-45）；官方 extractor
+  splits保存可得全集，不自动过滤为有窗口集合。应由真实 origins 唯一确定 eligibility并
+  记录各阶段计数；不要默默修改官方 split 成员。
+
+**Q-F：推荐(b)，8个主模型。**
+
+- seq2seq×{aggregate,flatten,cnn}×{1s,3s}=6；probgru×aggregate×{1s,3s}=2。
+- 可以检验 seq2seq 家族内 encoder 差异、aggregate 输入下两个完整模型的差异。不能声称
+  encoder 优势跨两个 backbone 成立，也不能把 seq2seq/probgru 的差距归因于单一
+  autoregressive 设计：动作条件、绝对/残差目标等也同时不同。
+- d64/hidden64/lr.003/batch64/epochs60、logvar clamp、概率NLL、log1p与TRAIN全局Norm保留；
+  主训练继续 window-pooled，不因本轮意见静默换 balanced sampling。
+- 当前用户已要求 NLL 沿用且 Q-D 已裁定 balanced NLL，因此 v1 建议继续 balanced NLL
+  checkpoint，不擅自执行上一轮提出的 point-metric selection 备选。另记录 balanced
+  MSE/skill曲线以显式显示 NLL/点预测不一致，TEST 主表 balanced、pooled 为诊断。
+
+**Q-G：推荐参数化共用代码，保持 AS 默认与旧 checkpoint 兼容。**
+
+- models.py:12-25,34-41硬编码2×32×32；CNN已有 AdaptiveAvgPool2d(1)，21→11→6后无需改
+  GRU/head结构。Flatten在构造阶段显式接收882输入维度，forward依据张量实际shape reshape；
+  不要首次forward才创建Linear，避免optimizer漏注册和checkpoint初始化差异。
+- 同时检查 build_model→train_model参数传递、data.recording_windows空数组分支的
+  2×32×32（data.py:210）、输出tag/object metadata等；W1不应只改models.py一处。
+- 回归门：AS默认参数shape与state_dict键不变、旧weights可load、同weights同输入预测相同；
+  21×21/32×32 forward/backward、两种history、实际使用的两种backbone、raw-unit export
+  对齐都通过。OT fork本轮不迁移。
+
+**Q-H：推荐(c)，主表paired recording bootstrap + 预指定少量seed敏感性。**
+
+- 正式95% percentile CI用5000次recording重采样、固定bootstrap seed（现有
+  src/opentouch/bootstrap.py:49-51,116-130可以复用）；一次抽样对所有模型使用同一组
+  recording索引，重算完整 ratio-of-balanced-MSE 与模型差值。绝不逐窗口bootstrap，也
+  不以两个单模型CI是否重叠代替差值区间。
+- 固定checkpoint下bootstrap只反映评估录制抽样波动，不含重训/初始化/训练数据选择波动；
+  seed分析才补充优化随机性，且3 seeds是敏感性检查而非精确方差估计。AS fold SD不是
+  EgoTouch test-bootstrap CI，不能放在同一种“±”误差条名下。
+- 建议附录预指定 seq2seq aggregate 与 cnn、history3s、seeds0/1/2，主矩阵seed0已含两次，
+  只额外4次训练，总计12次neural fits。这个例子针对map信息增益；若核心结论是backbone
+  差异，应在看test前改成对应比较对，不根据test赢家挑敏感性臂。
+- recording仅在近似独立时才是有效重采样单位；manifest只有scene/task/traj等而无subject
+  字段（extractor:173-185），需要核查是否有同一session的相邻切片。存在更高层依赖则
+  以该层cluster或层级bootstrap；不能把scene当subject。unseen仅少数组，其CI只描述当前
+  覆盖总体，不证明对新任务类别的广泛泛化。不要机械照搬按每个稀疏task分层的bootstrap。
+
+**Q-K：推荐group主参照 + global并列稳健性参照，冻结fallback后再跑。**
+
+- Seasonal现有未知group路径已是persistence：periods.get(group)为None后repeat(hist[-1:])
+  （seasonal.py:66-69）；未知group不会在predict自动warning，故必须另记fallback次数。
+- AR未知group直接KeyError：ar.py:87-88字典索引无保护；select还会在全VAL预测时触发同样
+  问题（:64-81），故W4(a)必须覆盖VAL、test_seen、test_unseen，而不只是unseen。
+- 建议known group保留group参数；unknown group的AR使用独立TRAIN拟合且VAL选阶的global AR；
+  seasonal保留unknown→persistence的既有行为。任何global/低样本fallback条件都在test前定，
+  不能出分后更换；数值失败要显式记录或报错，不悄悄降低基线。
+- TRAIN存在但VAL没有的group，AR可沿用预定义的global validation order默认值；必须区分
+  “global order选择规则”和“global coefficient模型”，当前global_best并没有拟合global AR。
+- 当前AR选阶是window-pooled normalized MSE（ar.py:81），若新协议声明balanced selection，
+  必须把baseline选阶也纳入明确差异表，不能仅神经checkpoint balanced就声称全链统一。
+- group baseline在预测时知道action+object（dataset.py:27-40），probgru只知道verb，seq2seq
+  不用action。应标注标签条件信息差异；global更适合作为无标签参照。不得按test分数挑group
+  或global哪个进主表。单组1-2录制是方差风险，不等于AR必然不能拟合。
+
+### W4需新增/纠正文案（正式跑前门槛）
+
+1. **统一scorer与mask。** 原E1 evaluate.py:39-45输出pooled；shared scorer虽然balanced，
+   却仅支持none或corpus阈值（score_preds_per_action.py:179-190），corpus阈值用评估targets
+   本身估计，不是配置要求的TRAIN threshold。所有baseline与neural预测须过同一
+   TRAIN-threshold、相同有效点、相同recording集合的scorer，保留每channel有效计数。
+   不直接将旧harness pooled CSV和神经balanced CSV拼表；缺任一模型预测应显式失败/登记，
+   不允许scorer隐式交集改变主评估群体。
+2. **OTHER映射不等于训练好的未知动作表征。** min_count=3按TRAIN录制数建词表
+   （data.py:44-60），embedding维度始终8（models.py:100），不必因词表大就扩维。
+   打印eligible TRAIN中词表规模、OTHER录制数/窗口数/梯度支持，及各split新verb比例。
+   若OTHER没有任何训练窗口，该embedding没有数据驱动训练，不能声称现成机制保证unseen
+   泛化；不得利用test标签扩词表。test_unseen也不逻辑等同于unseen verb，需按实际集合核对。
+   本机缺EgoTouch states/manifest，以上分布没有本轮实测结果。AS的“2verb/5group”是frozen
+   子集，不是299条corpus（此前14verbs）的全貌；v1比较必须标清scope。
+3. **校准权重与输出。** train.py:241-245的sigma calibration仍是pooled percentile，仅换
+   official VAL不使其balanced；若目标是recording-balanced coverage，需预声明weighted
+   quantile。保留旧pooled校准亦可，但对应coverage口径要显式写明，不能声称全链balanced。
+   calibration标量、raw/calibrated sigma、checkpoint/Norm/vocab/config与split hashes都要保存。
+4. **算力不是5.4×定论。** 494k/92k是旧profiler的窗口量比；92k还是AS全集而非单fold TRAIN。
+   单split与5-fold总训练次数不同、网格也不同，不能据此断言wall time或显存可行。先在CRC
+   用TRAIN/VAL做小规模/单epoch吞吐与峰值内存实测，正式训练仍默认stride1、不降采样。
+   不因吞吐瓶颈默改epochs或优化器步数；瓶颈数据加载可用保持同一数据/统计量的工程优化。
+
+### 本轮实核与来源
+
+- 无写入合成Python检查：mh30/H10下raw_T120/121/123/124/150的profiler与真实origins对照；
+  AR unknown predict=KeyError，AR unknown VAL select=KeyError，seasonal unknown与persistence
+  完全相等。未运行实际EgoTouch训练、未重新清点CRC元数据，没有声称完整W4已经通过。
+- 官方方法说明：https://scikit-learn.org/stable/modules/cross_validation.html ，明确支持
+  留出TEST后在training数据内部CV；用于纠正Q-F0绝对化说法。
+- Bouthillier et al. (2021), https://arxiv.org/abs/2103.03098 ：数据采样、初始化、超参选择
+  是不同方差来源；支持区分bootstrap/seed，不支持把任一单来源CI当总不确定性。
+- Saravanan et al. (2020), https://arxiv.org/abs/2007.07797 ：层级依赖数据不能把低层观测当
+  独立样本；具体EgoTouch应选哪一级仍需其采集元数据。HF官方release目前无dataset card，
+  未从非官方重打包来源推断subject或unseen语义。
+
+### 修改与下一步授权
+
+- 仅追加本日志；模型、冻结配置、scorer、结果文件未改；没有commit/push或提交CRC jobs。
+- 建议顺序：协议/metric/人口定义冻结 → 扩充后的W4（含origins计数修复设计、fallback、
+  OTHER、split保护、scorer/mask）→ W1共享shape参数化与AS回归 → W2单split驱动及落盘
+  provenance → E1完整参照 → E2主矩阵 → E3配对bootstrap与预指定seed检查。
+- OPEN QUESTIONS保留为用户决策：六项建议是否采纳；若主张全部环节balanced，sigma weighted
+  calibration与baseline balanced选阶是否一并纳入协议差异。没有把这些新增工作自动实施。
+
+### 2026-09-08 — 术语澄清：fallback
+
+- 用户问“fall back 是什么东西”；本轮只解释，不改变任何实验选择。
+- fallback = 原本的方法因条件不满足而不可用时，按预先确定的规则使用备用方法。
+  本项目group AR只为TRAIN中出现的组拟合参数，VAL/TEST若出现TRAIN没有的组，原方法
+  就找不到参数；建议的fallback是使用在全部TRAIN上另行拟合的global AR。
+- persistence是更简单的备用预测：将最后观测值重复H步，并非重新训练；seasonal已有
+  unknown-group→persistence，AR目前没有unknown-group fallback而会KeyError。
+- fallback不保证同样准确，也不是看TEST表现再挑更优算法；应事先冻结规则并记录触发次数。
+- 仅追加日志，无模型/配置修改，无训练、提交或推送。
+
+### 2026-09-08 — AR group 路由与 action embedding；OT/AS 各模型的区别
+
+- 用户追问：AR是否在TEST按action embedding找参数，缺失用general结果；是否只是baseline
+  prediction算法而非training；OT/AS是否都用action embedding。本轮代码核对与解释，不实施。
+- 核心澄清：group AR使用离散标签作为字典key，不使用神经action embedding。AS默认key为
+  action-object（eval_harness/dataset.py:27-40）；OT默认fit_scope为object_category
+  （configs/opentouch/eval_harness.yaml:32），并不默认按action路由。
+- AR本身有TRAIN拟合：AS ar.py:53-62为各组估计系数，VAL select选阶（:64-84），
+  predict按self.order[group]/self.coef[group][p]取固定参数并对该录制当前hist做递推（:86-98）。
+  拟议的unknown→global路由发生在VAL/TEST预测，但global AR也必须事先在TRAIN另行拟合；
+  不是在TEST重新训练，也不是返回某个通用常量或把各组预测平均。不会改变神经模型训练。
+- OT/AS当前讨论的概率神经臂：ProbGRU两者都有8维可学习action embedding
+  （OT prob_gru.py:260,272,277；AS tactile_map/models.py:100,109,114）。动作ID来自manifest
+  标签而非触觉动作识别；embedding与共享GRU/head一起训练，推理时使用固定embedding。
+  拼接embedding与decoder hidden后送mu/lv heads，不是为每个动作选择一套独立GRU。
+- 两者词表均只由TRAIN决定：OT prob_gru.py:172-187用manifest action，阈值取配置
+  min_group_size（当前30）；AS data.py:34-60用verb、默认min_count3；rare/unseen→OTHER0。
+  OTHER向量仍在同一个ProbGRU中使用，不等同于切换global AR；本轮未重开阈值方案。
+- Seq2Seq在OT和AS都不用action embedding，无论encoder是aggregate/flatten/cnn：
+  OT tactile_map.py:102-120只forward(x)；AS models.py:56-76同样只forward(x)，共享driver
+  _call（train.py:65-74）明确只对ProbGRU传aid，Seq2Seq忽略dataset携带的aid。
+- AR、seasonal、persistence都没有可学习action embedding；group型baseline可以使用已知
+  类别标签，但“使用标签”与“使用embedding”不是同一机制。
+- 补充限定此前“AR没有fallback”的范围：指AS共用AR对未知key无保护及拟议EgoTouch路径。
+  OT evaluator已使用TRAIN-relative group_keys（opentouch/evaluate.py:64-65），在参数查找前
+  将rare/unseen object类别映射到TRAIN拟合的other组，并在必要时将小类别并入other以使其
+  有训练支持（opentouch/dataset.py:88-124）。这是标签合组，不是embedding，也不是global AR。
+- 仅追加SESSION_LOG；无实验代码/配置修改，无训练、提交或推送。
+
+### 2026-09-08 — AR训练流程与VAL“阶数”的详细解释
+
+- 用户要求详细解释AR的TRAIN/VAL/TEST流程，特别是VAL选择的阶数。本轮对照
+  src/actionsense/eval_harness/baselines/ar.py、dataset.Norm、baselines.base.origins和
+  EgoTouch配置作教学解释；不修改算法。
+- AR(p)的p是每一步线性预测使用的最近p个观测/递推值数量，不是训练epoch，不是预测
+  horizon H，也不是harness的min_history。EgoTouch10Hz、H10，候选p为[2,5,10,15,20,30]
+  （configs/egotouch/eval_harness.yaml:24-36）；AR30约3秒历史仍可递推预测未来1秒。
+- TRAIN先以全TRAIN估计每channel均值/标准差（dataset.py:64-72），对各group、各候选p、
+  各channel单独拟合 z[t+1]=b+sum_j(phi_j*z[t+1-j])，最小化单步平方残差。
+  _fit_channel通过statsmodels AutoReg.fit或numpy lstsq求系数（ar.py:26-40），不是神经
+  模型的60epochs/NLL/反向传播训练。每channel p+1参数，每group每候选保存(6,p+1)矩阵。
+- TRAIN阶段候选阶数全部各自拟合（ar.py:53-62）；VAL不是第一次训练某个p，也不是把
+  已训练AR2直接改成AR30。当前AR为六条独立单变量AR，不是六维互相回归的VAR；同一group
+  最终共用一个选定p，各channel系数仍各自不同。
+- VAL对每个p用已拟合固定系数，在每条验证录制的相同origins上只读取该时刻以前真实
+  hist，递推H步；同一H步预测内将自己的预测写回buf而不读取未来真实值（ar.py:86-98；
+  base.py:52-64）。再与VAL真实未来比较，选择误差最小p（ar.py:64-84）。下一个rolling
+  origin可使用当时已观测到的新真实值，这不是重新训练。
+- 当前选阶误差为((yhat-ytrue)/TRAIN_std)^2对origin/horizon/channel的pooled mean
+  （ar.py:81），不是NLL、不是已实现的recording-balanced。没有本组VAL时使用全VAL选出
+  的默认阶数global_best；这个标量默认值不等同于global AR系数模型。
+- TEST固定Norm、系数与选定p，只有输入hist随时间更新，测试真值只用来评分不拟合参数。
+  拟议unknown-group→global AR需要额外在TRAIN拟合global candidates及在VAL选其p；
+  当前group AR.fit不会自动产生该备用global模型。
+- 解释中如给出VAL p/error表，其数字明确为示意而非项目实验结果。选择较大p并非保证
+  更好：更多系数及多步递推可能增加泛化误差，由固定VAL指标决定。
+- 当前实现会将组内TRAIN录制直接拼接后建滞后样本（ar.py:55），产生跨录制边界的伪连续
+  lag行；这属于需要在EgoTouch W4核对的实现细节，不是AR定义所要求。本轮只指出，未修复。
+- 仅追加日志，无训练、实验代码/配置修改、提交或推送。
+
+## 2026-09-09 — 设计 v1 全部裁定;W4 增补三项逐一核实;"误差口径统一"的立场与边界
+
+### 用户裁定(2026-09-09)
+| 问题 | 裁定 |
+|---|---|
+| Q-F0 | **官方 split 单切分**,放弃 5-fold CV |
+| Q-E | **min_history = 30**(已改入 `configs/egotouch/eval_harness.yaml`,含理由注释) |
+| Q-F | **(b) 8 个模型**:seq2seq×{agg,flat,cnn} + probgru×agg,×{1,3}s |
+| Q-G | **共用代码参数化**(不 fork) |
+| Q-H | **(c)** 主表 bootstrap CI over recordings + 附录 1-2 臂 seed 敏感性 |
+| Q-K | **group 为主 + global 对照** |
+
+### W4 增补三项(用户提出),逐一核实 —— 三条全部属实
+**W4-1 评分路径不统一 + mask 阈值违反 TRAIN 约定 —— 属实。**
+`score_preds_per_action.py::build_mask`:`thr = np.percentile(ytrue[:,:,c], pct)` ——
+`--mask corpus` 的阈值取自**被评估集合自身的 y**;而 `configs/*/eval_harness.yaml` 的 mask 段
+明文"Fit on TRAIN only"。且 E1(harness `evaluate.py`)自带一条 pooled 输出路径,与神经臂的
+balanced scorer 是**两条不同的评分路径**。
+**W4-2 OTHER embedding 的训练量 —— 属实,且本机已量化(用官方 split.json 的 task 名,
+未过 npz/eligibility 筛,CRC 落地后须复核):**
+```
+TRAIN: 1665 条 / 67 个动词,vocab 保留 64 个(min_count=3)
+  落 OTHER 的 TRAIN 录制:5 条(0.3%,来自 3 个稀有动词) → OTHER embedding 名义上被训练,
+  实际只有 5 条录制的窗口在喂它 —— 严重欠训练
+val:0% 落 OTHER;test_seen:1 条(0.5%)
+test_unseen:147 条中 76 条(51.7%)落 OTHER —— 'wipe'(61 条) 与 'wring'(15 条) 从未进过词表
+其余 unseen 动词(open/move/pick/fold/rotate/put)在 TRAIN 有正式 embedding
+```
+两个结论:(i) 用户的怀疑成立 —— "能接收 unseen ID"≠"具备 unseen 泛化",OTHER 的训练数据
+(5 条杂类录制)与它在 unseen 上要承担的负载(半个 split)完全不成比例;(ii) "test_unseen 不必然
+意味着新 verb"也成立 —— 另一半 unseen 用的是正式训练过的动词 embedding。
+**影响范围**:只有 probgru×agg 一臂吃动作条件(seq2seq 不接 aids)。附录 unseen 聚合数,
+probgru 那格混杂了"unseen task"与"OTHER embedding 欠训练"两个效应,必须脚注;
+或按 verb-known / verb-OTHER 拆两个子聚合(n=76/71,不再切 action 维,样本够)。
+**W4-3 balanced 的覆盖边界 —— 属实。**
+AR 选阶 `_best_order`:pooled 归一化 MSE;sigma 校准 `calibrate_sigma`:
+`np.percentile(|y-mu|/sd, 95)` pooled over windows。二者都还是 pooled。
+
+### 回答用户问题:"各阶段 error 口径应否统一?" —— **应统一,但统一的边界要划清**
+**立场:所有"测量"环节统一为 clip-balanced;训练目标保留 pooled,作为唯一的、记录在案的例外。**
+
+"测量"= 产生一个**主张**的环节:选哪个 AR 阶、留哪个 checkpoint、sigma 乘多少、报什么分、
+CI 多宽。这些必须同口径,理由是**选择-评判一致性**:若选择用 pooled、评判用 balanced,
+系统就会**系统性地选出擅长长录制的模型/超参,再用一个它未被优化的量尺去报告** ——
+在 460× 偏斜下这不是理论洁癖(AS frozen val 仅 15 条、top-10 占 84%,选阶完全可能因此不同)。
+
+**训练目标不在此列**,三条理由:
+1. 损失是**估计器的目标函数,不是测量**。它不产生主张,只产生参数。
+2. 把窗口按 1/n_windows(rec) 降权等于扔掉长录制的大部分数据;而训练侧偏斜本来就轻
+   (train top-10 = 8.2% @mh30,1135 条录制摊薄了它),pooled≈balanced,改了白付代价。
+   偏斜咬人的地方是**小的 val/test 集** —— 恰好全是测量环节。
+3. 与 AS/OT 的"one model"训练约定逐字一致,正是本轮"model 保持一致"的要求。
+
+**统一的实现只需一个原语**:窗口权重 = 1/n_windows(recording) 的**加权均值/加权分位数**。
+录制等长时它退化为现行 pooled;`_val_nll` 的按录制均值是它的特例;scorer 的
+clip_balanced_mean 亦然。AR 选阶的 MSE、sigma 校准的 percentile 都换成加权版即可。
+
+**波及面(与 Q-D(b) 同一处理法)**:AR 选阶与 sigma 校准都在共用路径上,改后 AS 的
+harness 基线阶数与 coverage 列**可能变**。AR 重选在 CPU 上是分钟级,直接重跑核对;
+sigma 校准并入 Q-D(b) 已计划的"每配置一次带记录运行"。宣称从此是:
+**"训练=窗口 ERM;选择、校准、评估、CI 全链 recording-balanced"** —— 一句话说得清,审稿人无缝可钻。
+
+### 新工作项(并入 W 清单,实现顺序在前)
+- **W6 单一评分路径**:E1 的 seasonal/AR 也导出 per-recording npz(persistence 由 scorer 现场
+  合成,已有),与神经臂同 origins、同 recording 集,**全部走同一个 scorer**;harness 自带的
+  pooled CSV 降级为中间产物,不进论文。
+- **W7 mask 阈值单一真源**:抽取/驱动侧从 **TRAIN 的 raw F** 按 config percentile 算出逐手阈值,
+  写成 `data/egotouch_states/mask_thresholds.json`;scorer 新增 `--thresholds FILE`,
+  `--mask corpus`(评估集自估)保留仅为复现旧 AS/OT 结果,EgoTouch 禁用。
+- **W8 加权聚合原语**:`weighted by 1/n_windows(rec)` 的 mean/percentile helper;
+  AR `_best_order` 与 `calibrate_sigma` 接入;AS 侧重跑核对(AR 立即,sigma 并入 Q-D(b) 运行)。
+- **W9 OTHER 审计**:驱动打印各 split 落 OTHER 的录制数(对照本节预估);unseen 聚合按
+  verb-known/verb-OTHER 拆分或脚注。
+
+**等用户对"统一边界"表态**(训练目标保留 pooled 这一例外是否接受)后,按 W6→W8→W1→W2 动工。
