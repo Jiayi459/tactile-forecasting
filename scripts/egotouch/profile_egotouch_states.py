@@ -43,14 +43,19 @@ def main():
     with open(os.path.join(args.states, "splits.json")) as fh:
         sp = json.load(fh)
     by_idx = {r["idx"]: r for r in rows}
-    splits = {k: sp[k] for k in ("train", "val", "test", "test_unseen")}
+    splits = {k: sp[k] for k in ("train", "val", "test", "test_unseen") if k in sp}
+    # How many recordings the OFFICIAL split listed, before either loss. EgoTouch's splits.json
+    # records this; ActionSense's does not (its split is built from what exists), so `listed`
+    # falls back to the recordings we hold and the end-to-end column reads 100%.
+    listed = {"train": "train", "val": "val", "test": "test_seen", "test_unseen": "test_unseen"}
+    ret = sp.get("retention", {})
 
     for mh in args.histories:
         print(f"\n=== min_history={mh} frames @10Hz ({mh/10:.0f} s) + horizon {HORIZON} "
               f"=> needs T >= {(mh + HORIZON) * DOWNSAMPLE} raw frames "
               f"({(mh + HORIZON) * DOWNSAMPLE / 30:.1f} s) ===")
         print(f"{'split':<12}{'recs':>7}{'eligible':>10}{'%':>7}{'windows':>10}"
-              f"{'top1%':>8}{'top10':>8}{'groups':>8}")
+              f"{'top1%':>8}{'top10':>8}{'groups':>8}{'of official':>13}")
         for name, idxs in splits.items():
             recs = [by_idx[i] for i in idxs if i in by_idx]
             w = sorted((origins(r["T"], mh) for r in recs), reverse=True)
@@ -60,8 +65,14 @@ def main():
             top10 = sum(elig[:10]) / tot * 100 if tot else 0.0
             groups = len({(r["label"].split()[0], r["label"].split()[-1])
                           for r in recs if origins(r["T"], mh) > 0})
+            # END-TO-END coverage: eligible / what the official split listed. Both losses
+            # compound -- npz availability THEN the length filter -- so quoting only the first
+            # stage overstates how much of the official split a metric actually covers.
+            n_listed = ret.get(listed[name], [0, len(recs)])[1] or len(recs)
+            e2e = f"{len(elig):>5}/{n_listed:<5}"
             print(f"{name:<12}{len(recs):>7}{len(elig):>10}{100*len(elig)/max(len(recs),1):>6.1f}%"
-                  f"{tot:>10}{top1:>7.1f}%{top10:>7.1f}%{groups:>8}")
+                  f"{tot:>10}{top1:>7.1f}%{top10:>7.1f}%{groups:>8}"
+                  f"{e2e:>13} = {100*len(elig)/max(n_listed,1):.1f}%")
 
     lens = sorted((r["T"] for r in rows), reverse=True)
     print(f"\nlongest recordings (raw frames @30Hz): {lens[:5]}")

@@ -10810,9 +10810,22 @@ eligible 数、窗口总数、**top-1%/top-10 条录制占窗口的比例**、�
 
 `test_unseen` 的 85 条录制只覆盖 **8 个 (action,object) 组**,长 history 下 7 个。逐动作表在 8 个
 格子上不成立;又因为只保留了官方 147 条中的 **57.8%**,它也**不能与原论文的 unseen 数字相比**。
-**建议**:主表只报 `test_seen`(@4 s:118 条 / 79 组);`test_unseen` 降为附录里的**单一聚合数字**,
-并显式标注 `n=51 条 / 8 组 / 覆盖官方 unseen 的 57.8%`。**这三个限定缺一不可**,否则读者会
-把它当成一个可比的泛化结论。(仍等用户最终确认。)
+**建议**:主表只报 `test_seen`;`test_unseen` 降为附录里的**单一聚合数字**。
+
+**【2026-09-08 更正,用户指出】上一版把 `n=51` 与 `57.8%` 并列写,是错的。**
+两个数字属于**不同阶段**:57.8% = 85/147 是 **npz 可得率**,描述的是长度筛**之前**那 85 条;
+`n=51` 是长度筛**之后**。真正被评估的是 **51/147 = 34.7%**。两级损失相乘,只报第一级会把
+覆盖率虚高近一倍。正确的端到端写法(min_history=40):
+
+| split | eligible | 官方 listed | 端到端覆盖 |
+|---|---|---|---|
+| train | 1031 | 1665 | **61.9%** |
+| val | 124 | 208 | **59.6%** |
+| test_seen | 118 | 208 | **56.7%** |
+| test_unseen | **51** | 147 | **34.7%** |
+
+⇒ 附录里 unseen 的正确写法是 **`n=51 条录制 / 8 个 (action,object) 组 / 占官方 unseen 的 34.7%`**。
+`profile_egotouch_states.py` 已加 `of official` 列,直接打印这个端到端比例,避免再手算错。
 
 #### 读数二 — 偏斜的分诊:两处安全,**一处真漏**
 - **评估侧 ✅ 安全**:`scripts/shared/score_preds_per_action.py:10-11, 216` 用
@@ -10822,8 +10835,12 @@ eligible 数、窗口总数、**top-1%/top-10 条录制占窗口的比例**、�
 - **模型选择侧 ❌ 漏了**:`tactile_map/train.py:134 _val_nll` 是
   `sum(NLL) / y.numel()` —— **纯窗口池化,不做 clip 平衡**。而 val 的 **top-10 占 39–44% 的窗口**。
   即:`best-val-NLL` 挑 checkpoint 时,约 **40% 的选择信号来自 124 条里的 10 条**。
-  ActionSense 上这一点不显眼(长度分布平坦),**EgoTouch 上是实打实的**:
-  最长录制 662 s vs 中位 14.5 s,跨度 460 倍。
+  ~~ActionSense 上这一点不显眼(长度分布平坦)~~ **—— 这句是错的,方向还相反。**
+  本机实测 ActionSense frozen split(45/15/15):**val 只有 15 条录制,top-10 占 84.1% 的窗口**,
+  比 EgoTouch 的 39-44% **更集中**(中位 22.0 s,最长 220 s)。原因不是长度更偏,是**录制条数太少**。
+  ⇒ 改 `_val_nll` **更可能改变 ActionSense 选出的 checkpoint,而不是更不可能**。
+  注意口径:该 splits.json 是 frozen 75 条那套;corpus scope 走 5-fold CV(`cross_validate(folds=5)`),
+  每折 val ≈ 语料的 1/5(≈60 条),其集中度**本轮未测**。
 
 #### 新增 `configs/egotouch/tactile_map.yaml`
 `histories_s: [1, 3]`;`preprocess.baseline_frames: 0` —— 把 released-as-is 从**目标**贯彻到
@@ -10839,3 +10856,55 @@ eligible 数、窗口总数、**top-1%/top-10 条录制占窗口的比例**、�
 - (c) 不改,在论文里声明 val 选择是窗口池化的。
 我倾向 (b):长度偏斜是数据属性,不是传感器属性;两套选择准则会成为审稿人问的第一个问题。
 但 (b) 要重跑 ActionSense,**由用户决定是否值得**。
+
+### 2026-09-08(续5)— Q-D 裁定为 (b),两处共用代码已改;"先重评"的可行边界已查清
+
+**用户裁定**:Q-D 选 **(b)**(改共用函数,统一口径),但**先重评已有 checkpoint,必要时才重训**;
+**地图输入的 baseline 问题必须先修**;Q-C 的主表/附录安排保留,但**样本数与覆盖率的写法要纠正**
+(已按上面的端到端口径改正)。
+
+#### 改动一(优先项)— 地图输入的 released-as-is:`src/actionsense/tactile_map/data.py:load_map`
+`baseline_frames <= 0` 现在**跳过扣除**。这不是防御性补丁:原代码 `n = min(0, len(clip))` 会执行
+`clip[:0].mean(0)` = **空轴求均值 = NaN**,于是 `clip - NaN` 让整张地图变 NaN,**只有一个
+RuntimeWarning**。也就是说,若不修就直接跑,flatten/cnn 两臂会在全 NaN 输入上训练。
+ActionSense 路径(`baseline_frames: 10`)逐位不变,由 `test_positive_baseline_frames_still_subtracts` 钉住。
+
+#### 改动二 — clip-balanced 的 checkpoint 选择:`tactile_map/train.py`
+- 新增 `_rec_ids(ds)`(两个窗口数据集都有 `.index = [(rec, t)]`)与 `_balanced(per_sample, rec)`。
+- `_val_nll` 现在**同时返回 (window_pooled, clip_balanced)**。
+- **两条验证路径都改了**。此前只有 `materialize=False` 的路径走 `_val_nll`;
+  `materialize=True`(即 **aggregate 臂**,`train.py:333` `materialize=(encoder == "aggregate")`)
+  在训练循环里**内联**算 `v`,根本不经过 `_val_nll`。**只改一处会让 aggregate 臂静默保持旧口径**,
+  那样 EgoTouch 的三条臂之间就不可比了。
+- 选择口径由 `tm["val_criterion"]` 控制,**默认 `clip_balanced`**;`"pooled"` 可复现改动前行为。
+- 模型对象上记录 `val_curves`(逐 epoch 的两个口径)、`selected_epoch`、`selected_epoch_pooled`、
+  `selection_differs`。
+
+#### 关于"先重评已有 checkpoint":**它回答不了这个问题,原因如下**
+`_val_nll` **只喂 checkpoint 选择**(`train.py` 中 `if v < best`),在 `no_grad` 下求值,
+不参与 loss/梯度。所以换口径**不改变权重轨迹,只改变留下哪一个 epoch 的权重**。
+要判断"留下的会不会不同",需要**逐 epoch 的 val 曲线**;而 `best_state` 只活在内存里
+(`train.py:126`),**没有保存任何 per-epoch checkpoint**,现存的那个 checkpoint 本身就是
+**旧口径的产物**。因此单独重评它,只能得到"这个模型在新口径下的分数",**得不到**"新口径会不会
+选另一个 epoch"。
+**能回答的最省做法**:因为权重轨迹与口径无关,**同一个 seed 跑一次并同时记录两条曲线**,
+即可离线比对 `selected_epoch` vs `selected_epoch_pooled`;若不同,**这一次运行已经顺带产出了
+正确的 checkpoint**。所以"必要时才重训"实际收敛为"**每个配置跑一次带记录的运行**",
+不存在更便宜且能给出答案的路径。(确定性前提:`torch.manual_seed(seed)` + `DataLoader(shuffle=True)`
+用全局 RNG,CPU 上可逐位复现;GPU 上 cuDNN 卷积/GRU 内核未强制 deterministic,故只是近似复现。)
+
+#### 测试
+`tests/test_val_selection_and_baseline.py`(新,6 个用例):零 baseline 不产生 NaN 且逐位等于原图、
+正 baseline 仍照扣、`_balanced` 在"1 条录制 1000 窗口 vs 9 条各 1 窗口"下不被长录制主导、
+每条录制各 1 窗口时两口径相等、`_rec_ids` 与 `_materialize` 的顺序一致。
+**⚠ 本机 torch 装了但 dlopen 失败,这 6 个用例在本机 skip、未经实跑验证**,须在 CRC 上跑。
+(`importorskip` 不适用:失败是 OSError 不是 ImportError,已改为捕获 Exception 后 module 级 skip。)
+本机全套:**94 passed, 7 skipped**,无回归。
+
+### 下一步(CRC)
+```bash
+git pull
+python -m pytest tests/test_val_selection_and_baseline.py -q   # 本机 skip 的 6 个用例在这里才真正跑
+python scripts/egotouch/profile_egotouch_states.py --states data/egotouch_states --histories 10 30
+```
+第二条给出 1 s / 3 s 两臂下的 eligible 与端到端覆盖(此前只测了 20/40/80/100)。

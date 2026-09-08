@@ -70,8 +70,21 @@ def available_idxs(cfg: Config, idxs: list[int]) -> list[int]:
 
 
 def load_map(cfg: Config, idx: int, baseline_frames: int) -> np.ndarray:
-    """clip_<idx>.npy (T,2,32,32) -> (T',2,32,32) float32: downsample + causal first-N baseline."""
-    clip = np.load(clip_path(cfg, idx)).astype(np.float32)[:: cfg.downsample]   # (T',2,32,32)
+    """clip_<idx>.npy (T,2,G,G) -> (T',2,G,G) float32: downsample + causal first-N baseline.
+
+    `baseline_frames <= 0` SKIPS the subtraction entirely -- the released-as-is convention
+    (EgoTouch, 2026-09-08 OQ5): grids that ship already normalized, and that may mix
+    separately-normalized tactile and bending channels, have no per-taxel DC offset to remove.
+    This is not a cosmetic guard. `n = min(0, len(clip))` fed `clip[:0].mean(0)`, the mean of an
+    empty axis, which is NaN -- so the map arms would have trained on an all-NaN input with only
+    a RuntimeWarning to show for it.
+
+    The clamp at 0 stays on both paths: it is a no-op for the non-negative grids every corpus
+    ships, and it keeps `compress`'s log1p inside its domain if a sensor ever emits negatives.
+    """
+    clip = np.load(clip_path(cfg, idx)).astype(np.float32)[:: cfg.downsample]   # (T',2,G,G)
+    if baseline_frames <= 0:
+        return np.clip(clip, 0.0, None)
     n = min(baseline_frames, len(clip))
     base = clip[:n].mean(0, keepdims=True)                                       # per-taxel, past-only
     return np.clip(clip - base, 0.0, None)

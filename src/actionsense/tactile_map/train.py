@@ -99,7 +99,10 @@ def train_model(train_ds, val_ds, cfg: Config, encoder: str, tm: dict, seed: int
             Xva, Ava, Lva, Yva = (t.to(dev) for t in _materialize(val_ds))
     else:
         tl = DataLoader(train_ds, batch_size=bs, shuffle=True)
-    best, best_state = np.inf, None
+    # Checkpoint selection口径. clip_balanced is the unified default (2026-09-08, Q-D(b));
+    # "pooled" reproduces the pre-2026-09-08 behaviour for a controlled comparison.
+    criterion = tm.get("val_criterion", "clip_balanced")
+    best, best_state, best_epoch, curves = np.inf, None, -1, []
     for _ in range(tm["epochs"]):
         model.train()
         if materialize:
@@ -112,32 +115,73 @@ def train_model(train_ds, val_ds, cfg: Config, encoder: str, tm: dict, seed: int
             with torch.no_grad():
                 if Xva is not None:
                     mu, lv = _call(model, Xva, Ava, Lva, cfg.horizon)
-                    v = float((0.5 * (lv + (Yva - mu) ** 2 * torch.exp(-lv))).mean())
+                    nll = 0.5 * (lv + (Yva - mu) ** 2 * torch.exp(-lv))
+                    per = nll.flatten(1).mean(1).cpu().numpy()
+                    v_pool, v_bal = float(per.mean()), _balanced(per, _rec_ids(val_ds))
                 else:
-                    v = float(loss.item())
+                    v_pool = v_bal = float(loss.item())
         else:
             for x, aid, last, y in tl:
                 x, aid, last, y = x.to(dev), aid.to(dev), last.to(dev), y.to(dev)
                 mu, lv = _call(model, x, aid, last, cfg.horizon)
                 loss = 0.5 * (lv + (y - mu) ** 2 * torch.exp(-lv)).mean()      # Gaussian NLL
                 opt.zero_grad(); loss.backward(); opt.step()
-            v = _val_nll(model, val_ds, dev, cfg.horizon) if len(val_ds) else float(loss.item())
+            v_pool, v_bal = (_val_nll(model, val_ds, dev, cfg.horizon) if len(val_ds)
+                             else (float(loss.item()), float(loss.item())))
+        v = v_bal if criterion == "clip_balanced" else v_pool
+        curves.append((v_pool, v_bal))
         if v < best:
             best, best_state = v, {k: t.cpu().clone() for k, t in model.state_dict().items()}
+            best_epoch = len(curves) - 1
     if best_state:
         model.load_state_dict(best_state)
     model.eval()
+    # Recorded, not printed: comparing `selected_epoch` with `selected_epoch_pooled` answers
+    # "would the old criterion have kept a different checkpoint?" from ONE run. `_val_nll` is
+    # evaluated under no_grad and feeds nothing but selection, so the weight trajectory is
+    # identical either way -- the two criteria are read off the same run, not two runs.
+    model.val_curves = curves
+    model.val_criterion = criterion
+    model.selected_epoch = best_epoch
+    model.selected_epoch_pooled = int(np.argmin([p for p, _ in curves])) if curves else -1
+    model.selection_differs = bool(curves) and model.selected_epoch != model.selected_epoch_pooled
     return model
 
 
+def _rec_ids(ds) -> np.ndarray:
+    """Recording idx per sample, in dataset order. Both window datasets expose `.index`."""
+    return np.array([i for i, _ in ds.index], dtype=np.int64)
+
+
+def _balanced(per_sample: np.ndarray, rec: np.ndarray) -> float:
+    """Mean over RECORDINGS of each recording's mean NLL, vs the window-pooled mean.
+
+    Rolling-origin window counts scale with recording length, so a split's longest recordings
+    own a share of the checkpoint-selection signal far out of proportion to their number: on
+    EgoTouch val, ten of ~124 recordings hold 39-44% of the windows, and on the ActionSense
+    frozen split ten of 15 hold 84%. Balancing per recording makes selection agree with the way
+    the reported metrics are already aggregated (score_preds_per_action's clip_balanced_mean),
+    rather than letting two different aggregations decide the model and then judge it.
+    """
+    if len(per_sample) == 0:
+        return float("nan")
+    return float(np.mean([per_sample[rec == r].mean() for r in np.unique(rec)]))
+
+
 @torch.no_grad()
-def _val_nll(model, ds, dev, H):
-    model.eval(); s = n = 0.0
+def _val_nll(model, ds, dev, H) -> tuple[float, float]:
+    """-> (window_pooled, clip_balanced) mean NLL per element. Both, always, so one run can
+    answer whether the two criteria would have selected different epochs."""
+    model.eval(); per = []
     for x, aid, last, y in DataLoader(ds, batch_size=128):
         x, aid, last, y = x.to(dev), aid.to(dev), last.to(dev), y.to(dev)
         mu, lv = _call(model, x, aid, last, H)
-        s += float((0.5 * (lv + (y - mu) ** 2 * torch.exp(-lv))).sum()); n += y.numel()
-    return s / max(n, 1)
+        nll = 0.5 * (lv + (y - mu) ** 2 * torch.exp(-lv))
+        per.append(nll.flatten(1).mean(1).cpu().numpy())
+    if not per:
+        return float("nan"), float("nan")
+    per = np.concatenate(per)
+    return float(per.mean()), _balanced(per, _rec_ids(ds))
 
 
 @torch.no_grad()
