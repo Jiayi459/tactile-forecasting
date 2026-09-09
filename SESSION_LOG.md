@@ -11832,3 +11832,30 @@ R² 给出同序(0.7414 > 0.7033 > 0.6946)。probGRU 三臂**全部低于 persis
 (3) **闭包晚绑定 bug**:`v` 捕获变量 `allrow`,而 `mark_clipped` 在循环后才执行,
 导致两个面板都用最后一个面板的数据 —— probGRU 被裁剪的 F_L 标签错误地画到了 seq2seq 面板上
 (那里根本没有越界条形)。改为默认参数绑定。
+
+### 2026-09-09(续2)— CRC 冒烟通过:三道闸全绿、40/40 用例首次真跑、OTHER 真值到手;一个 392 窗口的差值查明是 profiler 公式错
+
+**冒烟结果(EPOCHS=5,全 8 臂)**
+- 闸2:`split check OK: {'train': 1458, 'val': 174, 'test': 179, 'test_unseen': 85} | dropped_unassigned=37` ✓
+- 闸3:**40 passed** —— 逐个数恰好是 8 个测试文件的全部用例、**零 skip**。本机因 torch dlopen
+  失败而跳过的 9 个用例(网格参数化 ×9、trainer 端到端 ×1 等)在 CRC 首次真正执行并通过。
+  flatten/cnn 两臂正常开训 ⇒ 1896 条 clip 全在、21×21 in_shape 路径在 GPU 上成立。
+- **OTHER 审计(真实语料,取代此前 split.json 口径的估计)**:
+  train **7/1458**(喂 OTHER embedding 的只有 7 条录制);val 0/174;test_seen 1/179;
+  **test_unseen 35/85 = 41.2%**。结构与预估一致(估计值 51.7% 是官方 147 条口径;
+  留存的 85 条里 35 条落 OTHER)。评分时 unseen 聚合按 verb-known(50)/verb-OTHER(35) 拆的
+  方案不变,样本量成立。
+- 窗口数(全 8 臂一致,数据管线确定性的旁证):train 493,787 / val 47,410 /
+  test_seen 61,074 / test_unseen 18,825。
+
+**差值调查:493,787 vs profiler 预测的 494,179(-392)。管线是对的,profiler 错。**
+`load_target` 用 `st[::3]` ⇒ T' = **ceil**(T/3);`base.origins` 是 `arange(mh, T'-H)` ⇒
+数量 = T'-H-mh。profiler 用了 **floor**(T/3) 和 closed **+1** 计数 ⇒ 每条 T≡0 (mod 3) 的
+eligible 录制多数 1 个(代数验证:T=300 差 1,T=301/302 差 0,T=303 差 1)。
+train eligible 1135 条中约 1/3 满足 ⇒ ≈392。**已修**:profiler 的 `origins()` 改为逐字复现
+harness(ceil + 开区间),docstring 记下这次教训 —— harness 是唯一真源,估算工具必须复现它
+而不是近似它。此前 SESSION_LOG 里引用的 profiler 窗口数(494,179 等)都带同一 +1 偏差,
+**eligible 条数不受影响**(判据 >0 在两种公式下同真伪…… 严格说 T'=t+1 时边界仍同,已验)。
+
+**正式跑的前置**:先 `rm -rf runs/egotouch_tactile_map` —— `save_predictions` 是合并语义,
+正式跑若中途挂掉会留下 5-epoch 与 60-epoch 臂的混合 npz,无字段可区分;冒烟产物无保留价值。

@@ -27,9 +27,16 @@ DOWNSAMPLE = 3
 
 
 def origins(t_raw: int, min_history: int) -> int:
-    """Rolling-origin count at stride 1 for one recording, matching eligible_recordings()."""
-    t = t_raw // DOWNSAMPLE
-    return max(0, t - min_history - HORIZON + 1)
+    """Rolling-origin count at stride 1, matching the harness EXACTLY.
+
+    load_target slices st[::downsample] -> T' = ceil(T/ds), and base.origins is
+    arange(min_history, T' - horizon) -> T' - horizon - min_history origins. The first
+    version of this used floor(T/ds) and a closed +1 count, overcounting by one window for
+    every eligible recording whose T is a multiple of ds -- 392 across the train split, which
+    is why the 2026-09-09 smoke run's 493,787 train windows undershot the profiled 494,179.
+    The harness is the truth; this now reproduces it."""
+    t = -(-t_raw // DOWNSAMPLE)
+    return max(0, t - min_history - HORIZON)
 
 
 def main():
