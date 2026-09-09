@@ -77,9 +77,14 @@ for f in fs:
 # scope: the frozen harness is slice+peel over 75 recordings; anything wider is the corpus run
 scope = "corpus" if len(acts) > 2 else "frozen"
 joined = " ".join(sorted(models))
-inp = ("aggregate" if "aggregate" in joined else
-       "flatten" if "flatten" in joined else
-       "cnn" if "cnn" in joined else "other")
+# Name the directory after EVERY encoder present, not the first one a short-circuit chain
+# happens to match. A sweep that saves aggregate, flatten and cnn into one preds directory
+# used to be filed under "aggregate" alone -- landing a three-way comparison in the folder
+# holding the aggregate-only runs, under a name that denied the other two arms existed.
+ENC_ORDER = ["aggregate", "flatten", "cnn"]
+encs = {m.rsplit("_", 1)[-1] for m in models}
+known = [e for e in ENC_ORDER if e in encs]
+inp = "-".join(known) if known else "other"
 print(f"{scope}-{inp}")
 PYDEST
 )

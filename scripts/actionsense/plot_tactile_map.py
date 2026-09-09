@@ -19,7 +19,16 @@ import numpy as np
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv", default="docs/actionsense/tactile_map_cv_results.csv")
+    ap.add_argument("--out-dir", default="docs/actionsense",
+                    help="where the two PNGs go. The paths used to be hardcoded, so plotting a "
+                         "second CSV silently overwrote the first run's figures.")
+    ap.add_argument("--prefix", default="tactile_map",
+                    help="filename stem, so several runs' figures can share a directory")
     args = ap.parse_args()
+    import os
+    os.makedirs(args.out_dir, exist_ok=True)
+    p_skill = os.path.join(args.out_dir, f"{args.prefix}_skill_vs_history.png")
+    p_cov = os.path.join(args.out_dir, f"{args.prefix}_coverage.png")
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -46,8 +55,8 @@ def main():
     ax.set_xlabel("input history"); ax.set_ylabel("mean skill vs persistence (5-fold CV)")
     ax.set_title("Tactile-map -> F/CoP (probabilistic, 5-fold CV): CNN vs flatten")
     ax.legend(); ax.grid(alpha=.3)
-    fig.tight_layout(); fig.savefig("docs/actionsense/tactile_map_skill_vs_history.png", dpi=120)
-    print("[done] docs/actionsense/tactile_map_skill_vs_history.png")
+    fig.tight_layout(); fig.savefig(p_skill, dpi=120)
+    print(f"[done] {p_skill}")
 
     # ---- (2) coverage vs history (raw solid, calibrated dashed) ----
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -59,8 +68,8 @@ def main():
     ax.set_xlabel("input history"); ax.set_ylabel("coverage @ 2sd")
     ax.set_title("Band coverage (solid=raw, dashed=calibrated)")
     ax.legend(fontsize=8); ax.grid(alpha=.3)
-    fig.tight_layout(); fig.savefig("docs/actionsense/tactile_map_coverage.png", dpi=120)
-    print("[done] docs/actionsense/tactile_map_coverage.png")
+    fig.tight_layout(); fig.savefig(p_cov, dpi=120)
+    print(f"[done] {p_cov}")
 
 
 if __name__ == "__main__":

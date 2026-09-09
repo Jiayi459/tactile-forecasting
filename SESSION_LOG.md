@@ -11503,3 +11503,30 @@ sigma 校准并入 Q-D(b) 已计划的"每配置一次带记录运行"。宣称�
   verb-known/verb-OTHER 拆分或脚注。
 
 **等用户对"统一边界"表态**(训练目标保留 pooled 这一例外是否接受)后,按 W6→W8→W1→W2 动工。
+
+### 2026-09-09 — 全 corpus 三方对比 run 完成后的导出与绘图
+
+**用户**:两个 run(seq2seq / probgru,各含 aggregate+flatten+cnn,3 s 输入,全 299 条)已完成,
+要求导出到**新目录**并绘图。
+
+**发现并修复两处会造成静默错误的缺陷**
+1. **`score_and_plot_runs.sh` 的目标目录推导**(第 80-82 行原逻辑):
+   `inp = "aggregate" if "aggregate" in joined else "flatten" if ... else "cnn" ...`
+   是短路链,只取**第一个**命中的 encoder。三个 encoder 存于同一 preds 目录时,
+   `joined` 含 "aggregate" → 两个新 run 都会落进**既有的 `results/corpus-aggregate/`**,
+   即把三方对比塞进只装 aggregate 单臂结果的目录,且目录名否认另两个臂的存在。
+   **改为按 `ENC_ORDER` 取全部命中的 encoder 拼接** → `corpus-aggregate-flatten-cnn`。
+   旧的单臂 run 推导结果不变(向后兼容)。
+2. **`plot_tactile_map.py` 的 PNG 路径硬编码**(原第 49、62 行):`--csv` 可配置但输出不可,
+   两个 backbone 的 CSV 依次绘图会**互相覆盖**同两个文件。新增 `--out-dir` 与 `--prefix`。
+
+**验证**:构造 5 clip / 5 动作 / 3 encoder 的 fixture 端到端跑 `score_and_plot_runs.sh` ——
+目录名正确生成为 `corpus-aggregate-flatten-cnn`,inventory 打印
+`models: seq2seq_aggregate(5/5), seq2seq_cnn(5/5), seq2seq_flatten(5/5)`,
+per-action CSV/MD(24 行、3 模型)与六通道 overlay PNG 均产出。
+`bash -n` 通过,`pytest tests/ -q` → 139 passed。
+
+**未做(需用户决定)**:三个 encoder 并排的 skill 对比图目前**没有现成脚本**。
+`plot_tactile_map.py` 画的是 skill-vs-history,本次只有单一 history(3 s),退化为单点;
+`plot_forecaster_comparison.py` 无 argparse、路径全硬编码,接不上新 CSV。
+已向用户说明并待其决定是否新写。
