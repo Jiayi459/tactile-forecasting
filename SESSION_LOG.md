@@ -11756,6 +11756,20 @@ train=1458/val=174/test=179/test_unseen=85 且 dropped_unassigned=37**,否则
 - 当前可交付：AS frozen实际5组及_GLOBAL的阶数、两侧配置和选择/导出代码定位；
   OT各fold/group实际阶数及AS历史CV阶数仍待原始记录或相同条件重算，不能假装已查明。
 
+### 2026-09-09 — AR的“linear”不等于预测轨迹是直线
+
+- 用户问AR拟合出来的曲线是否一定linear，特别是预测z_(t+1)。本轮解释，不改代码。
+- 对固定group、固定训练系数，单步预测为hat_z_(t+1)=b+sum_j(phi_j*z_(t+1-j))：
+  对历史输入是线性组合（带非零截距严格说是仿射），不是要求z随时间t为直线。
+- 示意AR1：b=0、phi=.8、当前z_t=1，则未来预测.8/.64/.512/.4096，等步长差分不恒定，
+  是离散指数衰减而不是时间轴上的直线；只是教学假设，不是数据集实际拟合参数。
+- 更一般的系数可产生振荡、增长等轨迹，但递推本身不会把固定系数线性AR变成非线性模型；
+  固定h步预测仍是初始历史值的仿射函数。
+- 若“在z_(t+1)内”指t到t+1的区间，当前AR只输出每个离散未来时刻的点，不拟合步间
+  连续曲线；图上将点连成线不代表AR只会生成整体直线。
+- 代码证据：src/actionsense/eval_harness/baselines/ar.py:128线性加权，:129保存一个未来
+  点，:130把该预测加入buf继续递推。仅追加SESSION_LOG，无模型/配置/结果改动。
+
 **新增 `scripts/actionsense/plot_encoder_comparison.py`(用户要求的三 encoder 对比图)**
 读 `score_preds_per_action.py` 产出的 per-action CSV(每个 backbone 一份,内含三个 encoder),
 出两张图,每个 CSV 一个子图:
