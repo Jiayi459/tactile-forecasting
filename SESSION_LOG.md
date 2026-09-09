@@ -11784,3 +11784,37 @@ train=1458/val=174/test=179/test_unseen=85 且 dropped_unassigned=37**,否则
 `--thresholds` 为 opt-in(默认 `None` 时代码路径与已推版本等价),故本次导出数值不受影响;
 但那两个已完成的 run 是更早代码所跑,其 `coverage_cal` 为旧的池化标定口径
 (skill / R² / Hausdorff 不受影响)。
+
+**全 corpus 三方对比结果(真实数据,290 条产生窗口 / 14 动作)**
+
+| backbone | encoder | R² | skill_pooled | skill_clip | Hausdorff |
+|---|---|---|---|---|---|
+| seq2seq | aggregate | 0.7414 | **+0.1453** | +0.1276 | 2.419 |
+| seq2seq | cnn | 0.7033 | +0.0442 | +0.0346 | 2.554 |
+| seq2seq | flatten | 0.6946 | +0.0084 | +0.0072 | 2.554 |
+| probgru | cnn | 0.6417 | −0.3646 | −0.6635 | 2.652 |
+| probgru | aggregate | 0.6374 | −0.3716 | −0.7225 | 2.627 |
+| probgru | flatten | 0.6266 | −0.4004 | −0.7111 | 2.839 |
+
+**主要结论:空间结构并未胜过六个矩。** seq2seq 下 aggregate(+0.145)明显优于
+cnn(+0.044)与 flatten(+0.008) —— 把 1024 个 taxel 全给模型,反而比只给 F/CoP 六维摘要**更差**。
+R² 给出同序(0.7414 > 0.7033 > 0.6946)。probGRU 三臂**全部低于 persistence**,
+其中 cnn 略优于 aggregate(−0.365 vs −0.372),但差距远小于 seq2seq 下的反向差距。
+在 map 内部,**cnn 始终优于 flatten**(两个 backbone 皆然),说明卷积先验确实有用 ——
+只是不足以补偿从 6 维升到 1024 维带来的代价。
+
+**一致性验证(重要)**:`aggregate` 臂的四项指标与重新 stream **之前**的旧 corpus run
+**完全相同**(seq2seq: R²=0.7414 / +0.1453 / 2.419;probgru: 0.6374 / −0.3716 / 2.627)。
+这独立证实了此前的判断:重新生成的 `state_*.npy` 与旧文件一致,既有结果未失效。
+
+**逐通道**:`F_L` 是 probGRU 的灾难通道(skill ≈ −2.7…−3.0,三臂皆然),
+其余五通道 probGRU 反而为正。seq2seq 下 aggregate 在 CoPx_R / CoPy_R 上领先最多。
+
+**绘图迭代(渲染后实际查看三轮)**:
+(1) 图例锚在 axes-fraction → 压住子图标题,改为图级图例并按英寸预留;
+(2) 共享 y 轴后 probGRU 的 F_L(−2.95)把其余条形压成不可见 → 加 `robust_limits`
+按分位数裁剪,越界条形在轴边缘标注真值;逐条数字标签互相重叠("+0.0080.044")→
+三个 headline 值移入子图标题;
+(3) **闭包晚绑定 bug**:`v` 捕获变量 `allrow`,而 `mark_clipped` 在循环后才执行,
+导致两个面板都用最后一个面板的数据 —— probGRU 被裁剪的 F_L 标签错误地画到了 seq2seq 面板上
+(那里根本没有越界条形)。改为默认参数绑定。

@@ -74,7 +74,7 @@ def val(row: dict, key: str) -> float:
     return float(v) if v not in ("", None) else float("nan")
 
 
-def grouped_bars(ax, groups, series, value, *, horizontal=False, label_first_group=False):
+def grouped_bars(ax, groups, series, value, *, horizontal=False):
     """One bar per (group, series). `value(group, s)` -> float, NaN to skip."""
     n = len(series)
     span = 0.82
@@ -90,10 +90,6 @@ def grouped_bars(ax, groups, series, value, *, horizontal=False, label_first_gro
             ax.barh(pos, vals, height=w * 0.94, **kw)
         else:
             ax.bar(pos, vals, width=w * 0.94, **kw)
-        if label_first_group and vals and vals[0] == vals[0]:
-            ax.annotate(f"{vals[0]:+.3f}", (pos[0], vals[0]),
-                        textcoords="offset points", xytext=(0, 3 if vals[0] >= 0 else -11),
-                        ha="center", fontsize=7.5, color=INK, zorder=4)
 
 
 def style(ax, *, horizontal=False):
@@ -105,6 +101,42 @@ def style(ax, *, horizontal=False):
         ax.spines[side].set_visible(False)
     ax.spines["bottom" if not horizontal else "left"].set_color(GRID)
     ax.tick_params(colors=MUTED, labelsize=8.5, length=0)
+
+
+def robust_limits(values):
+    """A y-range the bulk of the bars can be read in, plus the values it cuts off.
+
+    probGRU's F_L skill is about -2.9 while every other bar lives inside +-0.45. On one shared
+    scale that single group flattens the other eighteen into indistinguishable slivers, so the
+    figure would show one outlier and hide the comparison it exists to make. Clip to the bulk
+    and label whatever is cut, rather than silently rescaling the story around the worst bar.
+    """
+    import numpy as np
+    v = np.array([x for x in values if x == x], dtype=float)
+    if v.size == 0:
+        return (0.0, 1.0)
+    lo_r, hi_r = float(np.quantile(v, 0.08)), float(np.quantile(v, 0.98))
+    pad = 0.22 * max(hi_r - lo_r, 1e-6)
+    return (min(0.0, lo_r - pad), max(0.0, hi_r + pad))
+
+
+def mark_clipped(ax, groups, series, value, ylim):
+    """Label any bar that runs off the clipped axis with the value it actually reaches."""
+    lo, hi = ylim
+    n = len(series); span = 0.82; w = span / n
+    for si, s_ in enumerate(series):
+        off = -span / 2 + w * (si + 0.5)
+        for gi, g in enumerate(groups):
+            val_ = value(g, s_)
+            if val_ != val_ or lo <= val_ <= hi:
+                continue
+            edge = lo if val_ < lo else hi
+            ax.annotate(f"{val_:+.2f}", (gi + off, edge),
+                        textcoords="offset points",
+                        xytext=(0, 7 if val_ < lo else -12), rotation=90,
+                        ha="center", va="bottom" if val_ < lo else "top",
+                        fontsize=7, color=INK, zorder=5,
+                        arrowprops=None)
 
 
 def _legend_and_title(fig, ax, title):
@@ -130,18 +162,24 @@ def fig_by_channel(sources, out, prefix):
     # do not mean the same thing. A backbone that is worse everywhere should LOOK worse.
     fig, axes = plt.subplots(len(sources), 1, figsize=(9.4, 3.5 * len(sources)),
                              squeeze=False, sharey=True)
+    panels, allvals = [], []
     for ax, (name, rows) in zip(axes[:, 0], sources):
         encs, chans = encoders_of(rows), channels_of(rows)
         allrow = {r["model"].rsplit("_", 1)[-1]: r for r in rows if r["action"] == ALL_ROW}
         groups = ["channel mean"] + chans
 
-        def v(g, e):
+        # `allrow` is rebound every iteration, and mark_clipped runs AFTER the loop, so a
+        # closure over the name would give both panels the last panel's data -- which put
+        # probGRU's clipped F_L labels on the seq2seq axes, where nothing was clipped.
+        def v(g, e, allrow=allrow):
             r = allrow.get(e)
             if r is None:
                 return float("nan")
             return val(r, "skill_pooled") if g == "channel mean" else val(r, f"skill_pooled_{g}")
 
-        grouped_bars(ax, groups, encs, v, label_first_group=True)
+        grouped_bars(ax, groups, encs, v)
+        panels.append((ax, groups, encs, v))
+        allvals.extend(v(g, e) for g in groups for e in encs)
         style(ax)
         ax.set_xticks(range(len(groups)))
         ax.set_xticklabels(groups, fontsize=8.5, color=INK)
@@ -149,8 +187,16 @@ def fig_by_channel(sources, out, prefix):
         ax.get_xticklabels()[0].set_fontweight("bold")
         ax.axvline(0.5, color=GRID, lw=0.9, ls=(0, (3, 3)), zorder=1)
         ax.set_ylabel("skill vs persistence\n(frame-pooled)", fontsize=8.5, color=MUTED)
-        ax.set_title(f"{name}  ·  {allrow[encs[0]]['n_clips']} recordings",
-                     fontsize=10.5, color=INK, loc="left", pad=8)
+        # the headline numbers go in the title: three labels over one 0.4-inch bar group
+        # overprinted each other into "+0.0080.044"
+        head = "  ·  ".join(f"{e} {val(allrow[e], 'skill_pooled'):+.3f}" for e in encs)
+        ax.set_title(f"{name}  ·  {allrow[encs[0]]['n_clips']} recordings\n"
+                     f"channel mean —  {head}",
+                     fontsize=10, color=INK, loc="left", pad=8, linespacing=1.5)
+    ylim = robust_limits(allvals)
+    for ax, groups, encs, v in panels:
+        ax.set_ylim(*ylim)
+        mark_clipped(ax, groups, encs, v, ylim)
     _legend_and_title(
         fig, axes[0, 0],
         "Does spatial structure beat the six moments?   above 0 = better than persistence")
