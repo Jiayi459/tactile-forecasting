@@ -1,0 +1,56 @@
+#!/bin/bash
+# UGE job: the full EgoTouch pipeline under the OFFICIAL split -- gate tests, mask thresholds,
+# reference ladder (CPU parts), then the 8-model forecaster sweep on GPU.
+#
+# Prereqs on CRC (once): datasets/EgoTouch pressure-only download + extractor already run:
+#   python scripts/egotouch/extract_egotouch_states.py --root datasets/EgoTouch --out data/egotouch_states
+#
+# Submit from repo root after `git pull` and `mkdir -p logs`:
+#   qsub scripts/crc/train_egotouch_gpu.job
+#   qsub -v EPOCHS=5 scripts/crc/train_egotouch_gpu.job     # smoke
+# NOTE: no inline comments on #$ lines.
+#$ -M jhao3@nd.edu
+#$ -m abe
+#$ -q gpu
+#$ -l gpu_card=1
+#$ -pe smp 4
+#$ -N egotouch_map
+#$ -cwd
+#$ -o logs/
+#$ -e logs/
+
+set -euo pipefail
+conda activate tactile
+
+echo "commit: $(git rev-parse --short HEAD)  ($(git log -1 --format=%s))"
+
+# Fail fast if the states are not the expected 1896-recording official-split corpus. A wrong
+# population that trains anyway is the 2026-09-05 failure mode; make it die here instead.
+python - <<'PY'
+import json
+sp = json.load(open("data/egotouch_states/splits.json"))
+exp = {"train": 1458, "val": 174, "test": 179, "test_unseen": 85}
+got = {k: len(sp[k]) for k in exp}
+assert got == exp, f"SPLIT MISMATCH: {got} != {exp} -- wrong or stale extraction, refusing to train"
+assert sp.get("dropped_unassigned") == 37, f"expected 37 dropped orphans, got {sp.get('dropped_unassigned')}"
+print("split check OK:", got, "| dropped_unassigned=37")
+PY
+
+# The tests that gate this pipeline and can only truly run where torch works.
+python -m pytest tests/test_grid_parameterization.py tests/test_val_selection_and_baseline.py \
+                 tests/test_egotouch_baseline_pipeline.py tests/test_egotouch_trainer_pipeline.py \
+                 tests/test_weighting.py tests/test_balanced_baselines.py \
+                 tests/test_scorer_thresholds.py tests/test_egotouch_extract.py -q
+
+# TRAIN-fitted mask thresholds -- the single mask every arm is scored with (W7).
+python scripts/shared/export_mask_thresholds.py --config configs/egotouch/eval_harness.yaml
+
+# Reference ladder: seasonal + AR, group + global scopes, exported for the shared scorer (W6).
+python scripts/egotouch/run_baselines.py
+
+# The 8-model sweep (Q-F(b)): seq2seq x {aggregate,flatten,cnn} + probgru x aggregate, x {1,3} s.
+python scripts/egotouch/train_tactile_map.py ${EPOCHS:+--epochs $EPOCHS}
+
+echo "score next (CPU, can be local):"
+echo "  python scripts/shared/score_preds_per_action.py --preds runs/egotouch_tactile_map/test_seen_1s \\"
+echo "      --thresholds data/egotouch_states/mask_thresholds.json --out docs/egotouch/results"

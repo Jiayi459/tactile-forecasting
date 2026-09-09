@@ -17,6 +17,7 @@ from torch.utils.data import DataLoader
 from ..eval_harness.config import Config
 from ..eval_harness.dataset import Norm, load_target
 from ..eval_harness.splits import load_splits
+from ..eval_harness.weighting import recording_weights, weighted_percentile
 from . import data as D
 from ...shape_metrics import hausdorff_scaled
 from .models import ProbGRU, build_model
@@ -90,7 +91,8 @@ def train_model(train_ds, val_ds, cfg: Config, encoder: str, tm: dict, seed: int
     model = build_model(encoder, cfg.horizon, tm["d"], tm["hidden"],
                         backbone=tm.get("backbone", "seq2seq"),
                         n_act=int(tm.get("n_act", 1)),
-                        n_out=len(cfg.channels)).to(dev)
+                        n_out=len(cfg.channels),
+                        in_shape=tm.get("in_shape")).to(dev)   # None -> ActionSense (2,32,32)
     opt = torch.optim.Adam(model.parameters(), lr=tm["lr"]); bs = tm["batch"]
     if materialize:
         Xtr, Atr, Ltr, Ytr = (t.to(dev) for t in _materialize(train_ds))
@@ -239,10 +241,19 @@ def evaluate(model, ds, sigma_scale=1.0):
 
 
 def calibrate_sigma(model, ds, target=0.95):
+    """Sigma scale s.t. the RECORDING-BALANCED |z| distribution hits `target` coverage.
+
+    The percentile is weighted by 1/n_windows(recording) (2026-09-09 doctrine): pooled, a val
+    split's longest recordings would set the calibration for everyone -- the same failure the
+    checkpoint-selection fix closed. DataLoader without shuffle preserves ds.index order, so
+    the per-window weights line up with _predict's output rows.
+    """
     mu, sd, y, _ = _predict(model, ds)
     if len(mu) == 0:
         return 1.0
-    return float(np.percentile(np.abs(y - mu) / (sd + 1e-9), 100 * target) / 2.0)
+    r = np.abs(y - mu) / (sd + 1e-9)                              # (N,H,C)
+    w = np.repeat(recording_weights(_rec_ids(ds)), r[0].size)     # window weight -> each element
+    return float(weighted_percentile(r.ravel(), w, 100 * target) / 2.0)
 
 
 @torch.no_grad()

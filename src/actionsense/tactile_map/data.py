@@ -207,5 +207,6 @@ def recording_windows(map_n: np.ndarray, cfg: Config, t_in: int) -> tuple[np.nda
     """For export: all (n_origins, t_in, 2,32,32) windows of one recording + the origin indices."""
     ors = origins(len(map_n), cfg)
     ds_ = MapWindows({0: map_n}, {0: np.zeros((len(map_n), 6), np.float32)}, cfg, t_in)
-    X = np.stack([ds_._window(0, int(t)) for t in ors]) if len(ors) else np.zeros((0, t_in, 2, 32, 32), np.float32)
+    X = np.stack([ds_._window(0, int(t)) for t in ors]) if len(ors) \
+        else np.zeros((0, t_in) + map_n.shape[1:], np.float32)   # shape follows the sensor
     return X, ors

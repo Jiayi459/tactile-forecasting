@@ -1,44 +1,50 @@
 """Tactile-map -> F/CoP forecasters. Two per-frame encoders behind an IDENTICAL GRU + one-shot
 head, so the encoder is the only variable in the flatten-vs-CNN comparison.
 
-Input  x: (B, t_in, 2, 32, 32) normalized map history.
+Input  x: (B, t_in, C, G, G) normalized map history -- (2, 32, 32) for ActionSense,
+(2, 21, 21) for EgoTouch; the sensor's shape is a constructor argument (`in_shape`), defaulted
+to ActionSense so every existing call site is bit-identical (2026-09-09, Q-G: parameterize the
+shared module rather than fork it -- three sensors on literally one class is the strongest
+form of the "one model" claim).
 Output  : (B, H, 6) forecast of the next H steps of the 6-dim F/CoP target (normalized units).
 """
 from __future__ import annotations
 
+import math
+
 import torch
 import torch.nn as nn
 
-IN_CH, GRID = 2, 32
+IN_CH, GRID = 2, 32                 # the ActionSense default, kept as the default in_shape
 FLAT = IN_CH * GRID * GRID          # 2048
 
 
 class FlattenEncoder(nn.Module):
     """Flatten each frame -> linear -> embedding (no spatial structure exploited)."""
 
-    def __init__(self, d: int):
+    def __init__(self, d: int, in_shape: tuple[int, ...] = (IN_CH, GRID, GRID)):
         super().__init__()
-        self.proj = nn.Sequential(nn.Flatten(), nn.Linear(FLAT, d), nn.ReLU())
+        self.proj = nn.Sequential(nn.Flatten(), nn.Linear(math.prod(in_shape), d), nn.ReLU())
 
-    def forward(self, x):                         # (B,t_in,2,32,32) -> (B,t_in,d)
+    def forward(self, x):                         # (B,t_in,C,G,G) -> (B,t_in,d)
         B, T = x.shape[:2]
-        return self.proj(x.reshape(B * T, IN_CH, GRID, GRID)).reshape(B, T, -1)
+        return self.proj(x.reshape(B * T, *x.shape[2:])).reshape(B, T, -1)
 
 
 class CNNEncoder(nn.Module):
     """Small conv stack per frame -> embedding (exploits spatial structure)."""
 
-    def __init__(self, d: int):
+    def __init__(self, d: int, in_shape: tuple[int, ...] = (IN_CH, GRID, GRID)):
         super().__init__()
         self.conv = nn.Sequential(
-            nn.Conv2d(IN_CH, 16, 3, padding=1), nn.ReLU(),
-            nn.Conv2d(16, 32, 3, stride=2, padding=1), nn.ReLU(),   # 32->16
-            nn.Conv2d(32, 32, 3, stride=2, padding=1), nn.ReLU(),   # 16->8
+            nn.Conv2d(in_shape[0], 16, 3, padding=1), nn.ReLU(),
+            nn.Conv2d(16, 32, 3, stride=2, padding=1), nn.ReLU(),   # G -> ceil(G/2)
+            nn.Conv2d(32, 32, 3, stride=2, padding=1), nn.ReLU(),   # ceil(G/2) -> ceil(G/4)
             nn.AdaptiveAvgPool2d(1), nn.Flatten(), nn.Linear(32, d), nn.ReLU())
 
-    def forward(self, x):                         # (B,t_in,2,32,32) -> (B,t_in,d)
+    def forward(self, x):                         # (B,t_in,C,G,G) -> (B,t_in,d)
         B, T = x.shape[:2]
-        return self.conv(x.reshape(B * T, IN_CH, GRID, GRID)).reshape(B, T, -1)
+        return self.conv(x.reshape(B * T, *x.shape[2:])).reshape(B, T, -1)
 
 
 class AggEncoder(nn.Module):
@@ -119,10 +125,17 @@ class ProbGRU(nn.Module):
 
 
 def build_model(encoder: str, horizon: int, d: int = 64, hidden: int = 64,
-                backbone: str = "seq2seq", n_act: int = 1, n_out: int = 6):
+                backbone: str = "seq2seq", n_act: int = 1, n_out: int = 6,
+                in_shape: tuple[int, ...] | None = None):
     """encoder x backbone -> model. The encoder is the only thing that varies within a
-    backbone, and the backbone is the only thing that varies across the two families."""
-    enc = {"flatten": FlattenEncoder, "cnn": CNNEncoder, "aggregate": AggEncoder}[encoder](d)
+    backbone, and the backbone is the only thing that varies across the two families.
+    `in_shape` = the map's per-frame shape (C, G, G); None = the ActionSense (2, 32, 32).
+    The aggregate encoder reads the 6-dim target, so in_shape does not apply to it."""
+    if encoder == "aggregate":
+        enc = AggEncoder(d, n_in=n_out)
+    else:
+        cls = {"flatten": FlattenEncoder, "cnn": CNNEncoder}[encoder]
+        enc = cls(d, in_shape=tuple(in_shape)) if in_shape else cls(d)
     if backbone == "seq2seq":
         return Seq2Seq(enc, d, hidden, horizon, n_out)
     if backbone == "probgru":

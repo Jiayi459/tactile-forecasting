@@ -11530,3 +11530,90 @@ per-action CSV/MD(24 行、3 模型)与六通道 overlay PNG 均产出。
 `plot_tactile_map.py` 画的是 skill-vs-history,本次只有单一 history(3 s),退化为单点;
 `plot_forecaster_comparison.py` 无 argparse、路径全硬编码,接不上新 CSV。
 已向用户说明并待其决定是否新写。
+
+## 2026-09-09(续)— W6/W7/W8/W1/W2/W3 全部实现,测试先行;AS 波及面实测为零
+
+用户批准"训练目标保留 pooled"这一例外后动工。顺序 W8→W7→W1→W2/W6→W3,每步带测试。
+**本机全套:109 passed, 9 skipped**(skip 全部是 torch 相关,本机 torch dlopen 失败)。
+
+### W8 加权聚合原语 —— `src/actionsense/eval_harness/weighting.py`(新)
+`recording_weights(rec_ids)` = 1/n_windows(recording);`weighted_mean`;`weighted_percentile`。
+**分位数的插值约定特意选成"等权时与 `np.percentile` 逐位相等"**(`cum = cumsum(w) - w`,
+目标位置 `q/100 * cum[-1]`),测试用 5001 个样本在 q∈{0,5,50,95,100} 上断言 `abs=1e-12`。
+这条性质是安全采用的前提:**录制等长时它就是现行 pooled,只在偏斜真实存在处才不同。**
+
+### W8 接入点一:AR 选阶(`baselines/ar.py`)
+`_best_order` 从 pooled MSE 改为**逐录制各算一次 MSE 再跨录制平均**。
+**顺带修掉一个真 bug**:`predict` 直接索引 `self.order[group]`,对 TRAIN 未见的 group
+是 **KeyError** —— 而 EgoTouch 的 test_unseen **按构造全是未见 group**。现在 `fit` 额外拟合一个
+`_GLOBAL`(全 TRAIN 池化)模型,`predict` 把未知 group 路由过去;`seasonal.py` 用**同一条规则**
+(`periods[_GLOBAL]`),且区分"TRAIN 见过但无周期"→persistence 与"TRAIN 没见过"→GLOBAL。
+`_GLOBAL` 是保留名,组名撞车直接 `ValueError`。
+
+**AS 波及面实测 = 零。** 在 `data/actionsense_states` 真数据上并排跑两种口径:
+```
+group                   pooled  balanced
+_GLOBAL                     30        30
+peel-cucumber               30        30
+peel-potato                 30        30
+slice-bread                 20        20
+slice-cucumber              30        30
+slice-potato                30        30
+0/6 组在 balanced 下改变选阶
+```
+⇒ **AR 基线不需要重跑**,AS 已有数字不受影响。(sigma 校准的波及面仍需 Q-D(b) 的带记录运行来定。)
+
+### W8 接入点二:sigma 校准(`tactile_map/train.py:calibrate_sigma`)
+`np.percentile(|y-mu|/sd, 95)` → `weighted_percentile(..., w)`,w 由 `recording_weights(_rec_ids(ds))`
+按元素展开(`np.repeat(w, H*C)`,与 `r.ravel()` 的 C 序对齐;`_predict` 不 shuffle,故顺序即 `ds.index`)。
+
+### W7 mask 阈值单一真源
+- **`scripts/shared/export_mask_thresholds.py`(新)**:走 harness 自己的 `dataset.force_thresholds`,
+  只读 TRAIN,写 `<states_root>/mask_thresholds.json`(含 percentile / n_train / config_hash 溯源)。
+  **本机在 AS 真数据上实跑通过**:`F_L=1849.76, F_R=1848.93 (TRAIN pct 5, n=45, cfg 947e650076742574)`。
+- **scorer 新增 `--thresholds FILE`**,优先级高于 `--mask`;缺力通道直接 `SystemExit` 报名字。
+  `--mask corpus` 保留但仅用于复现旧 AS/OT 输出,md 报告页脚如实写明用的是哪一种。
+  测试 `test_thresholds_are_frozen_not_reestimated` 正面对比:同一批 y 追加 20 个高值窗口后,
+  frozen 口径的 mask **逐位不变**,而 `corpus` 口径**确实漂移** —— 把 W4-1 的问题钉成可回归的事实。
+
+### W1 网格参数化(Q-G,不 fork)
+`models.py` 的 `FlattenEncoder`/`CNNEncoder` 接受 `in_shape=(C,G,G)`,**默认 `(2,32,32)`**;
+`forward` 改用 `x.shape[2:]` 而非模块常量。`build_model(..., in_shape=None)` → AS 逐位不变。
+CNN 的两个 stride-2 卷积注释从"32→16→8"改为"G→ceil(G/2)→ceil(G/4)"(21→11→6)。
+`build_model` 里 aggregate 分支改为 `AggEncoder(d, n_in=n_out)` —— 对 AS(n_out=6)与旧行为相同,
+但对非 6 通道语料不再默默用错输入维。`data.py:recording_windows` 的空返回 fallback 也跟着传感器走。
+测试覆盖 (2,32,32)/(2,21,21)/(1,16,16) × flatten/cnn,并断言**把 21×21 喂进默认 AS 模型会 RuntimeError**
+(错传感器要响,不能广播)。
+
+### W2/W6 两个 EgoTouch 驱动
+- **`scripts/egotouch/run_baselines.py`(新)**:官方 split 上 fit/select,**两种 fit_scope 都跑**
+  (group 主 + global 对照,Q-K),把 seasonal/AR 导出成**与 `--save-preds` 同格式**的
+  per-recording npz,`test_seen`/`test_unseen` **分目录**。persistence 不导出 —— scorer 从 y 与
+  origins 现场合成,故对每条臂**按构造完全相同**。这就是 W6 的"单一评分路径":
+  harness 自带的 pooled CSV 不再进入论文。
+- **`scripts/egotouch/train_tactile_map.py`(新)**:**单切分协议**(不用 `cross_validate`)。
+  fit=官方 train;checkpoint 选择与 sigma 校准都在官方 val 上、都是 balanced;test_seen 与
+  test_unseen 分别预测并分目录保存。矩阵 = Q-F(b) 的 8 个模型。
+  **W9 OTHER 审计已内建**:打印各 split 落 OTHER 的录制数,并写进 `selection_report.json`。
+  **Q-D 的答案也内建**:每条臂记录 `selected_epoch` vs `selected_epoch_pooled` 与
+  `selection_differs` + 逐 epoch 两条曲线 —— **一次运行就能回答"pooled 会不会选别的 checkpoint"**。
+  map 臂若有任何录制缺 `clip_<idx>.npy` 直接 `SystemExit`,不静默缩小群体。
+
+### W3 CRC job —— `scripts/crc/train_egotouch_gpu.job`(新)
+进训练前三道闸,任一失败即停:(1) 打印 commit;(2) **断言 splits.json 是
+train=1458/val=174/test=179/test_unseen=85 且 dropped_unassigned=37**,否则
+`SPLIT MISMATCH ... refusing to train`;(3) 跑 8 个测试文件。之后依次:
+导出 mask 阈值 → 参照阶梯 → 8 模型 sweep。这道 split 断言正是对 2026-09-05 静默跑错 scope 的直接防护。
+
+### 集成测试(两个,合成语料端到端)
+- `test_egotouch_baseline_pipeline.py`(**纯 numpy,处处可跑**):造 states 目录 → run_baselines →
+  export_mask_thresholds → **shared scorer `--thresholds`**,断言四条臂(2 arm × 2 scope)都在、
+  形状对、**unseen 走 `_GLOBAL` 且全 finite(不是 KeyError)**、md 页脚出现 "TRAIN-fitted"。
+- `test_egotouch_trainer_pipeline.py`(torch,本机 skip):21×21 合成语料跑 3 条臂,
+  断言官方 split 人数行、`OTHER audit [test_unseen]: 2/2`、selection_report 的三个键、
+  三条臂 merge 进同一个 npz 的 `mu_*`。
+
+### 待办(不阻塞提交)
+- **本机 skip 的 torch 测试须在 CRC 首跑确认**(job 的第 3 道闸即是)。
+- sigma 校准 balanced 化对 **AS** 的波及面仍未知,并入 Q-D(b) 的带记录运行。
+- E3 汇总(`build_skill_comparison.py` 加 EgoTouch 列)在拿到分数后再做。

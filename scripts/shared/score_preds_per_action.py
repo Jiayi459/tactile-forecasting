@@ -176,13 +176,27 @@ def force_channels(chans):
     return idx or (0,)
 
 
-def build_mask(ytrue, mode, chans, pct=5):
-    """(N,H,C) boolean. Force channels always valid; CoP masked only under --mask corpus."""
+def build_mask(ytrue, mode, chans, pct=5, thresholds=None):
+    """(N,H,C) boolean. Force channels always valid; CoP masked under --mask corpus or
+    --thresholds.
+
+    `thresholds` (channel name -> value, from export_mask_thresholds.py) is the harness
+    protocol: fit on TRAIN, frozen, identical for every arm scored. `--mask corpus`
+    re-estimates the threshold from the evaluated set itself -- transductive, kept only to
+    reproduce pre-2026-09-09 ActionSense/OpenTouch outputs; do not use it for EgoTouch.
+    """
     mask = np.ones_like(ytrue, dtype=bool)
-    if mode != "corpus":
+    if thresholds is None and mode != "corpus":
         return mask
     fidx = force_channels(chans)
-    thr = {c: np.percentile(ytrue[:, :, c], pct) for c in fidx}
+    if thresholds is not None:
+        missing = [str(chans[c]) for c in fidx if str(chans[c]) not in thresholds]
+        if missing:
+            raise SystemExit(f"--thresholds file lacks force channels {missing}; "
+                             f"it has {sorted(thresholds)}")
+        thr = {c: float(thresholds[str(chans[c])]) for c in fidx}
+    else:
+        thr = {c: np.percentile(ytrue[:, :, c], pct) for c in fidx}
     for c in range(ytrue.shape[-1]):
         if c in fidx:
             continue
@@ -191,7 +205,7 @@ def build_mask(ytrue, mode, chans, pct=5):
     return mask
 
 
-def score(preds_dir, label, mask_mode, manifest, min_clips, want_models=None):
+def score(preds_dir, label, mask_mode, manifest, min_clips, want_models=None, thresholds=None):
     paths, have = scan(preds_dir)
     models, kept, every, common = choose(have, want_models)
     print(f"  {len(paths)} clips; models seen: {every}")
@@ -203,7 +217,8 @@ def score(preds_dir, label, mask_mode, manifest, min_clips, want_models=None):
         print(f"  NOT scored (absent from some clip): {dropped} — "
               f"pass --models to pin them instead and drop the clips they miss")
     ytrue, ids, preds, acts, hd_rows, chans = gather(kept, models, manifest)
-    st = aggregate.clip_stats(ytrue, build_mask(ytrue, mask_mode, chans), ids, preds, chans)
+    st = aggregate.clip_stats(ytrue, build_mask(ytrue, mask_mode, chans,
+                                                thresholds=thresholds), ids, preds, chans)
     models = [m for m in sorted(preds) if m != PERS]
 
     by_action = {}
@@ -300,6 +315,9 @@ def main():
     ap.add_argument("--out", default="docs/per_action", help="output directory")
     ap.add_argument("--mask", default="none", choices=["none", "corpus"],
                     help="CoP masking; see the module docstring before quoting CoP numbers")
+    ap.add_argument("--thresholds", default=None, metavar="FILE",
+                    help="mask_thresholds.json from export_mask_thresholds.py: TRAIN-fitted "
+                         "per-hand force thresholds (the harness protocol). Overrides --mask.")
     ap.add_argument("--manifest", default=None,
                     help="jsonl to read actions from, when the npz does not carry them")
     ap.add_argument("--models", default=None,
@@ -311,8 +329,12 @@ def main():
     a = ap.parse_args()
 
     label = a.label or os.path.basename(a.preds.rstrip("/"))
+    thresholds = None
+    if a.thresholds:
+        with open(a.thresholds) as fh:
+            thresholds = json.load(fh)["force_thresholds"]
     rows, models, chans, n_acts = score(a.preds, label, a.mask, a.manifest,
-                                       a.min_clips, a.models)
+                                       a.min_clips, a.models, thresholds=thresholds)
     fields = list(rows[0])
     for r in rows:                      # per-action rows lack the per-channel extras
         for k in fields:
@@ -326,8 +348,11 @@ def main():
         w.writeheader(); w.writerows(rows)
     with open(stem + ".md", "w") as fh:
         fh.write(to_markdown(rows, models, label, n_acts))
-        fh.write(f"\n\nchannels: {', '.join(chans)} · CoP masking: `--mask {a.mask}`"
-                 f"{' (transductive, not the harness protocol)' if a.mask == 'corpus' else ''}\n")
+        mask_note = (f"`--thresholds {os.path.basename(a.thresholds)}` (TRAIN-fitted)"
+                     if a.thresholds else
+                     f"`--mask {a.mask}`"
+                     + (" (transductive, not the harness protocol)" if a.mask == "corpus" else ""))
+        fh.write(f"\n\nchannels: {', '.join(chans)} · CoP masking: {mask_note}\n")
     print(f"wrote {stem}.csv and {stem}.md  ({len(rows)} rows, models={models})")
 
 

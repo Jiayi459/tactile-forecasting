@@ -9,12 +9,29 @@ iterated recursion seeded by the last p observed values -> reads only `hist` (ti
 
 Pooling note: a group's TRAIN recordings are concatenated for the AutoReg fit; with long clips
 the few cross-recording lag rows are negligible.
+
+Two 2026-09-09 changes, both from the EgoTouch port and both applying corpus-wide:
+
+* ORDER SELECTION IS RECORDING-BALANCED (doctrine: every stage that produces a claim
+  aggregates per recording). The old pooled MSE let a split's longest recordings choose the
+  order for everyone -- on the ActionSense frozen split ten of 15 val recordings hold 84% of
+  the windows. Selection now averages each recording's own H-step MSE. With equal-length
+  recordings this is the same number as before.
+
+* UNKNOWN GROUPS FALL BACK TO A GLOBAL FIT. `predict` indexed `self.order[group]` directly, a
+  KeyError for any group absent from TRAIN -- which is every group of EgoTouch's test_unseen
+  split, by construction. `fit` now also fits one pooled `_GLOBAL` model over all of TRAIN,
+  and `predict` routes unknown groups to it. Corpora whose test groups all appear in TRAIN
+  (ActionSense, OpenTouch) never take this path.
 """
 from __future__ import annotations
 
 import numpy as np
 
+from ..weighting import weighted_mean
 from .base import Baseline, by_group, predict_series
+
+GLOBAL = "_GLOBAL"          # reserved: the pooled all-TRAIN fit unknown groups fall back to
 
 try:
     from statsmodels.tsa.ar_model import AutoReg
@@ -51,7 +68,11 @@ class AR(Baseline):
         self.order: dict[str, int] = {}
 
     def fit(self, train: dict[int, np.ndarray], groups: dict[int, str]) -> None:
-        for g, recs in by_group(train, groups).items():
+        per_group = by_group(train, groups)
+        if GLOBAL in per_group:
+            raise ValueError(f"group name {GLOBAL!r} is reserved for the unknown-group fallback")
+        per_group[GLOBAL] = dict(train)            # pooled fit for groups TRAIN never saw
+        for g, recs in per_group.items():
             z = np.concatenate([self.norm.z(Y) for Y in recs.values()], axis=0)   # (sumT,6)
             self.coef[g] = {}
             for p in self.orders:
@@ -69,21 +90,33 @@ class AR(Baseline):
                                              {i: g for i in vg.get(g, {})}, H, default=global_best)
 
     def _best_order(self, data, groups, H, default=None):
-        """Order minimizing iterated H-step normalized MSE on `data`. Empty data -> default."""
+        """Order minimizing RECORDING-BALANCED iterated H-step normalized MSE on `data`.
+
+        Each recording contributes its own mean squared error once, however many origins its
+        length yields; the order is the argmin of the mean over recordings. Empty -> default.
+        """
         if not data:
             return default if default is not None else self.orders[0]
-        present = set(groups.values())
+        # Sweep the order of every group this data can route to -- including GLOBAL, which is
+        # where predict() sends a recording whose group TRAIN never saw.
+        sweep = ({g for g in set(groups.values()) if g in self.coef} | {GLOBAL})
         best, best_err = default if default is not None else self.orders[0], np.inf
         for p in self.orders:
-            for g in present:                         # temporarily set this order, measure
+            for g in sweep:                           # temporarily set this order, measure
                 self.order[g] = p
-            yt, yh = predict_series(self, data, groups, self.cfg)
-            err = float((((yh - yt) / self.norm.std) ** 2).mean())
+            errs = []
+            for i, Y in data.items():
+                yt, yh = predict_series(self, {i: Y}, {i: groups[i]}, self.cfg)
+                if len(yt):
+                    errs.append(float((((yh - yt) / self.norm.std) ** 2).mean()))
+            err = weighted_mean(np.array(errs), np.ones(len(errs))) if errs else np.inf
             if err < best_err:
                 best, best_err = p, err
         return best
 
     def predict(self, hist: np.ndarray, H: int, group: str) -> np.ndarray:
+        if group not in self.coef:
+            group = GLOBAL                            # TRAIN never saw this group (test_unseen)
         p = self.order[group]
         C = self.coef[group][p]                       # (6, p+1)
         z = self.norm.z(hist)

@@ -10,6 +10,11 @@ estimated T per group is stored in `self.periods` for the results table.
 
 Estimation uses TRAIN only (constraint 2). Autocorrelation is computed per recording and
 averaged (no cross-recording concatenation -> no boundary artifacts).
+
+UNKNOWN GROUPS (2026-09-09, EgoTouch port): a group absent from TRAIN -- every test_unseen
+group, by construction -- routes to a pooled `_GLOBAL` period estimated over all of TRAIN,
+the same rule AR applies. Only a group TRAIN saw but found no clear cycle for falls back to
+persistence. Corpora whose test groups all appear in TRAIN never take the GLOBAL path.
 """
 from __future__ import annotations
 
@@ -17,6 +22,7 @@ import warnings
 
 import numpy as np
 
+from .ar import GLOBAL
 from .base import Baseline, by_group
 
 
@@ -49,7 +55,11 @@ class SeasonalNaive(Baseline):
         self.periods: dict[str, int | None] = {}     # group -> period (None = fallback)
 
     def fit(self, train: dict[int, np.ndarray], groups: dict[int, str]) -> None:
-        for g, recs in by_group(train, groups).items():
+        per_group = by_group(train, groups)
+        if GLOBAL in per_group:
+            raise ValueError(f"group name {GLOBAL!r} is reserved for the unknown-group fallback")
+        per_group[GLOBAL] = dict(train)            # pooled period for groups TRAIN never saw
+        for g, recs in per_group.items():
             ac = _mean_autocorr(list(recs.values()), self.norm, self.pmax + 1)
             # local maxima within [pmin, pmax] above the autocorr floor
             peaks = [(m, ac[m]) for m in range(self.pmin, self.pmax + 1)
@@ -64,6 +74,8 @@ class SeasonalNaive(Baseline):
             self.periods[g] = min(m for m, v in peaks if v >= 0.95 * vmax)
 
     def predict(self, hist: np.ndarray, H: int, group: str) -> np.ndarray:
+        if group not in self.periods:
+            group = GLOBAL                           # TRAIN never saw this group (test_unseen)
         m = self.periods.get(group)
         if not m:                                    # fallback -> persistence
             return np.repeat(hist[-1:], H, axis=0)
