@@ -11617,3 +11617,170 @@ train=1458/val=174/test=179/test_unseen=85 且 dropped_unassigned=37**,否则
 - **本机 skip 的 torch 测试须在 CRC 首跑确认**(job 的第 3 道闸即是)。
 - sigma 校准 balanced 化对 **AS** 的波及面仍未知,并入 Q-D(b) 的带记录运行。
 - E3 汇总(`build_skill_comparison.py` 加 EgoTouch 列)在拿到分数后再做。
+
+## 2026-09-09 — AR阶数与神经history不一致：比较含义与预算匹配建议（未实施）
+
+### Material Passport
+
+- Origin Skill: academic-research-suite / experiment-agent
+- Origin Mode: plan
+- Origin Date: 2026-09-09
+- Verification Status: UNVERIFIED（本轮是代码证据支持的设计解释，无新增实验验证）
+- Version Label: history_budget_comparison_v1
+- Repro Lock: null
+
+### 用户问题与本轮计划
+
+- 用户问：AR选出的order和probGRU/seq2seq的历史不一定一样，是否影响比较的意义？
+- 先复核最新版AR、EgoTouch baseline/neural驱动及OT/AS/EgoTouch配置，区分系统级benchmark
+  与受控history-budget比较；仅给条件性建议，不改冻结协议或启动补跑。技能用于把“性能差异”
+  与“结构归因”分开检查，不将建议当用户裁定。
+
+### 当前证据（更新旧答复的时效范围）
+
+- EgoTouch AR候选[2,5,10,15,20,30]@10Hz（eval_harness.yaml:25-36），神经history为
+  [1,3]s（tactile_map.yaml:37；train_tactile_map.py:106-107转成10/30帧）。
+- baseline驱动run_baselines.py:92-114只按scope/model循环fit/select/export，未按神经history
+  限制AR候选，因此当前同一个AR baseline可与1s、3s神经臂比较。
+- AR.predict用z[-p:]（baselines/ar.py:124），神经窗口用t-t_in+1..t
+  （tactile_map/data.py:147-152,187-191）；二者最近历史上限确实可能不同。
+- 与此前问答时点不同，最新版AS共享AR已经自动fit _GLOBAL（ar.py:70-82）、在unknown
+  group预测时回退（:117-124），且选阶已是recording-balanced normalized MSE（:92-114）。
+  不再沿用旧答复“global未实现/AR选阶pooled”描述当前代码。
+- AS配置history[1,3,10]s、AR最长3s；OT配置AR[6,15,30,45,60,90]@30Hz，也是最长3s，
+  神经默认history[1,2,3]s。OT早期origin可能左填充，因此名义3s不保证每个origin真实有3s。
+
+### 结论与建议
+
+1. order p与history t_in不是必须取相同数值的同一超参，但两者都限制预测时可访问的最近
+   时序信息。H（预测未来长度）相同，不意味着输入历史相同；min_history只限定评分起点，
+   同一组origins也不自动保证输入预算相同。
+2. 不同history不使同一TEST/target/horizon/mask/scorer下的方法比较失效，也不是未来泄漏。
+   它回答“各自设定下的完整方法谁更好”；不能据此把差距单独归因于神经结构或非线性。
+   超参/最佳history只用VAL选择，或按预先固定矩阵全部报告，不能看TEST挑最优。
+3. 具体例子：AR选p30与1s神经模型比较，AR可用更早的2s历史；若神经胜出，可说该短历史
+   神经配置超过这个VAL选定AR，但不能把history因素排除。反方向，长history神经优于短AR
+   也不能仅归因为架构。额外历史的可用性不保证AR实际测试性能单调提高。
+4. 若问题是“相同历史预算下，非线性/神经方法带来多少收益”，建议补history-budget-matched
+   AR，而不是强制选p=t_in：1s比较在p∈[2,5,10]中用VAL选；3s比较在原六候选中选。
+   两者使用相同TRAIN/VAL/TEST录制、相同origins/H/mask与最终error定义；不得为1s放宽
+   eligibility而为3s另筛一群体。global备用AR也遵守相应预算。
+5. “相同预算”允许模型不用满预算：AR选p5而神经输入10帧，并不违反1s上限。固定AR10与
+   AR30可作严格固定lag的辅助实验，但不能仅为凑history相等而放弃VAL选阶，弱化baseline。
+6. v1主矩阵与现有结果不需作废。保留原六候选的VAL-selected AR（应称预定搜索范围内的
+   强参照，不称所有AR的最优），可另外报告AR_budget1s/AR_budget3s。3s候选范围已相同，
+   在相同数据/fit与selection规则下可复用；主要新增CPU工作是1s受限AR，无需重训现有
+   神经模型。如果候选参数未落盘，则需重拟合AR而非仅重评分已有单一阶数的预测。
+7. 对照标签/输入也须明说：AR单通道线性自回归但group可知action+object；seq2seq aggregate
+   联合六通道且不读标签；ProbGRU读action embedding；map臂输入更丰富。history预算匹配
+   只控制一个因素，不等于完全隔离纯架构效应。针对encoder的最干净现成对照是在同一
+   backbone、同一history下比较aggregate/flatten/cnn。
+
+### 外部方法依据与范围
+
+- Hyndman & Athanasopoulos, Forecasting: Principles and Practice, §5.10：
+  https://otexts.com/fpp3/tscv.html ，支持因果rolling-origin评估及按实际多步预测任务评价。
+  本项目“系统级 vs 等预算比较”的区分与p上限建议是基于本地实现作出的设计判断，
+  不是该文直接验证过的EgoTouch结论。未把书中的滚动重拟合机制混同为本项目固定TRAIN模型。
+
+### 修改与待决项
+
+- 只追加本日志；无代码/配置/结果变更，无测试、训练、提交或推送。
+- OPEN QUESTION（仅在用户要求实施补充对照时需裁定）：是否添加1s受限AR及相应报告列；
+  本轮不阻塞解释、不自动扩大已批准的实验矩阵。
+
+## 2026-09-09 — ActionSense / OpenTouch 实际AR选阶审计（含AS本地重算）
+
+### 用户请求、计划与范围
+
+- 用户要查两个dataset实际选择过哪些AR order，并reference code；不把候选列表当选中结果。
+- 检查当前配置、fit/select、结果导出路径、全部本地docs/log/忽略文件与git中结果文件名；
+  对本地具备数据的AS frozen split只重跑TRAIN fit和VAL select，未读取TEST信号或写结果。
+- 本轮不改变代码/配置/实验协议，不提交、不推送、未连接CRC或启动神经训练。
+
+### ActionSense：已保存结果与当前代码重算均确认
+
+- `docs/actionsense/harness_baselines_fitparams.csv:1-6`包含真实ar_order与旧config_hash
+  `8afc249f260894fd`，5组分别为：
+
+| group | 保存的order | 本轮当前代码选阶 | 名义历史@10Hz |
+|---|---:|---:|---:|
+| peel-cucumber | 30 | 30 | 3s |
+| peel-potato | 30 | 30 | 3s |
+| slice-bread | 20 | 20 | 2s |
+| slice-cucumber | 30 | 30 | 3s |
+| slice-potato | 30 | 30 | 3s |
+| _GLOBAL | 旧表无此项 | 30 | 3s |
+
+- 重算读取data/actionsense_states/splits.json，明确TRAIN45/VAL15/TEST15，当前config_hash
+  `947e650076742574`。Norm只fit TRAIN，AR.fit(train,gtr)后select(val,gva,H10)，输出上述dict。
+  命令成功exit0；没有神经训练、没有测试集调参、没有覆盖旧fitparams表。
+- 候选[2,5,10,15,20,30]见configs/actionsense/eval_harness.yaml:29；按group选阶
+  `src/actionsense/eval_harness/baselines/ar.py:85-115`，当前使用recording-balanced
+  normalized MSE。保存侧在evaluate.py:168-174把extras['ar_orders']写入_fitparams.csv。
+- 范围限定：这是75条Slice/Peel的frozen split，不是299条AS corpus/290条最终可评分群体。
+  也不能推出5-fold中各group仍是同一order。
+- 历史AS5-fold AR对照的确在本日志2026-07-23有运行记录，平均skill0.166；当前
+  scripts/actionsense/plot_forecaster_comparison.py:15仅硬编码这个skill常量，没有逐fold
+  order。不能否认该历史CV运行存在，但本地未找到其选阶明细。
+- 用户打开的corpus-aggregate/as_preds_seq2seq_corpus.csv只有seq2seq_aggregate与persistence，
+  不含AR order；当前tactile_map.cross_validate（train.py:342-407）也不自动训练/保存经典AR。
+
+### OpenTouch：只能确认候选与选法，实际每fold/group阶数缺少本地证据
+
+- configs/opentouch/eval_harness.yaml:41与eval_harness_d1.yaml:45候选均为
+  [6,15,30,45,60,90]@30Hz，即约[0.2,0.5,1,1.5,2,3]s；这不是actual selected orders。
+- 默认group为object_category（raw config:32/d1:36），TRAIN-relative rare/unseen合入other。
+  AR.select逐group在VAL选p（src/opentouch/baselines/ar.py:69-89），同组所有channel共享
+  选定p、系数各自拟合；当前OT fork仍用pooled normalized MSE，与更新后的AS不同。
+- 4-fold location driver在每fold各自fit/select（run_opentouch_exploratory.py:217-235），
+  所以应输出fold×object-category表，不能赋整个dataset一个统一p。
+- 丢失provenance的具体代码链：
+  1. src/opentouch/evaluate.py:83将dict(bl.order)放入extras['ar_orders']；
+  2. run_opentouch_exploratory.py:276接收results,norm,extras，但没使用extras，:428只返回
+     rows,results；
+  3. emit_rows:90-107和run_folds:237-240写出的CV CSV只有metric/split/fold等，没有ar_order；
+  4. save_predictions:472-496虽重新fit/select并保存mu_ar，也不保存coef/order。
+  5. 独立src.opentouch.evaluate.main（:249-250）会print AR orders，但这不是四折driver
+     自动保存order的证据，且本地无包含该字典的历史日志。
+- 查过本地docs/opentouch各raw/df/d1/d1_pg/d1_map*结果、SESSION_LOG、忽略的log/out/pt/npz/
+  JSON文件名，以及git docs历史文件名：未找到OT fitparams或逐fold选阶记录。当前本地无
+  runs/或OpenTouch state/cache；d1路径指向CRC `/users/jhao3/opentouch/cache_d1`。
+- 结论必须保持未知：不能说OT都选90，也不能把AS的20/30套到OT。恢复需要CRC相同
+  raw/D1 cache、原split/fold/seed及对应代码/环境，在TRAIN/VAL重跑AR fit/select并记录
+  extras['ar_orders']；不需要重训ProbGRU/Seq2Seq。不同D1/raw结果不能合并为同一次选阶。
+
+### 修改与交付边界
+
+- 仅追加日志，保存此次AS重算结果与OT缺失原因；未新增结果文件或修改export逻辑。
+- 当前可交付：AS frozen实际5组及_GLOBAL的阶数、两侧配置和选择/导出代码定位；
+  OT各fold/group实际阶数及AS历史CV阶数仍待原始记录或相同条件重算，不能假装已查明。
+
+**新增 `scripts/actionsense/plot_encoder_comparison.py`(用户要求的三 encoder 对比图)**
+读 `score_preds_per_action.py` 产出的 per-action CSV(每个 backbone 一份,内含三个 encoder),
+出两张图,每个 CSV 一个子图:
+- `<prefix>_by_channel.png`:逐通道 + 通道均值,用 **`skill_pooled`(frame-pooled)** ——
+  即 OpenTouch cv4 的口径,可直接引用。
+- `<prefix>_by_action.png`:逐动作,只能用 **`skill`(clip-balanced)**,
+  因为评分器仅在全数据集行输出 pooled 变体。两者不可互换(corpus 上 probGRU 相差 0.4),
+  故**每条轴都标注自己用的是哪一个**,不让读者假设。
+
+**设计取舍(依 dataviz 流程)**:形式选分组条形图而非折线 —— 本次只有单一 history(3 s),
+没有连续轴可走;skill 以 persistence=0 为基线,可正可负,条形从 0 发散正合适。
+配色取参考调色板**已验证的前三槽位**(blue/orange/aqua)且**按 encoder 身份固定**,
+不随排名重着色(某臂缺席时其余不变色)。环境无 node,校验器未能运行,故不自创颜色。
+两图**共享刻度**(sharey/sharex):同一度量的小多图若不共享,眼睛会去比较含义不同的长度。
+
+**渲染后实际查看并修正**(流程第 7 步):首版图例锚在子图坐标系的 axes-fraction 上,
+子图数或动作数一变就**压在 "seq2seq" 标题上**;改为图级图例并**按英寸**预留标题+图例带
+(`1 - 0.95/figheight`),因为同一比例在不同高度的图里代表的英寸数不同。
+
+**健壮性**:对旧的单臂 CSV(`corpus-aggregate/as_preds_seq2seq_corpus.csv`,14 动作)
+可正常出图并打印 WARNING,不崩溃。`pytest tests/ -q` → 179 passed。
+
+**注意:工作区存在并非本会话所做的未提交改动**(recording-balanced weighting、EgoTouch 支持、
+`--thresholds` 评分协议、6 个新测试文件 —— 测试数由 139 升至 179)。**本会话未提交它们**;
+`36b6d09` 与本次提交均只含本会话自己的文件。已核实 `score_preds_per_action.py` 的
+`--thresholds` 为 opt-in(默认 `None` 时代码路径与已推版本等价),故本次导出数值不受影响;
+但那两个已完成的 run 是更早代码所跑,其 `coverage_cal` 为旧的池化标定口径
+(skill / R² / Hausdorff 不受影响)。
