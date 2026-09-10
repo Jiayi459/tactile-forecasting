@@ -11885,3 +11885,80 @@ harness(ceil + 开区间),docstring 记下这次教训 —— harness 是唯一�
 
 **验证**:在合成语料上真跑了完整链路(run_baselines → export_mask_thresholds → 造对齐的
 神经臂 npz → merge → score → plot),merge 出 8 臂、18 行表、6 张 PNG,全部成功。
+
+## 2026-09-10 — 【EgoTouch 正式结果】8 臂 × 2 split × 2 history 已评分出图;三个主结论 + 两处数据质量问题
+
+产物:`docs/egotouch/results/{test_seen,test_unseen}/egotouch_*_{1s,3s}.{csv,md}` + 逐通道 overlay PNG,
+外加 `selection_report.json`。评分口径:clip-balanced,TRAIN 拟合的 CoP 掩码,persistence 由 scorer 现场合成。
+
+### 一致性自检(先看这个,再看结论)
+- **`n=132` (test_seen) / `n=56` (test_unseen) 与 profiler 在 min_history=30 下的预测逐条吻合。**
+- **两条参照臂在 1s 与 3s 表中数值完全相同**(AR/seasonal 不读 history)⇒ merge 对齐正确,
+  两个 history 的表确实建立在同一批 recording 与 origins 上。
+
+### 整体 skill vs persistence(clip-balanced)/ R²
+| arm | seen_1s | seen_3s | unseen_1s | unseen_3s |
+|---|---|---|---|---|
+| ar_group | **+0.2771** / 0.467 | +0.2771 / 0.467 | +0.1632 / 0.453 | +0.1632 / 0.453 |
+| ar_global | +0.2288 / 0.439 | +0.2288 / 0.439 | +0.1743 / 0.461 | +0.1743 / 0.461 |
+| seasonal_global | +0.0000 / 0.272 | 同 | +0.0000 / 0.314 | 同 |
+| seasonal_group | −0.0474 / 0.235 | 同 | +0.0000 / 0.314 | 同 |
+| aggregate_probgru | +0.2596 / 0.458 | **+0.2630** / 0.460 | +0.2185 / 0.478 | +0.2244 / 0.491 |
+| aggregate_seq2seq | +0.2148 / 0.428 | +0.2464 / 0.450 | +0.2110 / 0.477 | **+0.2264** / 0.481 |
+| cnn_seq2seq | +0.1865 / 0.404 | +0.1919 / 0.405 | +0.1334 / 0.408 | +0.2078 / 0.464 |
+| flatten_seq2seq | +0.1267 / 0.359 | +0.1097 / 0.349 | +0.1389 / 0.408 | +0.1203 / 0.397 |
+
+### 结论 1 — "AR 打败了神经网络"是**误读**;正确的对照是 ar_global
+表面上 `ar_group` (+0.2771) 高于最好的神经臂 (+0.2630)。但 **`ar_group` 不是一个简单基线**:
+它是**按 (action,object) 分组各拟合一个线性模型**,TRAIN 上约 168 组 ⇒ 168 个组专用模型;
+而每条神经臂是**一个全局模型**(probgru 仅多一个 8 维动作嵌入)。二者容量与专用化程度不对等。
+**容量对等的比较是 `ar_global`(单一全局线性模型):+0.2288,被最好的神经臂 +0.2630 明确超过。**
+两个数字合起来讲的是同一件事:
+- seen 上组专用线性模型最强(+0.2771),因为每组都有自己的系数;
+- **到 unseen 上它塌到 +0.1632**(必须退回 `_GLOBAL` fallback),**反被神经臂 +0.2264 超过**。
+⇒ 论文里这两条必须并列呈现,只报其一都会给出相反的印象。
+
+### 结论 2 — 表征序被**反转**:原始触觉图没有帮助,而且稳定地更差
+`aggregate > cnn > flatten`,在 **4 个 (split × history) 组合上无一例外**。
+seen_1s:0.2596 / 0.1865 / 0.1267。即:把 2×21×21 的原始压力场喂进去,
+比只喂它自己那 6 维摘要**更差**,且 flatten 比 cnn 更差(空间结构至少还有点用)。
+这与"raw map 含有 F/CoP 摘要之外的可预测信息"的假设相反 —— 至少在**预测 F/CoP 本身**这个任务上。
+`baseline_frames=0` 的修复保证了这不是 NaN 污染造成的假象(否则三条 map 臂会全面崩溃而非仅仅落后)。
+
+### 结论 3 — seasonal 在这个语料上是**惰性的**
+`seasonal_global` 的 skill 在全部 40 个动作上**精确为 0.0000、HD ratio 精确为 1.000**
+⇒ 没有任何一组在 0.3–3.0 s 内找到 ≥0.1 的自相关峰,**它整个退化成 persistence**。
+`seasonal_group` 在 seen 上是 **−0.0474**(比 persistence 更差):少数被判定有周期的组反受其害。
+EgoTouch 的日常操作没有 ActionSense 切菜那种可利用的节律。**参照阶梯在这里实际只有两级:
+persistence 与 AR。**
+
+### Q-D 的正式答案:**口径确实要紧,7/8 条臂会选到不同的 checkpoint**
+```
+arm                     sel  pooled  differs   sigma
+aggregate_probgru_1s     27      23     True   1.102
+aggregate_probgru_3s      6      11     True   1.037
+aggregate_seq2seq_1s     32      49     True   1.140
+aggregate_seq2seq_3s      2       6     True   1.078
+cnn_seq2seq_1s           14       7     True   1.086
+cnn_seq2seq_3s            6       3     True   1.056
+flatten_seq2seq_1s        2       2    False   1.108
+flatten_seq2seq_3s       25       0     True   1.147
+```
+最极端的是 `flatten_seq2seq_3s`:balanced 选第 25 个 epoch,pooled 会选**第 0 个**。
+⇒ 2026-09-09 统一口径的决定是**有实际后果的**,不是洁癖;也意味着 **ActionSense 在旧口径下选出的
+checkpoint 同样是"用未被评判的准则选出来的"**,其 sigma/coverage 列的重跑值得做(AR 选阶已验证无变化)。
+
+### 两处数据质量问题(**都不是我们的 bug,但必须在论文里处理**)
+1. **`metadata` 是官方 split 里的一个 task**(3 条:train 2、test_seen 1),它不是动作。
+   逐动作表里因此出现一行 `metadata`。建议在报告层按名单剔除,并说明剔除理由。
+2. **`task.replace("_"," ")` 的 verb 解析对少数任务名失效**:`over_ear_headphones` → verb "over"
+   (实为名词短语);`toss_and_catch_tennis_ball` → ("toss","ball")尚可,`lift_towel` → ("lift","towel") 正确。
+   受影响的是逐动作分组的少数行,不影响整体数字。
+3. **n=1 行的 R² 会到 −100 ~ −274**(`lift` −212、`toss` −274):单条录制、该动作内方差极小时
+   R² 的分母塌缩,是 R² 在小子集上的已知伪影,**不是模型崩溃**(同样这些录制的 skill 只有 −0.09 ~ −0.47)。
+   建议逐动作表设 `--min-clips`(OpenTouch 用 30)或在正文只报 n≥3 的行,并把完整表放附录。
+
+### 待办
+- E3 跨语料汇总(`build_skill_comparison.py` 加 EgoTouch 列)—— 需先定主表用哪条臂/哪个 history。
+- Q-H(c) 的 bootstrap CI 与 seed 敏感性尚未跑。
+- 逐动作表的 `metadata` 剔除与 `--min-clips` 阈值待定。
