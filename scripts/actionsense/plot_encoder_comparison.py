@@ -40,7 +40,10 @@ PERS = "persistence"
 # blue whether it wins or loses, and a figure with one arm dropped does not repaint the rest.
 ENC_ORDER = ["aggregate", "flatten", "cnn"]
 ENC_COLOR = {"aggregate": "#2a78d6", "flatten": "#eb6834", "cnn": "#1baf7a"}
-ENC_LABEL = {"aggregate": "aggregate (6 moments, no map)",
+# The model id on disk stays `*_aggregate`; only what a reader sees changes. "physical state"
+# is what that arm actually consumes -- the 6-dim F/CoP moment vector -- and "aggregate" read
+# like an aggregation over models rather than over the map.
+ENC_LABEL = {"aggregate": "physical state (6 moments, no map)",
              "flatten": "flatten (1024 taxels, no spatial prior)",
              "cnn": "cnn (1024 taxels, convolutional)"}
 
@@ -189,7 +192,9 @@ def fig_by_channel(sources, out, prefix):
         ax.set_ylabel("skill vs persistence\n(frame-pooled)", fontsize=8.5, color=MUTED)
         # the headline numbers go in the title: three labels over one 0.4-inch bar group
         # overprinted each other into "+0.0080.044"
-        head = "  ·  ".join(f"{e} {val(allrow[e], 'skill_pooled'):+.3f}" for e in encs)
+        name_of = {"aggregate": "physical state"}
+        head = "  ·  ".join(f"{name_of.get(e, e)} {val(allrow[e], 'skill_pooled'):+.3f}"
+                            for e in encs)
         ax.set_title(f"{name}  ·  {allrow[encs[0]]['n_clips']} recordings\n"
                      f"channel mean —  {head}",
                      fontsize=10, color=INK, loc="left", pad=8, linespacing=1.5)

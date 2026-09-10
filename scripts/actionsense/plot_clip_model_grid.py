@@ -34,10 +34,12 @@ baselines are point forecasts and have none.
 from __future__ import annotations
 
 import argparse
-import glob
 import os
+import sys
 
 import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 # rows x columns of the grid. `None` leaves a panel empty rather than shifting the others.
 ROWS = [
@@ -46,8 +48,8 @@ ROWS = [
     ("baselines", ["persistence", "ar", "seasonal"]),
 ]
 COL_TITLE = [
-    ["aggregate — 6 moments, no map", "flatten — 1024 taxels", "cnn — 1024 taxels, conv"],
-    ["aggregate — 6 moments, no map", "flatten — 1024 taxels", "cnn — 1024 taxels, conv"],
+    ["physical state", "flatten", "cnn"],
+    ["physical state", "flatten", "cnn"],
     ["persistence", "linear AR", "seasonal-naive"],
 ]
 # categorical slots of the reference palette, in its fixed order; hue tracks the input/baseline
@@ -58,16 +60,21 @@ COLOR = {
 INK, MUTED, GRID, TRUTH = "#1a1a19", "#5c5b54", "#d9d8d2", "#1a1a19"
 
 UNITS = {
-    "F": ("total force  (a.u., uncalibrated)", "Σ over 1024 taxels of the raw glove reading"),
-    "CoPx": ("centre of pressure x  (normalised, −1…+1)", "dimensionless grid coordinate"),
-    "CoPy": ("centre of pressure y  (normalised, −1…+1)", "dimensionless grid coordinate"),
+    "F": ("total force", "a.u."),
+    "CoPx": ("centre of pressure x", "normalised, −1…+1"),
+    "CoPy": ("centre of pressure y", "normalised, −1…+1"),
 }
 
 
 def unit_label(ch: str) -> tuple[str, str]:
+    """(two-line axis label, unit) -- the quantity on one line, its unit on the next.
+
+    On one line the CoP label is longer than a panel is tall, so matplotlib ran it across the
+    neighbouring panel's label and both became unreadable.
+    """
     kind = ch.split("_")[0]
-    text, note = UNITS.get(kind, (ch, ""))
-    return f"{ch} — {text}", note
+    text, unit = UNITS.get(kind, (ch, ""))
+    return f"{ch} — {text}\n({unit})", unit
 
 
 def color_of(model: str) -> str:
@@ -119,6 +126,37 @@ def load_clip(dirs: list[str], clip: int) -> dict:
     return ref
 
 
+def check_is_test(clip: int, allow: bool = False) -> None:
+    """Refuse a recording the baselines were FITTED on.
+
+    export_baseline_forecasts.py fits persistence/AR/seasonal on the frozen TRAIN split and
+    writes only TEST recordings, so a clip drawn from its output is a test recording by
+    construction. Reading the grid off a train recording would show the baselines predicting
+    data they were built from, and the neural panels beside them would look worse for an
+    entirely procedural reason. Checked here rather than left to whoever picks the number.
+    """
+    import json
+    from src.actionsense.eval_harness.config import load_config
+    from src.actionsense.eval_harness.splits import load_splits
+
+    try:
+        sp = load_splits(load_config())
+    except Exception as exc:                                   # noqa: BLE001
+        print(f"  (could not read the frozen split, so not checking membership: {exc})")
+        return
+    where = [k for k in ("train", "val", "test") if clip in sp.get(k, [])]
+    if "test" in where:
+        print(f"  clip {clip} is in the frozen harness TEST split -- ok")
+        return
+    msg = (f"clip {clip} is in {where or ['no frozen split']}, not TEST. The baselines are "
+           f"fitted on TRAIN, so on this recording they would be predicting data they were "
+           f"built from. Frozen TEST recordings: {sorted(sp.get('test', []))}")
+    if allow:
+        print(f"  WARNING: {msg}")
+    else:
+        raise SystemExit(f"refusing to draw: {msg}\n  (pass --allow-non-test to override)")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--preds", action="append", required=True,
@@ -128,7 +166,11 @@ def main():
     ap.add_argument("--out", default="docs/actionsense/clip_model_grid.png")
     ap.add_argument("--seconds", type=float, default=None,
                     help="plot only the first N seconds, so the traces stay legible")
+    ap.add_argument("--allow-non-test", action="store_true",
+                    help="draw even if the clip is not in the frozen harness TEST split")
     a = ap.parse_args()
+
+    check_is_test(a.clip, allow=a.allow_non_test)
 
     import matplotlib
     matplotlib.use("Agg")
@@ -185,7 +227,7 @@ def main():
             # every panel carries both axis labels: the grid is read cell by cell, and the
             # y quantity is exactly what is easy to get wrong here
             ax.set_xlabel("time  (s)", fontsize=8.5, color=MUTED)
-            ax.set_ylabel(ylab, fontsize=8.5, color=MUTED)
+            ax.set_ylabel(ylab, fontsize=8.5, color=MUTED, linespacing=1.4)
             ax.tick_params(labelbottom=True, labelleft=True, colors=MUTED,
                            labelsize=8, length=0)
             ax.grid(color=GRID, lw=0.6, zorder=0)
@@ -197,16 +239,9 @@ def main():
             ax.set_xlim(0, tmax)
 
     h, lab = axes[0, 0].get_legend_handles_labels()
-    band = 1.15
-    fig.tight_layout(rect=(0, 0, 1, 1 - band / fig.get_figheight()))
+    fig.tight_layout(rect=(0, 0, 1, 1 - 0.42 / fig.get_figheight()))
     fig.legend(h, lab, frameon=False, fontsize=9, labelcolor=INK, ncols=3,
-               loc="upper center", bbox_to_anchor=(0.5, 1 - 0.62 / fig.get_figheight()))
-    obj = f" · {data['object_name']}" if data["object_name"] else ""
-    fig.suptitle(
-        f"clip {a.clip} — {data['action']}{obj} · channel {a.channel}\n"
-        f"{ylab.split('—', 1)[1].strip()}   ({ynote})",
-        fontsize=11.5, color=INK, x=0.008, ha="left",
-        y=1 - 0.10 / fig.get_figheight(), linespacing=1.6)
+               loc="upper center", bbox_to_anchor=(0.5, 1 - 0.04 / fig.get_figheight()))
     os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
     fig.savefig(a.out, dpi=150, facecolor="white")
     print(f"[done] {a.out}")

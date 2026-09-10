@@ -12002,3 +12002,33 @@ seasonal 对 `peel-potato`、`slice-potato`、`slice-bread`、`_GLOBAL` 等组�
 
 **状态**:baseline 三格为**真实数据**(本地生成);六个神经臂本地 `runs/` 为空,
 尚需从 CRC rsync `as_preds_tmap_*`。已向用户给出 rsync 命令。
+
+**图的修改(用户逐条要求)与随之查实的问题**
+1. 去掉左上角两行 suptitle;2. 图内不再出现 "calibrated" 字样(仍保留 a.u.);
+3. 子图标题只留破折号之前(`aggregate — 6 moments, no map` → `physical state`);
+4. `aggregate` 的**显示名**统一改为 **physical state**(磁盘上的模型 id 仍是 `*_aggregate`),
+   `plot_encoder_comparison.py` 的图例同步改;5. 增画 `CoPx_R` / `CoPy_R`。
+6. **新增冻结 TEST split 校验** `check_is_test`:该 clip 若不在 frozen TEST 则 `SystemExit`
+   (可用 `--allow-non-test` 覆盖)。理由:baseline 在 TRAIN 上拟合,画到 train 录制上会让
+   baseline 预测自己被训练过的数据,旁边的神经臂就因纯粹程序性的原因显得更差。
+   核实:六条 peel(2/61/115/125/190/241)**全部**在冻结 test 集内 —— 这本是结构性的,
+   因 `export_baseline_forecasts.py` 只写 TEST 录制。
+
+**渲染后发现并修正的 layout bug**:CoP 的纵轴标签单行时**比子图高度还长**,
+matplotlib 将其压到相邻子图的标签上,两者都糊掉(第 2、3 列左上角可见 "−1…€0Px_R")。
+改为两行(量一行、单位一行)。
+
+**答用户五问(均据码核实)**
+- **F 的单位**:既不是牛顿也不是压强。`F = p.sum()` 是**全 1024 taxel 求和**,
+  量纲上是「压强×面积」缺了面积常数,故 **force-like 但无标定**。
+- **a.u.** = arbitrary units,任意单位:比值有意义(两倍就是两倍),但无法换算成物理单位。
+- **数值与前图相差量级的原因**:前图纵轴是 **skill**(无量纲评分 `1 - MSE_m/MSE_pers`,
+  天然 ≤1),本图纵轴是**信号本身**。同一张图内 CoP 也确是零点几,因其归一化到 [-1,1]。
+- **calibrated 的含义**:用已知物理量建立「读数→单位」的换算(如压已知砝码拟合曲线)。
+  ActionSense 手套未做,且电阻式导电纱线响应非线性、随温漂与穿戴方式漂移。
+  `baseline_correct` 减每 taxel 第 5 百分位属于**去皮(taring)**,只去零点、不建立刻度。
+- **±2σ 呈扇形的成因**:`rolling()` 把每隔 H 个 origin 的**整段 H 步轨迹**拼接,
+  而 `models.py:73` 的 `self.lv = nn.Linear(hidden, horizon * n_out)` 使 **σ 对每个 horizon
+  步 h 单独学习**;h=1(刚过 origin)最确定、h=H(1 秒后)最不确定,故每段由窄张开到宽,
+  段间重新收窄 → 以 1 秒为周期重复的扇形。**这是正确行为**;若宽度恒定反而说明 σ 未随
+  horizon 学到东西。
