@@ -11962,3 +11962,43 @@ checkpoint 同样是"用未被评判的准则选出来的"**,其 sigma/coverage 
 - E3 跨语料汇总(`build_skill_comparison.py` 加 EgoTouch 列)—— 需先定主表用哪条臂/哪个 history。
 - Q-H(c) 的 bootstrap CI 与 seed 敏感性尚未跑。
 - 逐动作表的 `metadata` 剔除与 `--min-clips` 阈值待定。
+
+### 2026-09-10 — 单个 peel clip 的 3×3 九模型对比图
+
+**用户要求**:同一张图上画一条 peel clip 的 3 个 probGRU(不同输入)、3 个 seq2seq(不同输入)
+与 3 个 baseline,共 3×3 九格;每格横纵轴都要标清物理量,尤其纵轴的单位。
+用户补充确认:三个 baseline = persistence、AR、seasonal-naive。
+
+**单位核实(用户直接问「是 pressure 还是 force」)**
+- **`F_L` / `F_R`:force-like,不是 pressure,且未标定、无牛顿量纲。**
+  `frame_state`(physical_state.py:44)取 `F = p.sum()`,即对**全部 1024 个 taxel**
+  的基线校正后读数求和。而 ActionSense 手套是导电纱线电阻式传感器、**从不去皮标定**
+  (physical_state.py:62 明载 "not tared"),`src/tactile_pixel/predictability.py:14`
+  亦称 "raw sensor units"。实测量级 ~1.3e3…2.2e4,显然是 ADC/电阻计数而非牛顿。
+  量纲上:若 p 为真压强、每 taxel 面积 A 相同,则力 = Σp·A;代码省略了 A,
+  故 F **正比于力、比例常数未知**。**标注为 a.u.(arbitrary units),不得作为力引用。**
+- **`CoPx_*` / `CoPy_*`:无量纲**。`_grids`(physical_state.py:29-33)将坐标
+  归一化到 [-1,+1],模块头部注明 "so features are sensor-size-agnostic"。**不是毫米。**
+- **横轴**:秒,由 npz 自带的 `fps` 换算。
+
+**发现:peel 上 seasonal-naive 恒等于 persistence。** 本地运行
+`export_baseline_forecasts.py` 生成三个 baseline(冻结 TEST split 的 15 条录制),
+seasonal 对 `peel-potato`、`slice-potato`、`slice-bread`、`_GLOBAL` 等组均报
+"no clear cycle (no autocorr peak >= 0.1 in range); using persistence"。
+逐位比对确认:**全部 6 条 peel 录制上 `mu_seasonal` 与 `mu_persistence` 完全相同**。
+故九宫格中会有两格曲线一致 —— 已在该格标题标注 "(no cycle → ≡ persistence)",
+不使读者误读为三个独立 baseline。
+
+**新增 `scripts/actionsense/plot_clip_model_grid.py`**
+行=backbone/baseline,列=输入/baseline 种类;九格同录制、同通道、共享刻度。
+每格均标注横纵轴物理量与单位(用户明确要求,故不依赖共享轴省略)。
+预测线沿用 `plot_opentouch_forecast_overlay.py` 的约定:每隔 H 个 origin 取该 origin
+的完整 H 步轨迹并拼接,故画的是一串**独立的 1 秒预测**而非单步重复;
+概率臂加 ±2σ 带,baseline 为点预测无带。
+**一致性校验**:多个 preds 目录合并时,若 `y` 不一致即 `raise SystemExit` ——
+九格若不共享同一 ground truth 就不可比,必须报错而非画出九条貌似合理的曲线。
+
+**渲染后查看并修正**:seasonal 格标题过长被右边界截断 → 缩短提示语并对超长标题降字号。
+
+**状态**:baseline 三格为**真实数据**(本地生成);六个神经臂本地 `runs/` 为空,
+尚需从 CRC rsync `as_preds_tmap_*`。已向用户给出 rsync 命令。
