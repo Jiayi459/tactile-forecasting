@@ -11859,3 +11859,29 @@ harness(ceil + 开区间),docstring 记下这次教训 —— harness 是唯一�
 
 **正式跑的前置**:先 `rm -rf runs/egotouch_tactile_map` —— `save_predictions` 是合并语义,
 正式跑若中途挂掉会留下 5-epoch 与 60-epoch 臂的混合 npz,无字段可区分;冒烟产物无保留价值。
+
+### 2026-09-10 — 评分与出图管线 `scripts/crc/score_and_plot_egotouch.sh`(新,已端到端验证)
+
+正式跑结束后的 CPU 阶段。结构照搬 `scripts/crc/score_and_plot_runs.sh`(inventory→score→overlay),
+**输出格式与 ActionSense/OpenTouch 逐字一致**:同一个 `score_preds_per_action.py` 出
+`.csv`/`.md`(逐动作 R²/skill/Hausdorff),同一个 `plot_opentouch_forecast_overlay.py --band`
+出逐通道 overlay PNG(EgoTouch 6 通道 ⇒ 每个 run 6 张)。
+
+**关键设计:先 merge 再评分。** 每个 (split, history) 把参照阶梯目录与神经臂目录用
+`scripts/shared/merge_preds.py` 合并成一个目录,再**只调用一次** scorer ⇒ 一张表里同时有
+4 条参照臂(seasonal/ar × group/global)+ 4 条神经臂,persistence 由 scorer 从 y 与 origins
+现场合成。这就是 W6"单一评分路径"的兑现:分开评分等于把刚关掉的双路径又打开。
+`merge_preds` 会断言 y / origins / 通道顺序跨源相等,不一致直接报错而不是拼出一张比较不同东西的表。
+
+**与 ActionSense 脚本的两处刻意差异**
+1. **用 `--thresholds` 而非 `--mask none`**。AS 无法从 preds 目录重建它的逐折 TRAIN 阈值
+   (目录不记录折归属),只能不加掩码;EgoTouch 是单切分 + 冻结的 `mask_thresholds.json`,
+   所以 CoP 按配置声明的 TRAIN 规则掩码 —— 这是 W7 相对 AS 的改进,不是偏离。
+2. **test_seen 与 test_unseen 分别评分、绝不合并**:两个不同群体、回答不同问题。
+
+**尾部固定打印两条必须随数字流传的 caveat**:(a) F 实为 $P_\Sigma$,skill/R² 可跨传感器比、
+原始量纲不可;(b) test_unseen 仅 8 组 / 官方 147 条中的 56 条(38.1% @min_history=30),
+且 **35/85 条骑在 OTHER embedding 上(TRAIN 只有 7/1458 条训练过它)**,只影响 probgru 一臂。
+
+**验证**:在合成语料上真跑了完整链路(run_baselines → export_mask_thresholds → 造对齐的
+神经臂 npz → merge → score → plot),merge 出 8 臂、18 行表、6 张 PNG,全部成功。
