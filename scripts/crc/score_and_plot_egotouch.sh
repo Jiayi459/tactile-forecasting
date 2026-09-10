@@ -87,7 +87,7 @@ for split in test_seen test_unseen; do
         # One overlay figure per channel; --band because every neural arm is probabilistic and
         # mu alone understates them. Same plotter as OpenTouch and ActionSense by construction.
         $PY scripts/opentouch/plot_opentouch_forecast_overlay.py \
-            --preds "$MERGED" --n-clips 3 --band --out-prefix "$OUT/$run"
+            --preds "$MERGED" --n-clips 3 --band --diverse --out-prefix "$OUT/$run"
     done
 done
 

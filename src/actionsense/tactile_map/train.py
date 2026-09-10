@@ -287,7 +287,14 @@ def _per_recording(model, ds, tnorm, H):
     return out
 
 
-def save_predictions(store: dict, cfg: Config, out_dir: str, verbs: dict):
+def corpus_tag(cfg: Config) -> str:
+    """'data/egotouch_states' -> 'egotouch'. The npz's `tag` drives the figure caption, so
+    hardcoding it made every corpus that reused this writer claim to be ActionSense."""
+    return os.path.basename(cfg.abspath("states_root").rstrip("/")).split("_")[0]
+
+
+def save_predictions(store: dict, cfg: Config, out_dir: str, verbs: dict,
+                     objects: dict | None = None):
     """Write one clip_<idx>.npz per recording, in the OpenTouch overlay format.
 
     MERGES into an existing clip_<idx>.npz rather than replacing it. The sweep calls this once
@@ -329,8 +336,8 @@ def save_predictions(store: dict, cfg: Config, out_dir: str, verbs: dict):
         np.savez_compressed(
             path,
             y=y, origins=origins, fps=cfg.fps,
-            action=verbs.get(i, ""), object_name="",
-            channels=np.array(cfg.channels), tag="actionsense",
+            action=verbs.get(i, ""), object_name=(objects or {}).get(i, ""),
+            channels=np.array(cfg.channels), tag=corpus_tag(cfg),
             **{**keep, **arms})            # a re-run of the same arm replaces its own keys
     have = sorted({k[3:] for k in np.load(os.path.join(out_dir, f"clip_{idxs[0]}.npz")).files
                    if k.startswith("mu_")}) if idxs else []

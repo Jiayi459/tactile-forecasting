@@ -12032,3 +12032,235 @@ matplotlib 将其压到相邻子图的标签上,两者都糊掉(第 2、3 列左
   步 h 单独学习**;h=1(刚过 origin)最确定、h=H(1 秒后)最不确定,故每段由窄张开到宽,
   段间重新收窄 → 以 1 秒为周期重复的扇形。**这是正确行为**;若宽度恒定反而说明 σ 未随
   horizon 学到东西。
+
+### 2026-09-10 — Seasonal-naive 的含义、persistence 回退与保留建议
+
+## Material Passport
+
+- Origin Skill: academic-research-suite / experiment-agent
+- Origin Mode: plan（限定为 baseline 设计咨询，不启动实验）
+- Origin Date: 2026-09-10
+- Verification Status: ANALYZED（代码与已保存结果核对；未重新拟合或重跑预测）
+- Version Label: seasonal_baseline_advice_v1
+
+**用户问题**：解释 seasonal naive，为什么会退化为 persistence，是否还值得保留。
+
+**范围与方法**：只读核对实现、配置、已有结果，并记录建议。没有改模型、配置、图或结果，
+没有运行训练/评估、没有提交或推送。ARS 规划流程用于区分 baseline 所检验的假设、结果证据
+和待用户决定的展示方案；不把建议当成已经批准的协议变更。
+
+**概念与拟合/预测分工**
+- Persistence 把当前最后一帧复制到所有未来步；seasonal-naive 把最近一个周期按相位重复。
+  例如当前最后一周期为 `[2,5,1]`、周期为 3 帧，后者预测 `[2,5,1,2,5,1,...]`，
+  前者预测 `[1,1,1,1,1,1,...]`。这里 seasonal 指重复动作的周期，不是自然季节。
+- 标准定义参考 Hyndman & Athanasopoulos, FPP3 §5.2：
+  https://otexts.com/fpp3/simple-methods.html 。本项目额外加入 TRAIN 估周期和无周期回退规则。
+- AS/EgoTouch 共用 `src/actionsense/eval_harness/baselines/seasonal.py`：TRAIN 按 group
+  估计一个整数周期 m（57–74 行），TEST 复制**当前录制历史**的同相位值（76–88 行），
+  不是复制 TRAIN 的波形或 group 平均信号，也没有 action embedding。
+- EgoTouch 在 `scripts/egotouch/run_baselines.py:36` 引入该类，93–98 行分别按 group
+  或统一 `ALL` 标签拟合。驱动虽调用 select，但 seasonal 继承 `baselines/base.py:30–31`
+  的空 select；周期不是像 AR order 一样在 VAL 上择优。
+
+**退化是显式分支，不是“周期预测误差大”自动触发**
+- `configs/egotouch/eval_harness.yaml:24–27,37–39`：10 Hz、搜索 0.3–3.0 s，即 3–30 帧，
+  autocorrelation 门槛 0.1。`seasonal.py:65–74` 要求局部峰且达到门槛；在最高峰 95%
+  以内选最短 lag（启发式，不能保证找到真正 fundamental）。无峰则 period=None。
+- `seasonal.py:79–81` 对无周期明确执行 `np.repeat(hist[-1:], H, axis=0)`，所以与
+  persistence **逐点相同**，不是仅仅得分接近。判断依据来自 TRAIN，不查看 TEST 误差。
+- 未知组先路由 `_GLOBAL`（77–78 行）；global 也无周期时仍回退 persistence。
+  文件头 16–17 行的 “Only a group TRAIN saw ...” 不是完整的分支描述，以实现为准。
+- 历史不足时还有逐预测步回退（87 行），并非必然整个 horizon 回退。当前 EgoTouch
+  min_history=30、最大周期=30，batcher 传入 Y[:t+1]（base.py:44–61），最早已有 31 帧，
+  所以按当前配置正常评估不会触发这个短历史分支。
+- OT fork `src/opentouch/baselines/seasonal.py:63–88` 同样无峰→None→persistence；
+  但其 predict 对未知 group 直接回退，没有新版 AS/EgoTouch 的 `_GLOBAL` 路由。
+
+**“没有检测到周期”的证据边界**
+- ACF 在每条 TRAIN 录制内计算，去均值但不去趋势；六通道等权平均、录制按长度加权
+  （seasonal.py:29–45），不是 clip-balanced 周期估计。不要与报告指标的 clip-balanced
+  口径混淆，也不能仅因此断言实现错误。
+- 过短录制不参与 ACF：n <= max_lag+1 被跳过，而 fit 传 pmax+1；EgoTouch 此处要求
+  n>=33 帧。全部跳过时 ACF 全零，也会无峰。未统计真实组中此情形的发生比例。
+- 动作速度变化、周期超出搜索范围、各通道/录制的峰不一致，均可能使这一固定周期检测器
+  无峰；这是机制上的可能解释，不是本轮查实的数据成因。无峰不证明信号没有任何周期性。
+
+**已有结果核对**
+- AS 已保存旧 harness 参数 `docs/actionsense/harness_baselines_fitparams.csv:1–6`：
+  五组 seasonal 周期列全部为空，符合全组回退。它有自己的旧 config_hash，不能据此
+  外推所有后续 corpus/CV 运行。此前 peel 六条逐点相同的检查见本日志上一节；本轮
+  本地没有 runs 目录，未重新比对这些预测。
+- EgoTouch test_seen、1s-history 报表：`docs/egotouch/results/test_seen/egotouch_test_seen_1s.csv:8–9`
+  中 seasonal_global skill=0、pooled skill=0、HD ratio=1；seasonal_group skill=
+  -0.0473584285713633、pooled skill=-0.06906832234665605、HD ratio=1.0539928881921496。
+  group 版本并未在全部评估预测上等同 persistence，且按 skill 表现更差。
+  global 的汇总指标相同与回退相符，但仅凭汇总数不能证明每个预测值相同或确认其拟合周期。
+
+**建议（待用户决定，不修改冻结协议）**
+- 保留实现及完整 baseline 结果：它检验“重复最近一周期是否足够”的假设，与保持最后值、
+  AR 线性递推不同；不因看见 TEST 负 skill 就事后删除。
+- 对已经确认逐点相同的设置，主图/主表可以合并并注明 seasonal→persistence，完整表或
+  附录保留记录；不能把两个名称当成两个独立有效对照。EgoTouch seasonal_group 目前
+  不是重复项，应保留其实际负结果，不应笼统描述为完全退化。
+- 若后续要加强诊断，建议保存各组周期与无峰原因，并按评估 recording/window 统计
+  fallback 覆盖率和与 persistence 完全相同比例。run_baselines.py:105–107 目前输出的
+  None/periods 是参数项比例，包含 `_GLOBAL`，不是测试录制或窗口回退率。
+- 若未来探索不同周期范围/检测器，只用 TRAIN/VAL 定设计，再冻结评估；不能用当前
+  TEST 得分反向调到 seasonal 优于 persistence。
+
+**OPEN QUESTIONS**：本次解释无阻塞问题；是否合并主图/主表重复项尚未获得修改授权。
+
+### 2026-09-10 — 澄清 EgoTouch 两个 seasonal 条目不是 OpenTouch 名称笔误
+
+- 用户批注上一答的 seasonal_global / seasonal_group，问其中一个是否应为 OpenTouch。
+- 重新核对 `docs/egotouch/results/test_seen/egotouch_test_seen_1s.csv:8–9`：两行 label
+  都是 `EgoTouch test_seen 1s history`，同为 132 条录制；分别 skill=0 和
+  -0.0473584285713633。因此数据集名称和数字没有写反。
+- `scripts/egotouch/run_baselines.py:16–19,67,92–98` 明确同时运行 group/global：
+  group 按 action×object 估计周期，是主参照；global 将 TRAIN 统一为 ALL 估计共同周期，
+  是稳健性对照。它们是同一数据集的两个拟合范围，不是两个数据集，也不是 seen/unseen。
+- 上一答的表达缺陷：列出 ActionSense 后直接并列 EgoTouch 两个变体，未清楚标注层级，
+  且未给 OpenTouch 的结果。应澄清表达，而不是把真实 EgoTouch 结果改名为 OpenTouch。
+- 补核已有 OpenTouch 汇总 `docs/skill_comparison.md:165–168,183,197,211`：D1 的
+  seasonal skill 分别 F_R=-0.038、CoPx_R=-0.033、CoPy_R=-0.009。这是文档所述的
+  frame-pooled、fold-averaged、逐通道指标，不是 EgoTouch 的整体 clip-balanced -0.0474；
+  不混作同一口径或从这些汇总反推全部预测/组的 fallback 情况。
+- 本轮只读核对并追加日志，不修改代码、结果、配置或展示。无阻塞问题。
+
+### 2026-09-10 — Global AR 是否更适合作为神经模型的公平对照
+
+## Material Passport
+
+- Origin Skill: academic-research-suite / experiment-agent
+- Origin Mode: plan（研究问题与对照条件审查，不执行新实验）
+- Origin Date: 2026-09-10
+- Verification Status: ANALYZED（实现核对与设计推理；无新训练、无统计显著性检验）
+- Version Label: global_ar_comparability_advice_v1
+
+**用户问题**：AR 采用 global 是否是更严谨的、与训练出的神经模型比较的方式？
+
+**结论的适用条件**：如果研究问题是“跨所有录制共享参数的预测器能学到什么”，global AR
+是比 action×object group AR 更直接的参照，尤其对 aggregate Seq2Seq。但 global 不是
+天然更科学；group AR 在预测时确实可获得对应标签、仅用 TRAIN 拟合和 VAL 选择时，是
+合法的标签条件化基线，不因独立参数组较多或分数较高就构成泄漏/不公平。
+
+**代码证据：区分参数共享与可用信息**
+- `scripts/egotouch/run_baselines.py:92–98`：group 保留 action×object 标签，global
+  把每条录制统一标为 ALL；两者都 fit(TRAIN)、select(VAL)。
+- `src/actionsense/eval_harness/baselines/ar.py:70–83,117–130`：每组每阶拟合六个
+  独立单通道 AR，预测以 group 查系数、用当前历史递推；没有可学习 action embedding。
+  global 是共享一套六通道系数，并不是预测 TRAIN 总体均值；仍然是 TRAIN 拟合出来的模型。
+- `src/actionsense/tactile_map/train.py:66–75`：Seq2Seq 只接受 x，ProbGRU 接受
+  x、aid、最后观测值。`models.py:62–82,102–124` 对应共享网络和 8 维动作 embedding。
+- `scripts/egotouch/train_tactile_map.py:96–101,106–140`：词表只由 TRAIN 建立；每个
+  backbone×encoder×history 在全部 TRAIN 窗口上训练一个网络，非按 action/object 分训。
+  `tactile_map/data.py:34–60` 的条件是 verb，非 AR group 使用的 action×object。
+- 故 aggregate Seq2Seq 与 global AR 在“不读语义标签、参数跨录制共享”两点更接近；
+  ProbGRU 仍额外使用 verb 标签；group AR 使用更细 action×object 标签。map encoders
+  又使用完整触觉图，而 AR 只看摘要通道，不能把这些对比全部称为纯架构消融。
+
+**必须更正本日志此前的强断言（保留历史记录，此处为解释更正）**
+- 11895 行附近“结论 1”称“正确的对照是 ar_global”“容量对等的比较是 ar_global”，
+  并把“group AR 高于神经臂”称作误读，均过于绝对。共享参数范围接近不等于参数量或
+  函数容量相等；不能仅凭“168 个组模型 vs 1 个网络”判断谁容量更大。
+- 按 AR 实现，单个部署参数组在阶数 p 时有 6(p+1) 个系数；神经网络大小由 encoder、
+  GRU 和输出头决定。两者不是容量匹配实验，也不是仅线性/非线性一个变量不同。
+- group AR 的已有得分较高是该设置下的真实点估计事实，不能排除该结果使神经臂“获胜”；
+  同样不能据单次点估计称差异显著或证明神经模型普遍更好。
+- 外部概念依据：Montero-Manso & Hyndman (2021), *Principles and Algorithms for
+  Forecasting Groups of Time Series: Locality and Globality*, https://arxiv.org/abs/2008.00444
+  （DOI 10.1016/j.ijforecast.2021.03.004）。原文区分 local/global 的参数共享与复杂度，
+  并研究 global linear models；不替本项目证明“global 必然更公平”。本项目 group AR
+  是每组共享、组间独立，也不等同于论文中每条序列一个模型的严格 local 定义。
+
+**Global 并未自动解决的控制条件**
+1. 历史预算：EgoTouch 10 Hz、AR 候选 p=[2,5,10,15,20,30]
+   （configs/egotouch/eval_harness.yaml:24–27,36），目前不随神经臂 1s/3s 限制。
+   `base.py:59–61` 传完整可用历史，AR 实际取最后 p 帧（ar.py:124）；
+   aggregate 神经臂取最后 t_in 帧（data.py:187–191）。若要声明同 history 的严格对照，
+   应预先限制 1s 的候选 p<=10、3s 的 p<=30，再在 VAL 选择；p 无需恰等于窗口长度。
+   当前既有 AR 仍可作为“最多 3s 历史”的完整基线，但不能把出现在 1s 表里解释为只用 1s。
+2. 共同评估条件：split、origins、预测 horizon、目标、mask、归一化、评分聚合口径必须
+   一致；AR 的 VAL MSE 选阶与神经 VAL NLL 选 checkpoint 是不同且需声明的选择目标，
+   不应把公平比较误解为强制所有算法用同一种训练损失。
+3. 录制边界：ar.py:76 先 concatenate 录制再 fit，会构造跨录制边界的 lag 样本；
+   这是 group/global 都存在的实现问题，不是 TEST 泄漏，但不是真实时间上的相邻帧。
+   若修正应逐录制构造 lag 设计矩阵后合并，并重跑受影响 baseline；本轮未做更改，
+   也没有检验此问题对当前系数/排名的影响，不能照搬头部“可忽略”的说法。
+
+**建议与方案边界**
+- 设计层面：global AR 作为“无标签、共享参数”的主要对应参照，group AR 作为带
+  action×object 条件信息的额外基线，两者保留；ProbGRU 的 action 条件应显式标注。
+  如果要隔离 action 信息的贡献，需另行设计同标签的线性参照或 ProbGRU 去标签消融，
+  属于新增实验，不在本轮默默实施。
+- 已完成实验层面：原 Q-K 冻结为 group 主 + global 稳健性对照，且已经查看 TEST。
+  不能追溯声称 global 从开始就是唯一主对照。任何调整应透明记录为事后设计解释/修订，
+  原 group 结果继续呈现；不按哪个 AR 分数更低来选择要报告的对手。
+- 本轮只追加分析日志；未修改配置、代码、模型、图表或分数，未提交/推送。
+
+**OPEN QUESTIONS（不阻塞解释，实施前需用户裁定）**：是否修改既有主/次对照定位、
+是否增加同历史预算 AR，以及是否修正跨录制 lag 构造；本轮均仅建议，未获实施授权。
+
+### 2026-09-10 — 用户强调分组 AR 的专用化条件与共享模型不一致
+
+## Material Passport
+
+- Origin Skill: academic-research-suite / experiment-agent
+- Origin Mode: plan（对照设计澄清）
+- Origin Date: 2026-09-10
+- Verification Status: ANALYZED（只读复核，无新实验）
+- Version Label: group_ar_specialization_clarification_v1
+
+**用户观点**：神经模型都是 global，若 AR 每个动作重新拟合，结果自然会好。
+
+**回应与证据**
+- 顾虑成立的部分：group AR 可以为不同组选择不同系数和阶数；global 神经模型共享网络。
+  比较结果混合了模型家族、分组专用化和标签信息，不能直接将差异归因于 AR/GRU 本身。
+  代码：`src/actionsense/eval_harness/baselines/ar.py:70–90,117–130`。
+- 精确限定：EgoTouch 实际按 action×object 分组，非只有 action
+  （`eval_harness/dataset.py:27–40`）；每组只在 TRAIN 拟合，VAL 选阶，TEST 查已拟合
+  参数并用该录制历史递推，不是每遇到测试动作/录制就重新拟合
+  （`scripts/egotouch/run_baselines.py:92–113`）。
+- 不接受“TEST 结果自然/必然更好”的强结论：组专用参数增加适配自由度，但每组可用训练
+  数据更少、跨组共享减少，可能导致估计不稳或过拟合。当前成绩差异未被本轮做因果分解，
+  不能断言全部来自分组，更不能据模型个数判定 group AR 必然比神经模型容量大。
+- 方法学依据复核：Montero-Manso & Hyndman (2021), https://arxiv.org/abs/2008.00444，
+  讨论参数共享、复杂度与泛化，并给出 global 方法可优于 local 的结果；不支持“分开拟合
+  就必然更好”。本项目 group 是组级专用化，不把它直接等同该文的逐序列 local。
+- 仍须注明 ProbGRU 虽共享网络，但读 action id；Seq2Seq 不读标签
+  （`src/actionsense/tactile_map/train.py:66–75`）。global 并不等于无条件模型。
+
+**建议的表述**：选择 global AR 作为共享参数的主要对应参照，有“控制拟合范围”的理由，
+不应被一概理解成故意找更弱 baseline。group AR 可作为类别条件化的补充参照，保留原结果。
+已有 Q-K 的历史定位及任何未来修改仍需透明记录；用户此消息不是删除结果或改配置的授权。
+
+**操作范围**：只更新本日志，不修改代码/配置/结果，不运行拟合或提交推送。
+**OPEN QUESTIONS**：本次概念澄清无阻塞；上节实施相关问题仍未裁定。
+
+### 2026-09-10(续)— 用户查图查出两个真 bug:图题冒充 OpenTouch;unseen 取样只画了一个任务
+
+**Bug 1 — 所有 EgoTouch 图题都写着 "OpenTouch"。**
+`plot_opentouch_forecast_overlay.py` 的 sensor 名来自一张**只有一个条目**的表:
+`{"actionsense": "ActionSense"}.get(tag, "OpenTouch")`。EgoTouch 的 tag 是 `"egotouch"`,
+不在表里 ⇒ 落到默认值 **"OpenTouch"**。讽刺的是这行上方的注释正记载着 2026-09-05 修过
+"ActionSense 数据被标成 OpenTouch"的同类事故 —— 当时只补了一个条目,没有改掉**危险的默认值**。
+已改为显式表(actionsense/opentouch/egotouch/d256)+ **未知 tag 以自身命名**,只有 tag 缺失才回退。
+
+**Bug 1b — `save_predictions` 把 tag 硬编码成 `"actionsense"`。**
+所以 EgoTouch 神经臂写出的 npz 自称 ActionSense。本次侥幸没暴露:merge 时 baseline 目录排在前,
+`merge_preds` 取首源的 meta,tag 取到了 `"egotouch"`。已改为 `corpus_tag(cfg)`,
+从 `states_root` 推导(`data/egotouch_states` → `egotouch`),AS 推导结果仍是 `actionsense`,行为不变。
+
+**Bug 2 — unseen 的三张子图是同一个任务的连号录制(clip 73/74/75 — fold)。**
+plotter 默认取**idx 最小的前 N 条**;而 idx 是按 `scene/task/timestamp` 字母序分配的。
+`Home/fold_clothes_and_bag` 恰是 Home 场景里字母序最靠前的 unseen 任务 ⇒ 独占前三。
+**后果是最该被看到的那个任务永远画不到**:`Workbench/wipe_tableware_with_paper` 占 unseen 的
+**61/147 = 41%**,且正是把 probgru 推上 OTHER embedding 的那个,却因场景字母序最末而 idx 最大。
+新增 `--diverse`:按动作轮转取样(每个动作内取最长的),`score_and_plot_egotouch.sh` 已启用。
+子图标题同时补上 object(`clip 12 — fold bag`),`run_baselines.py` 与训练驱动都开始写 `object_name`。
+
+**验证**:合成语料上并排出图 —— 默认给出 `fold bag / fold bag / move toolbox`,
+`--diverse` 给出 `fold bag / move toolbox / rotate clamp`,图题均为 **"EgoTouch F_L"**。
+
+**须重跑**:`docs/egotouch/results/` 下现有的 24 张 PNG 全部带错误图题,unseen 的 12 张还只画了
+一个任务。CSV/MD **不受影响**(评分与出图是两条独立路径,scorer 从不读 tag)。

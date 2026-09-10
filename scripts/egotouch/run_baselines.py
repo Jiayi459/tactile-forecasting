@@ -42,7 +42,7 @@ ARMS = {"seasonal": SeasonalNaive, "ar": AR}
 
 
 def export(out_dir: str, data: dict[int, np.ndarray], mus: dict[str, dict[int, np.ndarray]],
-           verbs: dict[int, str], cfg) -> int:
+           verbs: dict[int, str], objs: dict[int, str], cfg) -> int:
     """One clip_<idx>.npz per recording with >=1 origin, mu_<arm> keys, overlay layout."""
     os.makedirs(out_dir, exist_ok=True)
     n = 0
@@ -53,7 +53,8 @@ def export(out_dir: str, data: dict[int, np.ndarray], mus: dict[str, dict[int, n
         arms = {f"mu_{name}": m[i] for name, m in mus.items() if i in m}
         np.savez_compressed(
             os.path.join(out_dir, f"clip_{i}.npz"),
-            y=Y, origins=ors, fps=cfg.fps, action=verbs.get(i, ""), object_name="",
+            y=Y, origins=ors, fps=cfg.fps, action=verbs.get(i, ""),
+            object_name=objs.get(i, ""),
             channels=np.array([str(c) for c in cfg.channels]), tag="egotouch", **arms)
         n += 1
     return n
@@ -86,6 +87,7 @@ def main():
         print(f"  {name}: {el}/{len(d)} recordings yield >=1 origin", flush=True)
     norm = Norm.from_train(train)
     verbs = {i: parse_label_verb(groups[i]) for i in every}
+    objs = {i: groups[i].split("-", 1)[1] if "-" in groups[i] else "" for i in every}
 
     mus_seen: dict[str, dict[int, np.ndarray]] = {}
     mus_unseen: dict[str, dict[int, np.ndarray]] = {}
@@ -113,8 +115,8 @@ def main():
                     if len(yh):
                         mus[key][i] = yh.astype(np.float32)
 
-    n1 = export(os.path.join(args.out_root, "test_seen"), test, mus_seen, verbs, cfg)
-    n2 = export(os.path.join(args.out_root, "test_unseen"), unseen, mus_unseen, verbs, cfg)
+    n1 = export(os.path.join(args.out_root, "test_seen"), test, mus_seen, verbs, objs, cfg)
+    n2 = export(os.path.join(args.out_root, "test_unseen"), unseen, mus_unseen, verbs, objs, cfg)
     print(f"  exported {n1} test_seen and {n2} test_unseen recordings -> {args.out_root}/"
           f" (arms: {sorted(mus_seen)})", flush=True)
 

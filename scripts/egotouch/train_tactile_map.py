@@ -94,6 +94,9 @@ def main():
           flush=True)
 
     verbs = D.verbs_of(cfg, every)
+    from src.actionsense.eval_harness.dataset import group_keys
+    _g = group_keys(cfg, every)
+    objects = {i: _g[i].split("-", 1)[1] if "-" in _g[i] else "" for i in every}
     vocab, by_idx = D.action_vocab(verbs, tr)
     print(f"  action vocab: {len(vocab)} ids ({len(vocab) - 1} verbs kept + OTHER)", flush=True)
     audit = other_audit(verbs, vocab, by_idx,
@@ -155,7 +158,7 @@ def main():
                 preds = T._per_recording(model, ds, tnorm, cfg.horizon)
                 if preds:
                     out_dir = os.path.join(args.out_root, f"{name}_{hist:g}s")
-                    T.save_predictions({arm: preds}, cfg, out_dir, verbs)
+                    T.save_predictions({arm: preds}, cfg, out_dir, verbs, objects)
             with open(os.path.join(args.out_root, "selection_report.json"), "w") as fh:
                 json.dump(report, fh, indent=2)     # rewritten per arm: a crash loses nothing
 

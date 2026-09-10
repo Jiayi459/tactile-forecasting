@@ -83,6 +83,10 @@ def main():
     ap.add_argument("--band", action="store_true",
                     help="shade ±2σ where the model provides it (probGRU). Without it the "
                          "figure shows only the mean and understates what the model knows.")
+    ap.add_argument("--diverse", action="store_true",
+                    help="pick clips spanning DISTINCT actions instead of the lowest indices "
+                         "(index order is scene/task alphabetical, so the default draws one "
+                         "task repeatedly on a multi-task corpus)")
     ap.add_argument("--sample", action="store_true",
                     help="also draw one trajectory drawn from the predictive distribution, "
                          "which is what should be compared to the real line's roughness")
@@ -105,10 +109,28 @@ def main():
         for f in files:
             z = np.load(f, allow_pickle=True)
             if len(z["origins"]) and len(z["y"]) / float(z["fps"]) >= a.min_seconds:
-                keep.append(f)
-            if len(keep) >= a.n_clips:
-                break
-        files = keep
+                keep.append((f, str(z["action"]) if "action" in z.files else "",
+                             len(z["y"])))
+            if not a.diverse and len(keep) >= a.n_clips:
+                break                       # cheap path: the first N long enough, by index
+        if a.diverse:
+            # Index order is scene-then-task alphabetical, so the first N clips are almost
+            # always the SAME task -- EgoTouch's unseen figures drew three consecutive
+            # fold_clothes_and_bag recordings and never once showed wipe_tableware_with_paper,
+            # which is 61 of that split's 147 recordings. Round-robin over actions, longest
+            # first within each, so the figure spans the population it claims to describe.
+            by_act = {}
+            for f, act, n in keep:
+                by_act.setdefault(act, []).append((n, f))
+            for v in by_act.values():
+                v.sort(reverse=True)
+            order = []
+            while any(by_act.values()):
+                acts = [k for k in sorted(by_act) if by_act[k]]
+                order += [by_act[k].pop(0)[1] for k in acts]
+            files = order
+        else:
+            files = [f for f, _, _ in keep]
     if not files:
         raise SystemExit("no clip long enough; lower --min-seconds")
 
@@ -156,8 +178,14 @@ def main():
     # forecast_F_L.png, which reads as "the force" beside "a variant of it". Keep the short tag
     # only where there is one hand to be confused about; OpenTouch's filenames are unchanged.
     two_handed = any(str(c).endswith("_L") for c in all_chans)
-    sensor = {"actionsense": "ActionSense"}.get(str(z0["tag"]) if "tag" in z0.files else "",
-                                                "OpenTouch")
+    # The sensor is whatever the npz says it is. This used to be a one-entry table defaulting
+    # to "OpenTouch", so EgoTouch's figures -- tag "egotouch", absent from the table -- were all
+    # captioned "OpenTouch". An unknown tag now titles itself rather than impersonating a
+    # sensor; only a MISSING tag falls back, and only to the plotter's own corpus.
+    SENSORS = {"actionsense": "ActionSense", "opentouch": "OpenTouch", "egotouch": "EgoTouch",
+               "d256": "d256"}
+    raw_tag = str(z0["tag"]) if "tag" in z0.files else ""
+    sensor = SENSORS.get(raw_tag, raw_tag.title() or "OpenTouch")
     for ch in chans:
         k = all_chans.index(ch)          # index into the arrays, not into the drawn subset
         tag, ylabel = LABELS.get(ch, (ch, ch))
@@ -211,8 +239,10 @@ def main():
                     # `action` is a label, not data: a prediction set without one should
                     # still draw, titled by clip alone.
                     act = str(z["action"]) if "action" in z.files else ""
+                    obj = str(z["object_name"]) if "object_name" in z.files else ""
+                    lab = " ".join(x for x in (act, obj) if x)
                     ax.set_title(f"clip {os.path.basename(path)[5:-4]}"
-                                 + (f" — {act}" if act else ""),
+                                 + (f" — {lab}" if lab else ""),
                                  fontsize=9)
                 if ci == 0:
                     ax.set_ylabel(f"{m}\n{ylabel}", fontsize=8)
