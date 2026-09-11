@@ -12404,3 +12404,41 @@ AR 在 val 上选阶。理由:baseline 若拟合在与被比较臂不同的划�
 - 新增 `tests/test_corpus_baseline_folds.py`(4 例,不依赖 torch):折划分与 cross_validate
   一致、每条恰好留出一次、**trn/val/test 无泄漏**、seed 确实生效(否则前项复现测试为空转)。
   `pytest tests/ -q` → **183 passed**。
+
+## 2026-09-11 — EgoTouch 并入 `docs/skill_comparison.md`:skill / Hausdorff / 新增 R²,四传感器横向表
+
+`scripts/shared/build_skill_comparison.py` 新增 `egotouch()` reader + `EGOTOUCH_RUNS`
+(两列:`ego seen`、`ego unseen`,均取 **3 s** history —— EgoTouch 的最长臂,与 `actionsense()`
+"取最长 history"的过滤逻辑一致)。`ROWS` 从 4 元组扩到 5 元组。三处改动:
+
+1. **分通道 skill 表**(F_R / CoPx_R / CoPy_R)各加两列。
+   **口径**:用 CSV 的 `skill_pooled_<ch>`(frame-pooled),**不是** `skill_<ch>`(per-clip)——
+   因为这些表的既有列全部是 driver 的 frame-pooled `SS_vs_persistence`。本文件开头的警告
+   ("两种 skill 是不同估计量,不可混在一张表")正是为此存在,混用会重演它要防的事故。
+2. **分通道 Hausdorff 表**各加两列(用户指定)。EgoTouch 是 **per-clip (recording-balanced)**,
+   与 OpenTouch/ActionSense 同约定、与 d256 的 frame-pooled 不同,已在正文写明。
+   **EgoTouch 是唯一带自己 `persistence` 行且与上方模型同掩码的列** —— 共享 scorer 从保存的
+   truth 与 origins 现场合成 persistence,不需要该 run 训练过它;ActionSense 那列至今无参照行。
+3. **新增 `## R² against the dataset mean` 段**(分通道)。**单独成段而非并入 skill 表**:
+   R² 的分母是均值、skill 的分母是 persistence,并排会让读者把两个问题当成一个。
+   目前只有 EgoTouch 与 OpenTouch 写了逐通道 R²。
+
+**表里读出的一件必须写进论文的事(已写入该段正文)**:
+`ego unseen` 的 R² **普遍高于** `ego seen`(GRU-aggregate 0.679 vs 0.543),而 skill **反而更低**
+(0.217 vs 0.243)。原因是 **persistence 在 unseen 上强得多**:persistence 行的 R² 是
+**0.635(unseen) vs 0.349(seen)** —— unseen 那 10 个任务的信号本身更平滑、更好外推。
+⇒ **只看 R² 会得出"没见过的任务更好预测"这一完全相反的结论。** 两列属于不同群体,不可互比,
+必须连着 persistence 行一起读。
+
+**其他读数**
+- EgoTouch 的 AR 在形状上很差:`ego seen` 的 AR Hausdorff **6.941**,而它自己的 persistence 是
+  **3.244**(2.14×);OpenTouch 的 AR 是 2.766 对 persistence 3.301(0.84×,更好)。
+  即 EgoTouch 上 AR 的点误差虽小(skill 0.224),曲线形状却剧烈过冲 —— 与逐动作表里
+  `ar_group` HD ratio 1.529× 一致。**点误差与形状在这个语料上强烈分歧**,论文里两个指标都要报。
+- `seasonal` 在 `ego unseen` 的 Hausdorff = **2.967 = persistence 2.967**,逐位相同,
+  再次印证它整条臂退化成 persistence。
+
+**遗留**:`docs/predictability_floor.csv` 没有 egotouch 行,所以两列的
+**R(persistence 难度)格子是 "—"**。而上面刚说明 persistence 强度正是解释 seen/unseen 差异的关键,
+所以这一格值得补 —— 需在 CRC 上跑 `scripts/shared/predictability_floor.py`(要读 states)。
+**未补,不编造。**
