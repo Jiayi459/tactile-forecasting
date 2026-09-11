@@ -12709,3 +12709,117 @@ matplotlib 在 `scripts/crc/environment_tactile_cuda.yaml` 中,脚本已 `matplo
 ActionSense 三 encoder 目录自 9/8 起为空,不应因此赔上另外三张图。脚本注释里写明
 `runs/preds_d1_map` 被**故意排除**(作废产物,与 map2 名字只差一个字符)。
 本地实测:跳过三个不存在的源、正常产出 ActionSense clip 109 一张。
+
+---
+
+## 2026-09-11 — Fig. 1 (`fig:overview`): study-logic figure
+
+### 1. 任务
+
+`main.tex:79` 的 `\placeholderfigure` 要求:Left = smooth/abrupt force traces;
+Center = causal map→physical-state 表示 + rolling-origin windows;Right = intrinsic
+difficulty $\Rdiff$、absolute $\Rtwo$、skill beyond persistence、trajectory-shape error。
+Caption(`main.tex:80`)要求呈现的是**嵌套评估逻辑**:先由时间结构决定 persistence 有多强,
+再用三条轴评估预测,避免把 baseline 难度误读成学到的预测能力。
+
+用户要求:逻辑清晰、易读、**不要繁杂文字**、简单直接。
+
+### 2. 计划(生成 `figures/overview.pdf` + `.png`,脚本 `scripts/shared/plot_study_logic.py`)
+
+三栏,全部用**真实数据**,无合成曲线:
+
+| 栏 | 内容 | 数据源 |
+|---|---|---|
+| ① How persistent is the signal? | 两条真实 $F_R$ 轨迹(慢变 / 快变),各标注实测 $\Rdiff$;下方 290 条录制的 $\Rdiff$ 一维散点带,两个例子在带上打标 | `runs/as_preds_seq2seq_corpus/clip_*.npz` 的 `y` |
+| ② What the model sees | 真实 32×32 右手 map 帧(减 5th percentile、clip 0)+ CoP 标记 → $s_t=[F,c^x,c^y]$;下方 rolling-origin 时间轴(history $L$ / origin $t$ / horizon $H=1$ s,origin 每次前进 1 帧) | `data/actionsense_states/clip_115.npy` |
+| ③ Three axes on one forecast | 一个**真实** 1 s horizon(clip 115 `peel`, origin $t=103$):truth / persistence / Seq2Seq 三条线,图上直接标注三个度量各自量的是什么 | 同 npz 的 `mu_seq2seq_aggregate` |
+
+### 3. 实测数字(本次会话现算,写进图上)
+
+`R = E[(y_{t+H}-y_t)^2] / 2Var(y)`,$H=10$ @10 Hz,通道 `F_R`,290 条 corpus recordings:
+
+- 逐动作均值 $\Rdiff$:`slice` .423(最强 persistence)… `stack` .915、`clean` .831(最弱)
+- **按语义类:smooth .720 vs abrupt .580 —— 方向与 H4 的先验相反**
+- 单条极值:`clip_17`(slice).085 → `clip_276`(pour)1.637
+
+选作 trace 的两条:`clip_3` (`peel`, $\Rdiff$=.133)、`clip_112` (`get`, $\Rdiff$=1.046)。
+
+panel ③ 的 origin(`clip_115`, `peel`, $t=103$,现算):
+truth 在 1 s 内 6803→3145→4323(V 形),persistence 平在 6769,Seq2Seq 6864→5601 缓降。
+`skill = +0.477`、`D_H(model) = 1.973`、`D_H(pers) = 2.851`、ratio `.692`。
+→ **同一条预测上 skill 明显为正,而最坏点仍离真值曲线约 2 个 sd** —— 正文
+"positive skill ≠ trajectory recovery" 的单例图示。
+
+### 4. 决定与理由(DECISIONS)
+
+**D1 — 左栏不按 smooth/abrupt 标注,改按实测时间结构标注。**
+placeholder 的原措辞是 "smooth and abrupt force traces",但 §3 实测显示在 ActionSense
+上语义类的 $\Rdiff$ 排序是**反的**(smooth .720 > abrupt .580),而 caption 写的是
+"Temporal structure first determines how strong persistence is" —— 是**信号性质**,不是
+语义标签。若图上把两条曲线标成 "smooth"/"abrupt",读者会从 Fig. 1 得到一个本文
+Results(`main.tex:361` 起)与 Discussion 明确否证的排序。故两条曲线按
+`slowly varying / rapidly changing` + 实测 $\Rdiff$ 标注,动作名以小字附注。
+这与 `\dRtwo` 区间跨零、"semantic labels are a coarse proxy for measured signal smoothness"
+(`main.tex` Limitations)一致。
+
+**D2 — 加一条 290 条录制的 $\Rdiff$ 散点带,两个语义类分色。**
+一行点、零额外文字,却同时给出:(i) $\Rdiff$ 是连续谱(.09–1.64),故 $\Rtwo$ 不可跨录制直接比;
+(ii) 两个语义类在这条轴上重叠。这正是嵌套逻辑第一级要说的事,也防住 D1 里那个误读。
+
+**D3 — 右栏只画单个真实 origin 的几何,不搬 Table II 的 corpus 数字。**
+Fig. 1 在 Introduction,职责是**定义**四个量而非预告结果;把 `.7414/.1276/.830` 放进
+Fig. 1 会与 `tab:actionsense_results` 重复且抢结论。图上出现的数字只有该 origin 自己的
+`S=+.48` 与 `D_H=2.0 sd`,并在 caption 注明是单个 origin 的图示。
+
+**D4 — 输出为矢量 PDF,并把 `main.tex:79` 的 placeholder 换成 `\includegraphics`。**
+沿用 `\IfFileExists` 模式(与 `fig:model_architectures` 一致),使缺图时仍可编译。
+
+### 5. OPEN QUESTIONS(已按下述假设实现,请复核;若不同意即可改)
+
+- **Q1** 左栏两条曲线是否可接受"不按 smooth/abrupt 标注"(D1)?若坚持 placeholder 的
+  原措辞,我需要挑一对语义类与 $\Rdiff$ 方向恰好一致的录制,那就是从与类均值相反的分布里
+  选点,属于对读者的误导——所以默认采用 D1。
+- **Q2** panel ③ 是否要保留单 origin 的 `S=+.48 / D_H=2.0`?保留使"skill 为正但形状错"
+  可直接目视;去掉则 Fig. 1 完全无数字。默认保留。
+- **Q3** 图高定为 2.6 in(placeholder 写的是 1.0 in)。1.0 in 放不下三栏加时间轴。
+  默认 2.6 in,可压到 2.2 in。
+
+## 2026-09-11(续2)— 补跑 EgoTouch 的 probGRU×{cnn,flatten};**更正:Q-F(b) 的依据是我说错的**
+
+**用户问"为什么之前没跑"。答案是我当初给的推荐理由不成立。**
+2026-09-08 的 Q-F 我把选项 (b) 描述成"**AS/OT 实跑过的组合**:seq2seq×3 + probgru×aggregate",
+并据此推荐。**核实后这是错的,两个传感器都跑了 probGRU × 全部三种输入**:
+- OpenTouch `d1_pg`:`prob_gru` / `pg_cnn` / `pg_flatten` —— 该 run 在 `RUNS` 里的描述原文就是
+  "**probGRU backbone, three input representations**"。
+- ActionSense corpus `as_preds_tmap_probgru_corpus3s.csv`:
+  `probgru_aggregate` / `probgru_cnn` / `probgru_flatten`。
+⇒ 真正"与其他传感器对齐"的矩阵是 **2 backbone × 3 encoder = 6 臂**,即我当时标为 (a) 的那个。
+用户是照我给的错误描述做的裁定,责任在我。
+
+**代价**:`docs/skill_comparison.md` 有一整节
+"**The backbones side by side, one input at a time**",靠 `pg_cnn` vs `cnn`、
+`pg_flatten` vs `flatten` 成对比较来把"解码器效应"与"输入表征效应"分离 ——
+**EgoTouch 目前填不进这张表**,而它恰恰是本项目关于 H3(表征序)最强的证据来源之一。
+
+**修复**
+1. `DEFAULT_PAIRS` 恢复为 6 臂(注释里写明这次更正的来龙去脉)。
+2. **`selection_report.json` 的增量 bug**:驱动原本每次从空 `{"arms": {}}` 开始并覆盖写,
+   所以**只补跑 2 条臂会抹掉已有 8 条臂的选择记录**(而 `save_predictions` 对 npz 是合并语义
+   —— 两者规则不一致,报告会和预测文件悄悄对不上)。现在开工前读入已有报告并合并;
+   若 `config_hash` 不同则**拒绝合并并报错**,不把两套 origin 定义混进一份报告。
+3. `build_skill_comparison.py` 的 `ROWS` 两行补上 EgoTouch 槽位:
+   `probGRU + CNN → cnn_probgru`、`probGRU + flatten → flatten_probgru`
+   (命名跟随驱动的 `f"{encoder}_{backbone}"`)。
+   注:期间并行会话已把我的 EgoTouch reader 泛化成通用 `scorer()`,`ROWS` 扩成 6 元组,
+   第 6 槽是 **AS corpus**(不是新传感器),EgoTouch 仍在第 5 槽 —— 本次只动第 5 槽。
+
+**增量补跑命令(只训缺的 4 个模型 = 2 encoder × 2 history,已有 8 条不动)**
+```bash
+git pull
+python scripts/egotouch/train_tactile_map.py --pairs probgru/cnn,probgru/flatten
+bash scripts/crc/score_and_plot_egotouch.sh
+python scripts/shared/build_skill_comparison.py
+python scripts/shared/export_per_action_metrics.py
+```
+`save_predictions` 会把新臂合并进已有的 `clip_*.npz`(y/origins 不一致会报错而非拼接),
+所以**不必重跑前 8 条臂**。

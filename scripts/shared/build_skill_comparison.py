@@ -112,8 +112,8 @@ ROWS = [("AR", "ar", "ar", "ar", "ar_group", "ar"),
         ("flatten (map)", "flatten", "flatten", None, "flatten_seq2seq", "seq2seq_flatten"),
         # the probGRU backbone reading the map: same architecture as the probGRU row above,
         # only the input differs, which is what the d1_pg run exists to isolate
-        ("probGRU + CNN", None, "pg_cnn", None, None, "probgru_cnn"),
-        ("probGRU + flatten", None, "pg_flatten", None, None, "probgru_flatten")]
+        ("probGRU + CNN", None, "pg_cnn", None, "cnn_probgru", "probgru_cnn"),
+        ("probGRU + flatten", None, "pg_flatten", None, "flatten_probgru", "probgru_flatten")]
 
 # d1_map (08-22) is absent on purpose: flatten and cnn predicted arrays of zeros in it.
 RUNS = [("raw", "08-17", "4-fold, location held out, uncorrected target",

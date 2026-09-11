@@ -44,7 +44,14 @@ from src.actionsense.eval_harness.splits import load_splits  # noqa: E402
 from src.actionsense.tactile_map import data as D  # noqa: E402
 from src.actionsense.tactile_map import train as T  # noqa: E402
 
-DEFAULT_PAIRS = "seq2seq/aggregate,seq2seq/flatten,seq2seq/cnn,probgru/aggregate"
+# Both backbones x all three inputs. This was 4 arms until 2026-09-11, on the stated grounds
+# that it matched "what the other sensors actually ran" -- which was wrong: OpenTouch's d1_pg
+# run is literally "probGRU backbone, THREE input representations" (pg_cnn, pg_flatten,
+# prob_gru), and ActionSense ran probGRU over aggregate and cnn. Dropping probgru x {cnn,
+# flatten} also cost the backbone-vs-input comparison in docs/skill_comparison.md, which pairs
+# each input's two backbones and cannot include EgoTouch without them.
+DEFAULT_PAIRS = ("seq2seq/aggregate,seq2seq/flatten,seq2seq/cnn,"
+                 "probgru/aggregate,probgru/flatten,probgru/cnn")
 
 
 def other_audit(verbs, vocab, by_idx, splits: dict[str, list[int]]) -> dict[str, int]:
@@ -104,7 +111,22 @@ def main():
     aids = {i: D.aid_of(vocab, by_idx, i) for i in every}
 
     os.makedirs(args.out_root, exist_ok=True)
+    # Start from any existing report so an INCREMENTAL run -- adding arms to a sweep that
+    # already wrote predictions into this directory -- does not erase the earlier arms'
+    # selection records. save_predictions already merges the npz files that way; this makes
+    # the report follow the same rule instead of silently disagreeing with them.
+    rep_path = os.path.join(args.out_root, "selection_report.json")
     report = {"config_hash": cfg.config_hash, "other_audit": audit, "arms": {}}
+    if os.path.exists(rep_path):
+        with open(rep_path) as fh:
+            prev = json.load(fh)
+        if prev.get("config_hash") != cfg.config_hash:
+            raise SystemExit(
+                f"{rep_path} was written under config {prev.get('config_hash')} but this run "
+                f"uses {cfg.config_hash}. Merging them would put two origin definitions in one "
+                f"report; point --out-root somewhere fresh.")
+        report["arms"] = prev.get("arms", {})
+        print(f"  resuming report with {len(report['arms'])} arms already recorded", flush=True)
     t0 = time.time()
     for hist in histories:
         t_in = int(round(hist * cfg.fps))
@@ -159,7 +181,7 @@ def main():
                 if preds:
                     out_dir = os.path.join(args.out_root, f"{name}_{hist:g}s")
                     T.save_predictions({arm: preds}, cfg, out_dir, verbs, objects)
-            with open(os.path.join(args.out_root, "selection_report.json"), "w") as fh:
+            with open(rep_path, "w") as fh:
                 json.dump(report, fh, indent=2)     # rewritten per arm: a crash loses nothing
 
     print(f"done: {len(report['arms'])} arms in {time.time() - t0:.0f}s -> {args.out_root}",
