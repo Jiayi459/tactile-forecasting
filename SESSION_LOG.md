@@ -12264,3 +12264,143 @@ plotter 默认取**idx 最小的前 N 条**;而 idx 是按 `scene/task/timestamp
 
 **须重跑**:`docs/egotouch/results/` 下现有的 24 张 PNG 全部带错误图题,unseen 的 12 张还只画了
 一个任务。CSV/MD **不受影响**(评分与出图是两条独立路径,scorer 从不读 tag)。
+
+### 2026-09-10 — 新协议草案：ProbGRU 去动作条件 + AR 统一 global（待确认范围）
+
+## Material Passport
+
+- Origin Skill: academic-research-suite / experiment-agent
+- Origin Mode: plan
+- Origin Date: 2026-09-10
+- Verification Status: UNVERIFIED（以下是未实施方案；所列现状已经只读核对）
+- Version Label: unconditioned_global_v2_draft1
+
+**用户提出的方向**：“probgru 的 actionembedding 也可以去掉，然后所有的 AR 都用 global AR”。
+将此记为明确的设计偏好；尚未把“所有”解释成跨整个仓库的无限范围，也未将讨论直接视作
+启动训练、覆盖冻结结果或修改所有旧实验的授权。按 AGENTS.md 先记计划和 OPEN QUESTIONS，
+等待用户裁定后才实施非平凡修改。
+
+#### 目标与研究问题
+
+- 主对照统一为跨录制共享参数、预测时不使用 action/object 标签：global AR、无动作条件
+  ProbGRU、既有无标签 Seq2Seq。语义标签仍用于官方划分、审计与分动作评分，不应从元数据删除。
+- 这控制了显式标签条件和组专用参数两项差异，但不等于容量相等或纯架构消融；AR 单通道、
+  神经模型多通道、map 输入、历史预算、递归/one-shot 及绝对/残差目标仍须分别声明。
+- 无动作条件 ProbGRU 不保证得分提高；是否优于 global AR 是实验要回答的问题。
+  共享参数与分开拟合的概念依据：Montero-Manso & Hyndman (2021),
+  https://arxiv.org/abs/2008.00444；该文不替本实验保证性能排序。
+
+#### 现状核对与影响范围
+
+- AS/EgoTouch 主 tactile_map 路径共用 `src/actionsense/tactile_map/models.py:85–124`：
+  embedding 为 8 维，mu/lv 输入为 hidden+8，forward 拼接 aid embedding。
+- OT 对应实现为 `src/opentouch/prob_gru.py:250–281`，结构同样是 embedding+输出头；
+  训练、预测、保存 checkpoint 还携带 vocab/by_idx/hp（同文件 172–187、322–426；
+  `scripts/opentouch/run_opentouch_exploratory.py:375–413`）。不能只改一处模型构造器。
+- 仓库另有 `src/actionsense/action_dynamics.py:142` 和 `src/d256/prob_gru.py:169`
+  的历史/其他数据集实现。它们是否属于“所有”待确认，暂不纳入实施范围。
+- AR 当前有 AS/Ego 共用实现和 OT fork；两者都能通过 ALL 分组形成 global 模型。
+  Ego 驱动 `scripts/egotouch/run_baselines.py:67–68,94–115` 目前交叉运行
+  seasonal/ar × group/global。AS 导出 `export_baseline_forecasts.py:40–64` 和 OT
+  evaluator 的多个入口均使用配置生成的分组。
+- **不能把改 baselines.fit_scope 当成只有 AR 变化**：它还控制 seasonal；当前 Ego
+  run_baselines.py:76,89–90 从 group_keys 反推 verb/object，直接将配置改 global
+  会使这些用于导出/评分的标签退化成 ALL/空 object。必须分离“模型拟合分组”和
+  “真实标签元数据”的获取。新近修复的 tag/object 导出与 diverse plotting 保持不动。
+- OT 的 `--baseline-scope` 是 tactile baseline correction 的 shard/train 等范围，
+  不是 AR fit_scope（`src/opentouch/tactile_map.py` / exploratory driver）；不能混改。
+
+#### 拟议实施步骤（未执行）
+
+1. **冻结范围与新版本配置**：在用户指定的数据集/实验入口增加清晰的新协议标识，旧配置、
+   已有 conditional/group 结果和检查点保留。新主表可以采用 no-action/global，但不把旧
+   conditional ProbGRU 或 group AR 的数值改名冒充新结果。
+2. **真正的 no-action ProbGRU**：拟增加显式 conditioning 开关，no-action 分支不创建
+   embedding，mu/lv 直接读取 hidden；保留 encoder、自回归 decoder、最后观测 seed、
+   绝对目标、NLL 和 logvar clamp，保持各实验原有超参数。旧条件化分支用于历史重放。
+   把 TEST aid 一律改为 OTHER、只在推理时置零或直接删旧 checkpoint 的 embedding 键，
+   都不是此次所需的“从头训练无动作条件模型”。
+3. **打通训练/重放链**：构造器、共享 _call、OT train/predict、CV/官方 split 驱动、
+   checkpoint 元信息与加载器一致携带 conditioning。no-action 不依赖动作词表才能预测；
+   标签继续独立保留给 per-action score、seen/unseen 审计和图题。旧 checkpoint 缺字段时
+   明确按旧结构读取，新旧结构错误组合应报错，不 silent partial load。
+4. **AR 统一 global 路由**：指定范围内每个 split/fold 仅用该 fold 的 TRAIN 拟合 ALL，
+   对应 VAL 选阶，TEST 使用同一套系数和该录制的历史，不再按 action/object 切换参数。
+   global 不是合并不同数据集一起拟合，也不是合并 CV 的所有折或将 VAL/TEST 用来拟合。
+   使用 AR 专属 scope 传递/配置，避免连带更改未授权的 seasonal 与评分元数据。
+5. **版本隔离与结果管理**：采用独立新输出目录/协议字段或明确的 noact 模型 ID，防止
+   `mu_aggregate_probgru` 等同名键在 merge/plot 时混入旧预测。受影响 ProbGRU 从头训练，
+   重新 VAL 选 checkpoint 并按对应协议校准 sigma；Seq2Seq 若输入/协议完全不变可复用。
+   Ego 已有 global AR 只有在 split、拟合算法、阶数候选、归一化等全不变时才可复用；
+   若同时修 AR 边界或历史预算则必须重跑。OT/AS 也按来源逐项判定，不能仅改结果标签。
+6. **验证后才提交训练计划**：先合成单元/集成检查，再给用户审阅 CPU 与 GPU 命令、
+   模型矩阵和输出路径；未经确认不提交 CRC 作业，不运行全矩阵，不 commit/push。
+
+#### 验证与验收设计
+
+- no-action 模型不存在 embedding 参数，两个输出头输入维为 hidden；固定 x/y_last，
+  改变/删除 aid 不影响预测；3/6 输出通道和现有 aggregate/flatten/cnn 网格均正确。
+- 旧 conditional 分支同 seed、同 state_dict 的预测回归不变；Seq2Seq 回归不变；
+  新旧 checkpoint 严格正确重建，conditioning 信息保存并可追溯。
+- AR global 在 TRAIN/VAL/TEST 不因 group 字符串改变选参，测试未知标签不引发 fallback
+  换模型或 KeyError；真正的语义标签仍能用于分动作评分/图题。
+- 官方 split / CV train-val-test 边界、origins、horizon、mask、归一化和评分聚合保持
+  原协议，除非用户另行裁定；新增目录不覆盖旧预测，merge 拒绝不同协议同名模型混淆。
+- 候选回归范围包括现有 `tests/test_tactile_map.py`、`test_grid_parameterization.py`、
+  `test_opentouch_prob_gru.py`、`test_harness.py`、`test_harness_opentouch.py`、
+  Ego baseline/trainer pipeline tests；具体命令在作用域确认后列出。此处未运行测试。
+- 此阶段无训练超时/进程监控配置，因为尚无获批执行作业；正式训练计划另列预算和监控。
+
+#### OPEN QUESTIONS（先问范围，其余在动工前冻结）
+
+- **Q1 范围，当前首先请用户确认**：“所有”是否指 ActionSense、OpenTouch、EgoTouch
+  三套主实验同步采用新协议，还是仅当前 EgoTouch？D256/历史 action_dynamics 暂不扩入。
+- **Q2 AR 历史预算**：仅改变 scope、保持原候选，还是同时按神经 history 限制 p？
+  前者方便隔离 scope 变化；后者更接近同信息预算，但需要单独标注并重跑，不能暗中选择。
+- **Q3 AR 跨录制 lag**：是否在新版修复“先拼接录制再 AutoReg”的虚假边界样本？
+  建议在正式新版中修，但该修改不是去 embedding/global 的直接必要步骤，需要显式确认。
+- **Q4 seasonal 定位**：本次用户只指定 AR；seasonal 是否也纳入无标签主对照，或作为
+  旧条件化诊断留在补充结果？未获裁定前不改变其 scope。
+- **Q5 执行授权**：范围/上述协议冻结后，先实现并测试；正式训练数据集×encoder×history×fold
+  矩阵和资源提交另行确认，不把本轮建议理解为无限算力重跑授权。
+
+**本轮状态**：仅追加本计划；模型、配置、脚本、结果均未修改，无训练、无提交或推送。
+
+### 2026-09-11 — AR 与 seasonal 扩展到 full corpus
+
+**用户核实的问题链**:「baseline 只有 slice/peel,那其他动作的 skill 怎么算的?」→
+「也就是说 AR 和 seasonal 没在 full corpus 上跑过」。
+
+**答复(据码核实)**
+- **所有 skill 的分母都是 persistence,而 persistence 无需拟合。**
+  `score_preds_per_action.py:142` 的 `pers = np.repeat(y[keep][:,None,:], H, axis=1)`,
+  定义即 ŷ[t+h]=y[t];脚本头部第 18 行写明 "PERSISTENCE IS SYNTHESIZED, not read"。
+  故它对全部 290 条 / 14 动作都存在,14 个动作的 skill 数字**全部成立**。
+- **AR 与 seasonal 确实从未在 corpus 上跑过。** 全仓库仅两个调用点
+  (`evaluate.py:144`、`export_baseline_forecasts.py`),两者都用 `load_splits` 的冻结 split,
+  而冻结 split 由 `splits.py:37-43` 按 `cfg.raw["actions"]=[slice,peel]` 过滤。
+  **这两个 baseline 从未进入任何 skill 数字**,只出现在九宫格图的最后一行。
+
+**关键前提查实:两条路径的 origins 天生一致。** `export_baseline_forecasts.py:61,74` 与
+`tactile_map/data.py:27,142` **导入同一个 `BL.origins`**,而 `origins(T,cfg)` 只依赖
+`min_history`/`stride`/`horizon`/`T`,**与 `t_in` 无关**(data.py:134-136:早期 origin 左填充零,
+"a prediction exists at EVERY harness origin")。故 baseline 与神经臂可直接合并、同表比较。
+
+**实现:`export_baseline_forecasts.py --scope corpus`**
+新增 `corpus_recordings`(内联枚举,避免为一串整数把 torch 拖进来)与 `corpus_folds`,
+后者**精确复现** `cross_validate` 的划分:`default_rng(seed)` 定 `fold_of`,
+`default_rng(seed*100+f)` 定 val/trn(`nv = max(2, len(tr)//6)`),并沿用同一 guard
+`len(te)<1 or len(tr)<4`。逐折以 `Norm.from_train(trn)` 重新拟合(与 train.py:382/388 一致),
+AR 在 val 上选阶。理由:baseline 若拟合在与被比较臂不同的划分上,就不再是参照 ——
+它会见过该臂被测试的录制。
+
+**验证**
+- **frozen 回归**:新旧输出 15 个 npz 的 `y`/`origins`/`mu_*` **逐位相同**,无回归。
+- **折划分**:对 CRC 实际的 `recs=list(range(299))`,五折的 trn/val/test 与独立复算的
+  `cross_validate` 逻辑**完全一致**(trn 202/208/200/200/188,test 57/50/59/59/74),
+  且每条录制恰好留出一次。
+- **corpus 冒烟**(本地 100 条 map):5 折跑通,写出 96 条(另 4 条太短无有效 origin,
+  与神经臂本地的 96/100 吻合)。
+- 新增 `tests/test_corpus_baseline_folds.py`(4 例,不依赖 torch):折划分与 cross_validate
+  一致、每条恰好留出一次、**trn/val/test 无泄漏**、seed 确实生效(否则前项复现测试为空转)。
+  `pytest tests/ -q` → **183 passed**。
