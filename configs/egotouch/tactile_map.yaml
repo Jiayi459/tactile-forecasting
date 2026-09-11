@@ -20,6 +20,7 @@ model:
   hidden: 64
 
 optim:
+  log_every: 10          # print val NLL + ETA every N epochs; a silent arm reads as a hang
   epochs: 60
   lr: 0.003
   batch: 64

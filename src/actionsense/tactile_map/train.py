@@ -105,7 +105,13 @@ def train_model(train_ds, val_ds, cfg: Config, encoder: str, tm: dict, seed: int
     # "pooled" reproduces the pre-2026-09-08 behaviour for a controlled comparison.
     criterion = tm.get("val_criterion", "clip_balanced")
     best, best_state, best_epoch, curves = np.inf, None, -1, []
-    for _ in range(tm["epochs"]):
+    # A long arm that prints nothing is indistinguishable from a hung one -- the reason
+    # cross_validate reports per fold. `log_every` is opt-in so ActionSense's per-fold output
+    # is unchanged; the EgoTouch config sets it, because one of its arms is a single 60-epoch
+    # run over ~494k windows with no fold boundary to report at.
+    log_every = int(tm.get("log_every", 0))
+    _t0 = time.time()
+    for _ep in range(tm["epochs"]):
         model.train()
         if materialize:
             perm = torch.randperm(len(Xtr))
@@ -132,6 +138,11 @@ def train_model(train_ds, val_ds, cfg: Config, encoder: str, tm: dict, seed: int
                              else (float(loss.item()), float(loss.item())))
         v = v_bal if criterion == "clip_balanced" else v_pool
         curves.append((v_pool, v_bal))
+        if log_every and ((_ep + 1) % log_every == 0 or _ep == 0):
+            el = time.time() - _t0
+            print(f"      epoch {_ep + 1}/{tm['epochs']} | val NLL {v:.4f} "
+                  f"(best {min(best, v):.4f}) | {el:.0f}s elapsed, "
+                  f"~{el / (_ep + 1) * (tm['epochs'] - _ep - 1):.0f}s left", flush=True)
         if v < best:
             best, best_state = v, {k: t.cpu().clone() for k, t in model.state_dict().items()}
             best_epoch = len(curves) - 1
