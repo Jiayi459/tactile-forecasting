@@ -12484,3 +12484,32 @@ AR 在 val 上选阶。理由:baseline 若拟合在与被比较臂不同的划�
   且 Norm 拟合于更宽的总体)。
 
 `pytest tests/ -q` → 183 passed。
+
+### 2026-09-11 续 — 非 peel/slice 动作的九宫格,与 seasonal 负 skill 的归因
+
+**rsync 后的实际库存**(用户本机,568M)。可用于 corpus 的有三套,各 290 条 / 14 动作:
+`as_preds_seq2seq_corpus`(仅 `seq2seq_aggregate`)、`as_preds_probgru_corpus`
+(仅 `probgru_aggregate`)、`as_preds_baselines_corpus`(ar/persistence/seasonal)。
+
+**但三 encoder 那批 npz 已丢失。** `as_preds_tmap_seq2seq_corpus3s`、
+`as_preds_tmap_probgru_corpus3s`、`as_preds_seq2seq_plus_baselines`、`as_preds_seq2seq_map`
+四个目录**为空**,且 rsync 保留的 mtime 为 **Sep 8 19:07**(对照 `as_preds_baselines_corpus`
+为 Sep 11 14:36)—— 说明**它们在 CRC 上就是空的**,自 9 月 8 日起如此。
+评分 CSV 因已提交进 git 而留存,故 skill 表不受影响,但九宫格的 flatten/cnn 四格无数据。
+
+**产出**:`grid_unload_clip238_{F_R,CoPx_R,CoPy_R}.png`(clip 238 = `unload`,179 s,
+非 peel/slice)。九格中 5 格有数据,4 格标注 "not available"。
+真实数据首次清楚显示 **±2σ 的扇形**:每段 1 秒内 σ 随 h 增长、段间重置 ——
+印证了此前对该形状成因的解释(`models.py:73` 对每个 horizon 步单独学 logvar)。
+
+**seasonal 在 corpus 上负 skill 的归因(实测)**
+- 290 条中 **287 条的 `mu_seasonal` 与 `mu_persistence` 逐位相同** ——
+  自相关找不到周期而回退。真正找到周期的仅 **3 条**:
+  `clip_109`(stack)、`clip_48`(stack)、`clip_295`(set)。
+- 分组重算 frame-pooled skill:**全部 290 条 = −0.0208;剔除那 3 条 = +0.0000
+  (与 persistence 完全相同);仅那 3 条 = −1.2497。**
+- 那 3 条只占 persistence 总平方误差的 **0.8%**,但其 seasonal 误差是自身 persistence 的
+  **2.2 倍**。
+- **结论:`skill_comparison.md` 里 seasonal 的 −0.015…−0.021 不是「seasonal 略差于
+  persistence」,而是「seasonal 在 99% 的录制上就是 persistence,外加 3 条周期检测误触发
+  并严重恶化」。** 读该行时不应理解为一种系统性的方法差异。
