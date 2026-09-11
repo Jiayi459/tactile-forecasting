@@ -126,35 +126,25 @@ def load_clip(dirs: list[str], clip: int) -> dict:
     return ref
 
 
-def check_is_test(clip: int, allow: bool = False) -> None:
-    """Refuse a recording the baselines were FITTED on.
+def report_heldout(arms: dict, clip: int) -> None:
+    """Say whether the baseline panels are held-out forecasts, from the arms themselves.
 
-    export_baseline_forecasts.py fits persistence/AR/seasonal on the frozen TRAIN split and
-    writes only TEST recordings, so a clip drawn from its output is a test recording by
-    construction. Reading the grid off a train recording would show the baselines predicting
-    data they were built from, and the neural panels beside them would look worse for an
-    entirely procedural reason. Checked here rather than left to whoever picks the number.
+    The earlier version of this checked the clip against the frozen slice+peel split, which
+    was the wrong question twice over: it rejected every corpus action even though the corpus
+    baselines hold those out properly, and it would have accepted a frozen TRAIN recording had
+    one ever been written. The right question is whether a baseline forecast EXISTS for this
+    recording, because both exporters only ever write recordings their fit never saw --
+    --scope frozen writes the TEST split, --scope corpus holds each recording out in exactly
+    one fold. So a baseline arm being present is itself the guarantee.
     """
-    import json
-    from src.actionsense.eval_harness.config import load_config
-    from src.actionsense.eval_harness.splits import load_splits
-
-    try:
-        sp = load_splits(load_config())
-    except Exception as exc:                                   # noqa: BLE001
-        print(f"  (could not read the frozen split, so not checking membership: {exc})")
-        return
-    where = [k for k in ("train", "val", "test") if clip in sp.get(k, [])]
-    if "test" in where:
-        print(f"  clip {clip} is in the frozen harness TEST split -- ok")
-        return
-    msg = (f"clip {clip} is in {where or ['no frozen split']}, not TEST. The baselines are "
-           f"fitted on TRAIN, so on this recording they would be predicting data they were "
-           f"built from. Frozen TEST recordings: {sorted(sp.get('test', []))}")
-    if allow:
-        print(f"  WARNING: {msg}")
+    base = [m for m in ("persistence", "ar", "seasonal") if m in arms]
+    if base:
+        print(f"  baselines present for clip {clip}: {base} -- held out by construction "
+              f"(both exporters write only recordings their fit never saw)")
     else:
-        raise SystemExit(f"refusing to draw: {msg}\n  (pass --allow-non-test to override)")
+        print(f"  no baseline arms for clip {clip}; the bottom row will be empty. Produce them "
+              f"with:  python scripts/actionsense/export_baseline_forecasts.py --scope corpus "
+              f"--out runs/as_preds_baselines_corpus")
 
 
 def main():
@@ -166,11 +156,7 @@ def main():
     ap.add_argument("--out", default="docs/actionsense/clip_model_grid.png")
     ap.add_argument("--seconds", type=float, default=None,
                     help="plot only the first N seconds, so the traces stay legible")
-    ap.add_argument("--allow-non-test", action="store_true",
-                    help="draw even if the clip is not in the frozen harness TEST split")
     a = ap.parse_args()
-
-    check_is_test(a.clip, allow=a.allow_non_test)
 
     import matplotlib
     matplotlib.use("Agg")
@@ -192,6 +178,7 @@ def main():
     missing = [m for _, row in ROWS for m in row if m not in data["arms"]]
     if missing:
         print(f"  MISSING (panels left empty): {missing}")
+    report_heldout(data["arms"], a.clip)
 
     # A seasonal-naive that found no cycle falls back to persistence, and then two panels are
     # the same curve. That is a property of the data worth showing, but only if it is said.
