@@ -12676,3 +12676,21 @@ R² 除以该动作自身方差、skill 除以该条录制自己的 persistence,
   **点误差与形状的排序几乎相反** —— 只报其一会得出相反的模型排名。
 - unseen 上 `seasonal_global`/`seasonal_group`/`persistence` **三行数值完全相同**
   (R² 0.3140、HD 3.031),再次坐实 seasonal 整条臂退化成 persistence。
+
+### 十、`pick_grid_clip.py` 的 I/O 修正(交付 CRC 命令前)
+
+首版 `scan()` 把每个 clip 的**全部** `mu_*` 数组读出来,但硬过滤只需要"有哪些臂"。
+`np.load` 对 npz 是惰性的,`z.files` 只读 zip 目录项、不解压任何数组。首版为给 OpenTouch 的
+2893 条排序,需从集群文件系统读约 **7.5 GB**,其中绝大部分读完什么也没算。
+
+现只解压三个数组:`y`(时长)与两条基线(退化判定)。在 ActionSense 290 条上复跑,
+排序与优化前**逐行一致**(109/48/295 仍为仅有的三条 has-cycle),即纯 I/O 优化、无行为变化。
+
+### 十一、通道名与 CRC 环境(交付前核对)
+
+- `configs/opentouch/eval_harness_d1.yaml:16` → `[F_R, CoPx_R, CoPy_R]`
+- `configs/egotouch/eval_harness.yaml:20` → `[F_L, CoPx_L, CoPy_L, F_R, CoPx_R, CoPy_R]`
+
+三个传感器都含 `F_R`,故 `plot_clip_model_grid.py` 的默认 `--channel F_R` 无需按数据集改。
+matplotlib 在 `scripts/crc/environment_tactile_cuda.yaml` 中,脚本已 `matplotlib.use("Agg")`,
+可在登录节点直接出图,无需 qsub(纯 numpy+matplotlib,秒级)。

@@ -48,25 +48,34 @@ def clip_ids(dirs: list[str]) -> list[int]:
 
 
 def scan(dirs: list[str], clip: int, want: set[str], bl: dict) -> dict | None:
-    arms, n, fps, action = {}, None, None, ""
+    """Rank one clip while reading as little of it as possible.
+
+    The hard filter only needs to know WHICH arms a file holds, and `z.files` is the zip's
+    directory listing -- naming the arms costs no array reads at all. Only three arrays are
+    ever decompressed: `y` for the duration, and the two baselines for the degeneracy test.
+    Pulling every `mu_*` instead, as the first version did, meant reading ~7.5 GB off the
+    cluster filesystem to rank OpenTouch's 2893 clips, most of it to compute nothing.
+    """
+    keys, n, fps, action = set(), None, None, ""
+    pers, seas = bl.get("persistence"), bl.get("seasonal")
+    pa = sa = None
     for d in dirs:
         p = os.path.join(d, f"clip_{clip}.npz")
         if not os.path.exists(p):
             continue
         z = np.load(p, allow_pickle=True)
+        keys |= {k[3:] for k in z.files if k.startswith("mu_")}
         if n is None:
             n, fps, action = len(z["y"]), float(z["fps"]), str(z["action"])
-        for k in z.files:
-            if k.startswith("mu_"):
-                arms[k[3:]] = z[k]
+        if pa is None and pers and f"mu_{pers}" in z.files:
+            pa = z[f"mu_{pers}"]
+        if sa is None and seas and f"mu_{seas}" in z.files:
+            sa = z[f"mu_{seas}"]
     if n is None:
         return None
-    pers, seas = bl.get("persistence"), bl.get("seasonal")
-    degen = (pers in arms and seas in arms
-             and arms[pers].shape == arms[seas].shape
-             and np.allclose(arms[seas], arms[pers]))
-    return dict(clip=clip, secs=n / fps, action=action, have=set(arms),
-                missing=sorted(want - set(arms)), seasonal_degenerate=bool(degen))
+    degen = pa is not None and sa is not None and pa.shape == sa.shape and np.allclose(sa, pa)
+    return dict(clip=clip, secs=n / fps, action=action, have=keys,
+                missing=sorted(want - keys), seasonal_degenerate=bool(degen))
 
 
 def main():
