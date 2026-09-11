@@ -472,7 +472,7 @@ Whole split (132 recordings): R² **0.4600**, skill **+0.2630**, Hausdorff **4.0
 | 39 | toss ⚠ | 1 | -1.2034 | **-0.4653** | 2.731 | 0.929 | -184.5696 | 2.941 |
 | 40 | lift ⚠ | 1 | -195.5690 | **-39.3983** | 12.019 | 3.982 | -40.7262 | 3.018 |
 
-⚠ marks the **26 actions with n < 3 recordings**. Their R² is not trustworthy: R² divides by the action's own variance, which a single short recording can drive near zero — `lift` reads **-195.6** here while its skill is only **-39.398**, because skill divides by persistence instead and persistence fails on that recording too. Quote the n ≥ 3 rows in the body and keep the rest in an appendix.
+⚠ marks the **26 of 40 actions with n < 3 recordings**. Single-recording rows are unreliable in **both** metrics: R² divides by the action's own variance and skill by that recording's own persistence, and one short recording can collapse either denominator. `lift` reads R² **-195.6** and skill **-39.4** — both off the scale of every other row, from one recording. Quote the n ≥ 3 rows in the body and keep the rest in an appendix; the whole-split row above is recording-balanced and is unaffected by these.
 
 ### test_unseen — ranked by skill of `aggregate_probgru`, high → low
 
@@ -487,7 +487,7 @@ Whole split (56 recordings): R² **0.4908**, skill **+0.2244**, Hausdorff **3.93
 | 5 | put | 5 | 0.3831 | **+0.0680** | 4.534 | 1.412 | +0.0466 | 3.211 |
 | 6 | wring | 6 | -1.9512 | **-0.3893** | 4.779 | 1.533 | -0.5258 | 3.118 |
 
-⚠ marks the **0 actions with n < 3 recordings**. Their R² is not trustworthy: R² divides by the action's own variance, which a single short recording can drive near zero — `wring` reads **-2.0** here while its skill is only **-0.389**, because skill divides by persistence instead and persistence fails on that recording too. Quote the n ≥ 3 rows in the body and keep the rest in an appendix.
+⚠ marks the **0 of 6 actions with n < 3 recordings**. Single-recording rows are unreliable in R²: R² divides by the action's own variance and skill by that recording's own persistence, and one short recording can collapse either denominator. `wring` reads R² **-2.0** and skill **-0.4** — so the two disagree sharply. Quote the n ≥ 3 rows in the body and keep the rest in an appendix; the whole-split row above is recording-balanced and is unaffected by these.
 
 
 ## 5. Reading the numbers

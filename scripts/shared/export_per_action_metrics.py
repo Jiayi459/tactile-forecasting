@@ -454,13 +454,22 @@ def ego_section(split, path):
 
     few = [a for a in acts if data[a][EGO_PRIMARY]["n"] < 3]
     worst = min(acts, key=lambda a: data[a][EGO_PRIMARY]["r2"])
-    out += [f"⚠ marks the **{len(few)} actions with n < 3 recordings**. Their R² is not "
-            f"trustworthy: R² divides by the action's own variance, which a single short "
-            f"recording can drive near zero — `{worst}` reads "
-            f"**{data[worst][EGO_PRIMARY]['r2']:.1f}** here while its skill is only "
-            f"**{data[worst][EGO_PRIMARY]['skill']:+.3f}**, because skill divides by "
-            f"persistence instead and persistence fails on that recording too. Quote the "
-            f"n ≥ 3 rows in the body and keep the rest in an appendix.", ""]
+    w = data[worst][EGO_PRIMARY]
+    # Say which metrics actually broke, rather than assuming skill survived. On this data it
+    # does not: the worst row is catastrophic under BOTH, because persistence fails there too
+    # and the model fails harder still. An earlier draft of this sentence read "its skill is
+    # only ...", which described a number that was itself off the scale.
+    both = abs(w["skill"]) > 1
+    out += [f"⚠ marks the **{len(few)} of {len(acts)} actions with n < 3 recordings**. "
+            f"Single-recording rows are unreliable in "
+            + ("**both** metrics" if both else "R²")
+            + f": R² divides by the action's own variance and skill by that recording's own "
+              f"persistence, and one short recording can collapse either denominator. "
+              f"`{worst}` reads R² **{w['r2']:.1f}** and skill **{w['skill']:+.1f}** — "
+            + ("both off the scale of every other row, from one recording."
+               if both else "so the two disagree sharply.")
+            + " Quote the n ≥ 3 rows in the body and keep the rest in an appendix; the "
+              "whole-split row above is recording-balanced and is unaffected by these.", ""]
     return "\n".join(out)
 
 
