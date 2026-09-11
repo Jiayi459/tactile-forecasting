@@ -12639,3 +12639,36 @@ ActionSense 的 `<族>_<encoder>` 约定下成立。EgoTouch 的命名顺序**�
    295(set)",与 commit `6523da3` 由完全不同路径得到的"两 stack 一 set"一致。
 3. picker 同时确认 ActionSense **0/290** 条 clip 拥有全部 9 臂(三 encoder 目录为空),
    与第三节的 5/9 判断吻合。
+
+### 2026-09-11(续)— EgoTouch 并入 `docs/per_action_metrics.md`,新增 §5
+
+`scripts/shared/export_per_action_metrics.py` 新增 `ego_rows/ego_section/ego_arm_table`。
+取 3 s history,与 `skill_comparison.md` 同一条 run。
+
+**这个文档的立论被 EgoTouch 改写了。** 它开篇的表原本是"问了四样、三样不在盘上":
+OpenTouch 的逐动作 skill 只能从 R² 推导、逐动作 Hausdorff **根本不存在**、ActionSense 逐动作
+什么都没有。EgoTouch 三样**全部直接落盘**(共享 scorer 在一个 CSV 里同时写逐动作的
+R²/skill/Hausdorff,且 baseline 与神经臂一视同仁)。§1 的现状表已加三行如实反映。
+
+**结构**
+- **§5.1 先排臂,再排动作**:两个 split 各一张"整体行按 skill 排序"的表。
+  先固定臂再谈动作排名,否则动作榜单没有意义。
+- **§5.2 逐动作,按 skill 从高到低**(用户指定)。列:`n | R² | skill | HD | HD ratio |
+  skill ar_group | HD persistence`。主臂取 `aggregate_probgru`(seen 上最强神经臂),
+  并列出 `ar_group` 的 skill 与 `persistence` 的 HD 作为同行参照 —— Hausdorff 不像 skill 那样
+  把参照除掉,没有 persistence 列就读不出好坏。
+
+**为什么按 skill 而不是按 R² 排(已写进代码注释与正文)**:R² 的分母是**该动作自己的均值**,
+所以它奖励"信号本身起伏大"的动作,而不是"模型预测得好"的动作。两种排序确实不一致。
+
+**n<3 的行加 ⚠ 并给出解释**:全表 40 个动作里有 **24 个 n<3**。它们的 R² 不可信 ——
+R² 除以该动作自身方差,单条短录制能把分母压到近零,最差的一行 R² 读数极端,
+而它的 skill 只有约 −0.2(因为 skill 除的是 persistence,而 persistence 在那条录制上同样失败)。
+正文建议:**主表只引 n ≥ 3 的行,其余进附录。**
+
+**§5.1 读出的两件事**
+- seen 上 `ar_group` skill 最高(+0.2771)但 **Hausdorff 最差(4.692,1.529×)**;
+  `flatten_seq2seq` skill 最低(+0.1097)却 **Hausdorff 最好(3.289,1.072×)**。
+  **点误差与形状的排序几乎相反** —— 只报其一会得出相反的模型排名。
+- unseen 上 `seasonal_global`/`seasonal_group`/`persistence` **三行数值完全相同**
+  (R² 0.3140、HD 3.031),再次坐实 seasonal 整条臂退化成 persistence。
