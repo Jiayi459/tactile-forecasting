@@ -396,6 +396,88 @@ def hausdorff_section(label, path):
     return "\n".join(out)
 
 
+# EgoTouch, at the 3 s history -- the same arm docs/skill_comparison.md quotes, so the two
+# documents describe one run rather than two. Unlike every other corpus here, the shared
+# scorer writes R2, skill AND Hausdorff at action granularity in one CSV, so this is the first
+# section of this document that does not have to derive or apologise for a missing metric.
+EGO_RUNS = [("test_seen", "docs/egotouch/results/test_seen/egotouch_test_seen_3s.csv"),
+            ("test_unseen", "docs/egotouch/results/test_unseen/egotouch_test_unseen_3s.csv")]
+EGO_PRIMARY = "aggregate_probgru"      # best neural arm on the seen split
+EGO_REFS = ["ar_group", "persistence"]
+
+
+def ego_rows(path):
+    """-> {action: {model: {r2, skill, hd, ratio, n}}}. Empty if the CSV is absent."""
+    full = os.path.join(REPO, path)
+    if not os.path.exists(full):
+        return {}
+    out = {}
+    for r in csv.DictReader(open(full)):
+        act = r["action"]
+        out.setdefault(act, {})[r["model"]] = {
+            "r2": float(r["r2"]), "skill": float(r["skill"]),
+            "hd": float(r["hausdorff"]), "ratio": float(r["hausdorff_ratio"]),
+            "n": int(r["n_clips"])}
+    return out
+
+
+def ego_section(split, path):
+    data = ego_rows(path)
+    if not data:
+        return f"### {split}\n\nNo scorer CSV at `{path}`.\n"
+    whole = data.pop("(all actions)", None)
+    acts = [a for a in data if EGO_PRIMARY in data[a]]
+    # SORTED BY SKILL, high to low -- skill, not R2, because R2's denominator is the action's
+    # OWN mean, so it rewards actions whose signal happens to vary a lot rather than actions
+    # the model predicts well. The two orders disagree; see the note under the table.
+    acts.sort(key=lambda a: -data[a][EGO_PRIMARY]["skill"])
+
+    out = [f"### {split} — ranked by skill of `{EGO_PRIMARY}`, high → low", ""]
+    if whole:
+        w = whole[EGO_PRIMARY]
+        out += [f"Whole split ({w['n']} recordings): R² **{w['r2']:.4f}**, "
+                f"skill **{w['skill']:+.4f}**, Hausdorff **{w['hd']:.3f}** "
+                f"({w['ratio']:.3f}× persistence). Measured against the whole split's mean, "
+                f"so it is NOT the average of the rows below.", ""]
+    out += ["| # | action | n | R² | skill | HD | HD ratio | skill `ar_group` | HD `persistence` |",
+            "|---:|---|---:|---:|---:|---:|---:|---:|---:|"]
+    for i, act in enumerate(acts, 1):
+        d = data[act][EGO_PRIMARY]
+        ar = data[act].get("ar_group", {})
+        pe = data[act].get("persistence", {})
+        flag = " ⚠" if d["n"] < 3 else ""
+        ar_sk = f"{ar['skill']:+.4f}" if ar else "—"
+        out.append(
+            f"| {i} | {act}{flag} | {d['n']} | {fmt(d['r2'])} | **{d['skill']:+.4f}** | "
+            f"{fmt(d['hd'], 3)} | {fmt(d['ratio'], 3)} | {ar_sk} | {fmt(pe.get('hd'), 3)} |")
+    out.append("")
+
+    few = [a for a in acts if data[a][EGO_PRIMARY]["n"] < 3]
+    worst = min(acts, key=lambda a: data[a][EGO_PRIMARY]["r2"])
+    out += [f"⚠ marks the **{len(few)} actions with n < 3 recordings**. Their R² is not "
+            f"trustworthy: R² divides by the action's own variance, which a single short "
+            f"recording can drive near zero — `{worst}` reads "
+            f"**{data[worst][EGO_PRIMARY]['r2']:.1f}** here while its skill is only "
+            f"**{data[worst][EGO_PRIMARY]['skill']:+.3f}**, because skill divides by "
+            f"persistence instead and persistence fails on that recording too. Quote the "
+            f"n ≥ 3 rows in the body and keep the rest in an appendix.", ""]
+    return "\n".join(out)
+
+
+def ego_arm_table(path):
+    """Whole-split row per arm, ranked by skill -- which arm, before which action."""
+    data = ego_rows(path)
+    whole = data.get("(all actions)")
+    if not whole:
+        return ""
+    out = ["| arm | R² | skill | HD | HD ratio |", "|---|---:|---:|---:|---:|"]
+    for m in sorted(whole, key=lambda m: -whole[m]["skill"]):
+        d = whole[m]
+        out.append(f"| `{m}` | {fmt(d['r2'])} | **{d['skill']:+.4f}** | {fmt(d['hd'], 3)} | "
+                   f"{fmt(d['ratio'], 3)} |")
+    return "\n".join(out) + "\n"
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", default="docs/per_action_metrics.md")
@@ -444,12 +526,47 @@ def main():
                  "(`configs/actionsense/eval_harness.yaml:51`), so a per-action breakdown of "
                  "it would have exactly two rows. That is the gap the corpus runs fill, and "
                  "the reason their numbers may not be quoted beside frozen ones.\n")
+        fh.write(EGO_INTRO)
+        fh.write("\n### 5.1 Which arm, before which action\n\n")
+        fh.write("Whole-split rows, ranked by skill. Read this first: an action ranking is "
+                 "only meaningful once the arm it ranks is fixed.\n\n**test_seen**\n\n")
+        fh.write(ego_arm_table(EGO_RUNS[0][1]))
+        fh.write("\n**test_unseen**\n\n")
+        fh.write(ego_arm_table(EGO_RUNS[1][1]))
+        fh.write("\n### 5.2 Per action, sorted by skill\n\n")
+        for split, path in EGO_RUNS:
+            fh.write(ego_section(split, path))
+            fh.write("\n")
         fh.write(FOOTER)
     print(f"wrote {a.out}")
     for label, primary, top, vals in tops:
         print(f"  {label}: top-3 by R2({primary}) = "
               + ", ".join(f"{t} {v:.4f}" for t, v in zip(top, vals)))
 
+
+EGO_INTRO = """
+## 5. EgoTouch — per action, with all three metrics actually on disk
+
+This section is the one that answers the original question without a caveat. Sections 2-4
+had to derive skill from R², and report that per-action Hausdorff does not exist at all;
+EgoTouch's numbers come from `scripts/shared/score_preds_per_action.py`, which writes R²,
+skill AND Hausdorff at action granularity into one CSV, for baselines and neural arms alike.
+
+The 3 s history, matching what `docs/skill_comparison.md` quotes, so the two documents
+describe one run. Metrics are recording-balanced; CoP is masked by the TRAIN-fitted
+thresholds the harness config declares.
+
+**`test_seen` and `test_unseen` are different populations, not difficulty levels of one.**
+`test_seen` holds out recordings of tasks TRAIN has seen; `test_unseen` holds out ten whole
+tasks that never appear in TRAIN. Their columns are read down, never across: persistence
+itself scores far better on the unseen split, so a model can look better there while being
+further behind its own reference.
+
+**EgoTouch's F is an aggregate normalised pressure (P_Σ), not newtons** — its grids ship
+normalised and may mix tactile and bending channels. R², skill and the scaled Hausdorff are
+dimensionless, which is what lets them sit beside the other corpora at all.
+
+"""
 
 HEADER = """# Per-action forecast metrics — skill and Hausdorff
 
@@ -468,6 +585,9 @@ manufacturing them:
 | OpenTouch per-action R² | **exists** — `scope="action"` rows, actions with ≥30 clips |
 | OpenTouch per-action skill vs persistence | **not exported**, but exactly derivable — see §2 |
 | OpenTouch per-action Hausdorff | **does not exist** — `hausdorff_table` pools all clips and is written only at `scope="overall"` |
+| EgoTouch per-action R² | **exists** — §5 |
+| EgoTouch per-action skill | **exists**, exported directly, not derived — §5 |
+| EgoTouch per-action Hausdorff | **exists** — the only corpus here where it does — §5 |
 | ActionSense per-action R², skill **and** Hausdorff | **exists now** (§4) — from the corpus-scope runs, 290 recordings over 14 actions, scored from saved forecasts. The *frozen* harness still has none, and cannot: it is restricted to `[slice, peel]`. |
 
 Recomputing OpenTouch's per-action Hausdorff is *possible in principle* — `opentouch_report.py`

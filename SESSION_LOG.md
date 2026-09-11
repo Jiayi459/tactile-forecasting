@@ -12513,3 +12513,129 @@ AR 在 val 上选阶。理由:baseline 若拟合在与被比较臂不同的划�
 - **结论:`skill_comparison.md` 里 seasonal 的 −0.015…−0.021 不是「seasonal 略差于
   persistence」,而是「seasonal 在 99% 的录制上就是 persistence,外加 3 条周期检测误触发
   并严重恶化」。** 读该行时不应理解为一种系统性的方法差异。
+
+---
+
+## 2026-09-11 — 【跨传感器九宫格·踩点】预测 npz 定位、臂命名三套互斥约定、OpenTouch 可填满九格
+
+### 一、问题 1.2:预测在哪、叫什么名字 — 全部在代码里解决,未跑任何训练
+
+**test 集保证(结构性,无需计算)**
+
+两个数据集都不需要额外核对"这条是不是 test",代码写出预测的位置本身就是证明:
+
+- **OpenTouch** — `scripts/opentouch/opentouch_report.py:3`:"one npz per test clip (--save-preds).
+  Every clip is TEST in exactly one fold"。即预测目录里存在 `clip_N.npz` ⇔ clip N 在某一折是 TEST。
+- **EgoTouch** — `scripts/egotouch/train_tactile_map.py:157`:
+  `for name, ds in (("test_seen", test_ds), ("test_unseen", unseen_ds))` —— **只对这两个 split 落盘**,
+  train/val 从不写出。
+
+这与 `report_heldout`(commit `91f1807`,"Take held-out from the baselines' presence")是同一条论证:
+**以产物的存在性代替对 split 文件的信任**。三个数据集现在用同一个判据。
+
+### 二、CRC 上的实际产物(2026-09-11 实测)
+
+| 数据集 | 目录 | clip 数 |
+|---|---|---|
+| OpenTouch | `runs/preds_d1_pg/`(顶层) | 2893 |
+| OpenTouch | `runs/preds_d1_map2/`, `runs/preds_d1_map3/` | 2893 |
+| OpenTouch | `runs/preds_d1_pg/hist_{30,60,90}/` | 2893 |
+| EgoTouch | `runs/egotouch_merged/egotouch_test_{seen,unseen}_{1s,3s}/` | 132 / 56 |
+
+- `hist_*` 是 **history 扫描**(`run_opentouch_exploratory.py:424` 写入),**不是**主协议 run;
+  顶层(`:326` 写入)才对应已提交的 CSV。画图必须用顶层,否则与 `docs/opentouch/d1_pg/` 的数字对不上。
+- `preds_d1_map2` / `map3` 无 `hist_*` 子目录,与上一条一致。
+
+### 三、各数据集的臂,以及九宫格可填格数
+
+| 数据集 | Seq2Seq/确定性行 | probGRU 行 | baselines 行 | 可填 |
+|---|---|---|---|---|
+| ActionSense | (三 encoder 目录为空) | aggregate 有 | 齐 | **5/9** |
+| **OpenTouch** | `map_aggregate`/`flatten`/`cnn`(d1_map2) | `prob_gru`/`pg_flatten`/`pg_cnn`(d1_pg) | 齐 | **9/9** |
+| EgoTouch | `aggregate`/`flatten`/`cnn_seq2seq` | 仅 `aggregate_probgru` | 齐 | **7/9** |
+
+**OpenTouch 是唯一能填满九宫格的传感器。** ActionSense 因三 encoder 目录自 9/8 起为空只剩 5 格
+(见 commit `6523da3`),EgoTouch 的 probGRU 只跑了 aggregate 一个 encoder。九宫格最完整的示范应当
+画在 OpenTouch 上,而不是当初写脚本时假定的 ActionSense。
+
+### 四、⚠️ 陷阱:`d1_map` 已作废但产物仍在 CRC
+
+`SESSION_LOG.md:6609` 明确记载:**`docs/opentouch/d1_map/` 下 flatten/cnn 的全部数字作废,不得引用**
+(编码器 bug,`c0011f0`/`ab7a2f7` 修复后以 d1_map2 重跑)。但 **`runs/preds_d1_map/` 的 2893 个 npz
+仍在 CRC 上,与 map2/map3 并列,文件名和目录结构完全一样**。按目录名随手取一个就会画出作废的数字,
+且图上没有任何地方会提示。→ 画图只许用 `preds_d1_map2` 或 `preds_d1_map3`。
+
+### 五、`plot_clip_model_grid.py` 的两处硬编码(阻碍复用)
+
+1. **`ROWS`(:45-53)** 写死 ActionSense 臂名 `seq2seq_aggregate` / `probgru_flatten` / …。
+2. **`color_of`(:81)** 用 `model.rsplit("_", 1)[-1]` 取末段当 encoder 键 —— 这只在 ActionSense 的
+   `<族>_<encoder>` 约定下成立。三套命名实际互斥:
+
+| 数据集 | 约定 | `rsplit` 取到 | 结果 |
+|---|---|---|---|
+| ActionSense | `probgru_flatten` = 族_encoder | `flatten` | ✅ |
+| OpenTouch | `pg_cnn` = 族_encoder;但 `prob_gru` | `cnn` / `gru` | 部分,`prob_gru` 落灰 |
+| EgoTouch | `aggregate_seq2seq` = **encoder_族**(顺序相反) | `seq2seq` | ❌ 全落灰 |
+
+EgoTouch 的命名顺序与另外两个**相反**,`ar_group`/`ar_global` 还带 scope 后缀。仅改 `ROWS` 不够,
+必须让 encoder 键与臂名解耦(建议 `ROWS` 每格给 `(arm_name, encoder_key)` 二元组)。
+
+### 六、传输量
+
+九宫格只画**一条 clip**(`load_clip(dirs, clip)`:97,按 clip 号从各目录取 `clip_N.npz` 后求臂的并集)。
+因此**每个数据集只需传 2-3 个 npz**,不是整个目录。此前担心的 GB 级 rsync 不存在。
+(本机磁盘已从 171 Mi 回到 1.9 Gi。)
+
+### 七、*OPEN QUESTIONS*(未解决前不动代码)
+
+1. **OpenTouch 用 map2 还是 map3?** map3 与 map2 的唯一设置差别是保存 checkpoint,指标**本应相同**
+   但复现失败(GPU 非确定性,:6684),且推翻过一条排序结论。画图取哪个?
+2. **画哪条 clip?** OpenTouch 2893 条需要一个挑选判据(建议:与 ActionSense 一致,取一条**非 peel**、
+   时长中位偏上、且 seasonal 未退化成 persistence 的录制)。
+3. **EgoTouch 画 seen 还是 unseen,1s 还是 3s?** 建议 seen/unseen 各一张(两者是不同的问题:
+   "见过的任务、没见过的录像" vs "整个任务没见过"),horizon 取 3s 与 ActionSense 对齐。
+4. **baselines 行 EgoTouch 取 group 还是 global?** 两种 scope 都在,九宫格只有一格。
+
+### 八、OPEN QUESTIONS 的裁定(2026-09-11,用户答复)
+
+1. **map run → `d1_map2`**。取指标正典 run,与 `docs/opentouch/d1_map2/` 已提交的 CSV 对得上。
+   `preds_d1_map` 作废不用(见第四节),`map3` 暂不画。
+2. **EgoTouch → seen 与 unseen 各一张**,horizon 取 **3s**(与 ActionSense 对齐)。
+3. **EgoTouch baselines 行 → `ar_group` / `seasonal_group`**。理由:与 OpenTouch/ActionSense
+   的 per-recording 基线口径一致,跨传感器可比;`*_global` 不进九宫格。
+4. **OpenTouch 选 clip → 沿用 ActionSense 判据**:时长中位偏上、seasonal 未退化成 persistence、
+   且九臂在 `preds_d1_pg`+`preds_d1_map2` 中齐全。
+   注:ActionSense 当初的"非 peel"是该数据集特有的(冻结 split 未覆盖的 12 个语料动作之一),
+   OpenTouch 无对应概念,故只继承可迁移的三条。
+
+### 九、实现:`plot_clip_model_grid.py` 跨传感器化 + 新增 `scripts/pick_grid_clip.py`
+
+**改动 1 — `ROWS`/`COL_TITLE` → `LAYOUTS`(按传感器)。** 每格由 `(臂名, 配色键, 列标题)` 三元组给出,
+`None` 表示"该臂根本没跑过"(EgoTouch probGRU 的 flatten/cnn),画成空白轴而非"not available"——
+后者是"跑了但文件缺失",两种缺失含义不同,不应画成同一个样子。
+
+**改动 2 — `color_of` 不再从臂名解析 encoder。** 原实现 `model.rsplit("_", 1)[-1]`,只在
+ActionSense 的 `<族>_<encoder>` 约定下成立。EgoTouch 的命名顺序**相反**(`aggregate_seq2seq`),
+会把 `seq2seq` 当成 encoder → 三格全部落灰;OpenTouch 的 `prob_gru` 会取到 `gru` → 同样落灰。
+配色是九宫格用来编码"列=输入"的唯一手段,落灰等于这张图的信息轴失效。现由 `LAYOUTS` 显式给键。
+
+**改动 3 — `report_heldout` 按传感器给出各自的保证语句**(`HELD_OUT`),并从 layout 末行取基线臂名,
+不再硬编码 `("persistence","ar","seasonal")`(EgoTouch 是 `ar_group`/`seasonal_group`)。
+
+**改动 4 — 新增"在数据里但不在 layout 里"的提示。** 臂名写错时,原本会静默画成空panel;现在会明说。
+
+**新增 `scripts/pick_grid_clip.py`** — 选 clip + 只暂存该 clip 的 npz。判据即第八节第 4 条:
+(1) 硬过滤:layout 要求的臂必须齐全;(2) seasonal 未退化成 persistence;(3) 时长取 1.5×中位数附近。
+`--stage` 把中选 clip 的 npz 从各 preds 目录复制进一个小目录 → **每个数据集只需 rsync 几 MB**,
+而不是 2893 个 npz。
+
+#### 回归验证(本地 ActionSense 数据)
+
+1. **字节级回归**:改造前(`git show HEAD:`)与改造后对同一命令、三个通道(F_R/CoPx_R/CoPy_R)
+   输出的 PNG **md5 完全相同**。ActionSense 路径行为未变。
+   - 注:第一次比对是**假通过**——zsh 不对未加引号的变量做词分割,两边都没生成文件,
+     `md5` 的空输出相等。已加存在性检查后重测方为真通过。
+2. **picker 独立复现已知结论**:在 290 条语料上跑出"只有 3 条 seasonal 找到周期:109/48(stack)、
+   295(set)",与 commit `6523da3` 由完全不同路径得到的"两 stack 一 set"一致。
+3. picker 同时确认 ActionSense **0/290** 条 clip 拥有全部 9 臂(三 encoder 目录为空),
+   与第三节的 5/9 判断吻合。

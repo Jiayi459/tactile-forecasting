@@ -41,17 +41,59 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-# rows x columns of the grid. `None` leaves a panel empty rather than shifting the others.
-ROWS = [
-    ("Seq2Seq", ["seq2seq_aggregate", "seq2seq_flatten", "seq2seq_cnn"]),
-    ("probGRU", ["probgru_aggregate", "probgru_flatten", "probgru_cnn"]),
-    ("baselines", ["persistence", "ar", "seasonal"]),
-]
-COL_TITLE = [
-    ["physical state", "flatten", "cnn"],
-    ["physical state", "flatten", "cnn"],
-    ["persistence", "linear AR", "seasonal-naive"],
-]
+# Rows x columns of the grid, per sensor. Each cell is (arm_name, colour_key, column title),
+# or None to leave the panel empty rather than shifting its neighbours.
+#
+# WHY A CELL CARRIES ITS OWN COLOUR KEY. The three sensors name their arms under three mutually
+# incompatible conventions, so the encoder cannot be recovered from the arm name:
+#
+#   ActionSense  probgru_flatten     <family>_<encoder>
+#   OpenTouch    pg_cnn, prob_gru    <family>_<encoder>, but the aggregate arm is just `prob_gru`
+#   EgoTouch     aggregate_seq2seq   <encoder>_<family>  -- the REVERSE order
+#
+# The old code took `model.rsplit("_", 1)[-1]` as the encoder. That reads "seq2seq" as an
+# encoder for EgoTouch and "gru" for OpenTouch's aggregate arm, and both fall through to grey --
+# the colour would have stopped tracking the input, which is the one thing the columns encode.
+# Naming the key here keeps hue tied to the input across all three sensors.
+LAYOUTS = {
+    "actionsense": [
+        ("Seq2Seq", [("seq2seq_aggregate", "aggregate", "physical state"),
+                     ("seq2seq_flatten", "flatten", "flatten"),
+                     ("seq2seq_cnn", "cnn", "cnn")]),
+        ("probGRU", [("probgru_aggregate", "aggregate", "physical state"),
+                     ("probgru_flatten", "flatten", "flatten"),
+                     ("probgru_cnn", "cnn", "cnn")]),
+        ("baselines", [("persistence", "persistence", "persistence"),
+                       ("ar", "ar", "linear AR"),
+                       ("seasonal", "seasonal", "seasonal-naive")]),
+    ],
+    # The only sensor that fills all nine panels: the deterministic map arms come from
+    # --preds runs/preds_d1_map2 and the probabilistic ones from runs/preds_d1_pg.
+    "opentouch": [
+        ("map", [("map_aggregate", "aggregate", "physical state"),
+                 ("flatten", "flatten", "flatten"),
+                 ("cnn", "cnn", "cnn")]),
+        ("probGRU", [("prob_gru", "aggregate", "physical state"),
+                     ("pg_flatten", "flatten", "flatten"),
+                     ("pg_cnn", "cnn", "cnn")]),
+        ("baselines", [("persistence", "persistence", "persistence"),
+                       ("ar", "ar", "linear AR"),
+                       ("seasonal", "seasonal", "seasonal-naive")]),
+    ],
+    # probGRU was only ever run on the aggregate input here, so two panels are empty by fact of
+    # the sweep, not by a missing file. The baselines take the `_group` scope: fitted per
+    # recording group, the same per-recording basis the other two sensors' baselines use.
+    "egotouch": [
+        ("Seq2Seq", [("aggregate_seq2seq", "aggregate", "physical state"),
+                     ("flatten_seq2seq", "flatten", "flatten"),
+                     ("cnn_seq2seq", "cnn", "cnn")]),
+        ("probGRU", [("aggregate_probgru", "aggregate", "physical state"),
+                     None, None]),
+        ("baselines", [("persistence", "persistence", "persistence"),
+                       ("ar_group", "ar", "linear AR (per group)"),
+                       ("seasonal_group", "seasonal", "seasonal-naive (per group)")]),
+    ],
+}
 # categorical slots of the reference palette, in its fixed order; hue tracks the input/baseline
 COLOR = {
     "aggregate": "#2a78d6", "flatten": "#eb6834", "cnn": "#1baf7a",
@@ -77,8 +119,10 @@ def unit_label(ch: str) -> tuple[str, str]:
     return f"{ch} — {text}\n({unit})", unit
 
 
-def color_of(model: str) -> str:
-    return COLOR.get(model.rsplit("_", 1)[-1], "#5c5b54")
+def color_of(key: str) -> str:
+    """Colour from the layout's explicit key -- see LAYOUTS on why it is not parsed from the
+    arm name."""
+    return COLOR.get(key, "#5c5b54")
 
 
 def rolling(mu, sg, ors, H):
@@ -126,31 +170,44 @@ def load_clip(dirs: list[str], clip: int) -> dict:
     return ref
 
 
-def report_heldout(arms: dict, clip: int) -> None:
+# Why a prediction's mere existence proves it is held out -- one sentence per sensor, each
+# pointing at the line of code that makes it true. The same argument in all three cases: the
+# writer is only ever reached for data the fit never saw, so presence IS the guarantee.
+HELD_OUT = {
+    "actionsense": "both exporters write only recordings their fit never saw "
+                   "(--scope frozen writes TEST; --scope corpus holds each out in one fold)",
+    "opentouch": "one npz per TEST clip, every clip TEST in exactly one fold "
+                 "(opentouch_report.py:3)",
+    "egotouch": "only test_seen and test_unseen are ever written; train/val never are "
+                "(egotouch/train_tactile_map.py:157)",
+}
+
+
+def report_heldout(arms: dict, clip: int, layout: list, dataset: str) -> None:
     """Say whether the baseline panels are held-out forecasts, from the arms themselves.
 
     The earlier version of this checked the clip against the frozen slice+peel split, which
     was the wrong question twice over: it rejected every corpus action even though the corpus
     baselines hold those out properly, and it would have accepted a frozen TRAIN recording had
     one ever been written. The right question is whether a baseline forecast EXISTS for this
-    recording, because both exporters only ever write recordings their fit never saw --
-    --scope frozen writes the TEST split, --scope corpus holds each recording out in exactly
-    one fold. So a baseline arm being present is itself the guarantee.
+    recording, because the writers are only reached for data the fit never saw. So a baseline
+    arm being present is itself the guarantee -- and that holds for all three sensors, each for
+    its own reason (HELD_OUT).
     """
-    base = [m for m in ("persistence", "ar", "seasonal") if m in arms]
+    base = [cell[0] for cell in layout[-1][1] if cell and cell[0] in arms]
     if base:
         print(f"  baselines present for clip {clip}: {base} -- held out by construction "
-              f"(both exporters write only recordings their fit never saw)")
+              f"({HELD_OUT[dataset]})")
     else:
-        print(f"  no baseline arms for clip {clip}; the bottom row will be empty. Produce them "
-              f"with:  python scripts/actionsense/export_baseline_forecasts.py --scope corpus "
-              f"--out runs/as_preds_baselines_corpus")
+        print(f"  no baseline arms for clip {clip}; the bottom row will be empty.")
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--preds", action="append", required=True,
                     help="a predictions directory; repeat for each run to combine")
+    ap.add_argument("--dataset", default="actionsense", choices=sorted(LAYOUTS),
+                    help="which sensor's arm names to expect; see LAYOUTS")
     ap.add_argument("--clip", type=int, required=True)
     ap.add_argument("--channel", default="F_R")
     ap.add_argument("--out", default="docs/actionsense/clip_model_grid.png")
@@ -162,6 +219,7 @@ def main():
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    layout = LAYOUTS[a.dataset]
     data = load_clip(a.preds, a.clip)
     chans, fps, y = data["channels"], data["fps"], data["y"]
     if a.channel not in chans:
@@ -175,27 +233,39 @@ def main():
     print(f"  clip {a.clip}  action={data['action']!r}  {len(y)} frames @ {fps:g} Hz  "
           f"H={H} ({H / fps:g} s)")
     print(f"  arms present: {have}")
-    missing = [m for _, row in ROWS for m in row if m not in data["arms"]]
+    missing = [c[0] for _, row in layout for c in row if c and c[0] not in data["arms"]]
     if missing:
         print(f"  MISSING (panels left empty): {missing}")
-    report_heldout(data["arms"], a.clip)
+    unused = [m for m in have if m not in {c[0] for _, r in layout for c in r if c}]
+    if unused:
+        # An arm present in the npz but absent from the layout is usually a name the layout got
+        # wrong, not a spare arm -- say it rather than silently drawing eight of nine panels.
+        print(f"  in the data but not in the --dataset {a.dataset} layout: {unused}")
+    report_heldout(data["arms"], a.clip, layout, a.dataset)
 
     # A seasonal-naive that found no cycle falls back to persistence, and then two panels are
     # the same curve. That is a property of the data worth showing, but only if it is said.
-    dup = ("persistence" in data["arms"] and "seasonal" in data["arms"]
-           and np.allclose(data["arms"]["seasonal"][0], data["arms"]["persistence"][0]))
+    bl = {c[1]: c[0] for c in layout[-1][1] if c}
+    pers, seas = bl.get("persistence"), bl.get("seasonal")
+    dup = (pers in data["arms"] and seas in data["arms"]
+           and np.allclose(data["arms"][seas][0], data["arms"][pers][0]))
 
     ylab, ynote = unit_label(a.channel)
     fig, axes = plt.subplots(3, 3, figsize=(15.0, 9.6), sharex=True, sharey=True)
-    for r, (rowname, models) in enumerate(ROWS):
-        for c, m in enumerate(models):
+    for r, (rowname, models) in enumerate(layout):
+        for c, cell in enumerate(models):
             ax = axes[r, c]
+            if cell is None:
+                # Never run, as opposed to run-and-missing: the sweep has no such arm at all.
+                ax.set_axis_off()
+                continue
+            m, ckey, coltitle = cell
             ax.plot(tt, y[:, k], "-", color=TRUTH, lw=1.2, label="ground truth", zorder=3)
             if m in data["arms"]:
                 mu, sg, ors = data["arms"][m]
                 idx, val, sig = rolling(mu, sg, ors, H)
                 t = idx / fps
-                col = color_of(m)
+                col = color_of(ckey)
                 if sig is not None:
                     ax.fill_between(t, val[:, k] - 2 * sig[:, k], val[:, k] + 2 * sig[:, k],
                                     color=col, alpha=0.20, lw=0, zorder=2,
@@ -205,8 +275,8 @@ def main():
             else:
                 ax.text(0.5, 0.5, "not available", transform=ax.transAxes, ha="center",
                         va="center", fontsize=10, color=MUTED)
-            note = COL_TITLE[r][c]
-            if m == "seasonal" and dup:
+            note = coltitle
+            if m == seas and dup:
                 note += "  (no cycle → ≡ persistence)"
             t_txt = f"{rowname} · {note}"
             ax.set_title(t_txt, fontsize=9.5 if len(t_txt) <= 46 else 8.5,

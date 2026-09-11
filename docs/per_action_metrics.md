@@ -15,6 +15,9 @@ manufacturing them:
 | OpenTouch per-action R² | **exists** — `scope="action"` rows, actions with ≥30 clips |
 | OpenTouch per-action skill vs persistence | **not exported**, but exactly derivable — see §2 |
 | OpenTouch per-action Hausdorff | **does not exist** — `hausdorff_table` pools all clips and is written only at `scope="overall"` |
+| EgoTouch per-action R² | **exists** — §5 |
+| EgoTouch per-action skill | **exists**, exported directly, not derived — §5 |
+| EgoTouch per-action Hausdorff | **exists** — the only corpus here where it does — §5 |
 | ActionSense per-action R², skill **and** Hausdorff | **exists now** (§4) — from the corpus-scope runs, 290 recordings over 14 actions, scored from saved forecasts. The *frozen* harness still has none, and cannot: it is restricted to `[slice, peel]`. |
 
 Recomputing OpenTouch's per-action Hausdorff is *possible in principle* — `opentouch_report.py`
@@ -138,12 +141,10 @@ forecasts; source tables in `docs/actionsense/results/corpus-aggregate/`.
 
 | run | R² | skill (frame-pooled, **matches OpenTouch**) | skill (clip-balanced) | Hausdorff | HD ratio |
 |---|---:|---:|---:|---:|---:|
-| seq2seq, 3 s | **0.7414** | **+0.1450** | +0.1276 | **2.419** | 0.830 |
-| seq2seq, 1 s | **0.7410** | **+0.1370** | +0.1243 | **2.408** | 0.826 |
-| probGRU, 3 s | **0.6374** | **-0.3090** | -0.7225 | **2.627** | 0.901 |
-| probGRU, 1 s | **0.6428** | **-0.3240** | -0.7203 | **2.629** | 0.902 |
-
-_The frame-pooled column above is read from the job logs (`logs/tactile_map.o14168xx`), because `cross_validate` prints `skill_ch` and never writes it. `score_preds_per_action.py` now emits it as `skill_pooled`; the next rescore will source this column from the CSV instead._
+| seq2seq, 3 s | **0.7414** | **+0.1453** | +0.1276 | **2.419** | 0.830 |
+| seq2seq, 1 s | **0.7410** | **+0.1371** | +0.1243 | **2.408** | 0.826 |
+| probGRU, 3 s | **0.6374** | **-0.3716** | -0.7225 | **2.627** | 0.901 |
+| probGRU, 1 s | **0.6428** | **-0.3800** | -0.7203 | **2.629** | 0.902 |
 
 Persistence, for reference (same rows, same denominator):
 
@@ -349,12 +350,15 @@ This matters for how the corpus-level result is read. probGRU's pooled skill ove
 
 ### 4.5 Frozen-harness audit (regenerated, not asserted)
 
-The tables above are the **corpus** scope. The **frozen** harness still carries no per-action forecast metric, and this is re-checked rather than asserted: scanned **35** CSVs under `docs/actionsense/`, of which **11** have an action/verb column.
+The tables above are the **corpus** scope. The **frozen** harness still carries no per-action forecast metric, and this is re-checked rather than asserted: scanned **40** CSVs under `docs/actionsense/`, of which **14** have an action/verb column.
 
-- `docs/actionsense/results/corpus-aggregate/as_preds_probgru_corpus.csv` — `label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio`
-- `docs/actionsense/results/corpus-aggregate/as_preds_probgru_corpus_h1.csv` — `label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio`
-- `docs/actionsense/results/corpus-aggregate/as_preds_seq2seq_corpus.csv` — `label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio`
-- `docs/actionsense/results/corpus-aggregate/as_preds_seq2seq_corpus_h1.csv` — `label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio`
+- `docs/actionsense/results/corpus-aggregate-flatten-cnn/as_preds_seq2seq_plus_baselines.csv` — `label,action,n_clips,model,r2,skill,skill_pooled,hausdorff,hausdorff_ratio,r2_f_l,skill_f_l,skill_pooled_f_l,hausdorff_f_l,r2_copx_l,skill_copx_l,skill_pooled_copx_l,hausdorff_copx_l,r2_copy_l,skill_copy_l,skill_pooled_copy_l,hausdorff_copy_l,r2_f_r,skill_f_r,skill_pooled_f_r,hausdorff_f_r,r2_copx_r,skill_copx_r,skill_pooled_copx_r,hausdorff_copx_r,r2_copy_r,skill_copy_r,skill_pooled_copy_r,hausdorff_copy_r`
+- `docs/actionsense/results/corpus-aggregate-flatten-cnn/as_preds_tmap_probgru_corpus3s.csv` — `label,action,n_clips,model,r2,skill,skill_pooled,hausdorff,hausdorff_ratio,r2_f_l,skill_f_l,skill_pooled_f_l,hausdorff_f_l,r2_copx_l,skill_copx_l,skill_pooled_copx_l,hausdorff_copx_l,r2_copy_l,skill_copy_l,skill_pooled_copy_l,hausdorff_copy_l,r2_f_r,skill_f_r,skill_pooled_f_r,hausdorff_f_r,r2_copx_r,skill_copx_r,skill_pooled_copx_r,hausdorff_copx_r,r2_copy_r,skill_copy_r,skill_pooled_copy_r,hausdorff_copy_r`
+- `docs/actionsense/results/corpus-aggregate-flatten-cnn/as_preds_tmap_seq2seq_corpus3s.csv` — `label,action,n_clips,model,r2,skill,skill_pooled,hausdorff,hausdorff_ratio,r2_f_l,skill_f_l,skill_pooled_f_l,hausdorff_f_l,r2_copx_l,skill_copx_l,skill_pooled_copx_l,hausdorff_copx_l,r2_copy_l,skill_copy_l,skill_pooled_copy_l,hausdorff_copy_l,r2_f_r,skill_f_r,skill_pooled_f_r,hausdorff_f_r,r2_copx_r,skill_copx_r,skill_pooled_copx_r,hausdorff_copx_r,r2_copy_r,skill_copy_r,skill_pooled_copy_r,hausdorff_copy_r`
+- `docs/actionsense/results/corpus-aggregate/as_preds_probgru_corpus.csv` — `label,action,n_clips,model,r2,skill,skill_pooled,hausdorff,hausdorff_ratio,r2_f_l,skill_f_l,skill_pooled_f_l,hausdorff_f_l,r2_copx_l,skill_copx_l,skill_pooled_copx_l,hausdorff_copx_l,r2_copy_l,skill_copy_l,skill_pooled_copy_l,hausdorff_copy_l,r2_f_r,skill_f_r,skill_pooled_f_r,hausdorff_f_r,r2_copx_r,skill_copx_r,skill_pooled_copx_r,hausdorff_copx_r,r2_copy_r,skill_copy_r,skill_pooled_copy_r,hausdorff_copy_r`
+- `docs/actionsense/results/corpus-aggregate/as_preds_probgru_corpus_h1.csv` — `label,action,n_clips,model,r2,skill,skill_pooled,hausdorff,hausdorff_ratio,r2_f_l,skill_f_l,skill_pooled_f_l,hausdorff_f_l,r2_copx_l,skill_copx_l,skill_pooled_copx_l,hausdorff_copx_l,r2_copy_l,skill_copy_l,skill_pooled_copy_l,hausdorff_copy_l,r2_f_r,skill_f_r,skill_pooled_f_r,hausdorff_f_r,r2_copx_r,skill_copx_r,skill_pooled_copx_r,hausdorff_copx_r,r2_copy_r,skill_copy_r,skill_pooled_copy_r,hausdorff_copy_r`
+- `docs/actionsense/results/corpus-aggregate/as_preds_seq2seq_corpus.csv` — `label,action,n_clips,model,r2,skill,skill_pooled,hausdorff,hausdorff_ratio,r2_f_l,skill_f_l,skill_pooled_f_l,hausdorff_f_l,r2_copx_l,skill_copx_l,skill_pooled_copx_l,hausdorff_copx_l,r2_copy_l,skill_copy_l,skill_pooled_copy_l,hausdorff_copy_l,r2_f_r,skill_f_r,skill_pooled_f_r,hausdorff_f_r,r2_copx_r,skill_copx_r,skill_pooled_copx_r,hausdorff_copx_r,r2_copy_r,skill_copy_r,skill_pooled_copy_r,hausdorff_copy_r`
+- `docs/actionsense/results/corpus-aggregate/as_preds_seq2seq_corpus_h1.csv` — `label,action,n_clips,model,r2,skill,skill_pooled,hausdorff,hausdorff_ratio,r2_f_l,skill_f_l,skill_pooled_f_l,hausdorff_f_l,r2_copx_l,skill_copx_l,skill_pooled_copx_l,hausdorff_copx_l,r2_copy_l,skill_copy_l,skill_pooled_copy_l,hausdorff_copy_l,r2_f_r,skill_f_r,skill_pooled_f_r,hausdorff_f_r,r2_copx_r,skill_copx_r,skill_pooled_copx_r,hausdorff_copx_r,r2_copy_r,skill_copy_r,skill_pooled_copy_r,hausdorff_copy_r`
 - `docs/actionsense/results/frozen-aggregate/as_preds_probgru.csv` — `label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio`
 - `docs/actionsense/results/frozen-aggregate/as_preds_seq2seq.csv` — `label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio`
 - `docs/actionsense/results/frozen-cnn/as_preds_all.csv` — `label,action,n_clips,model,r2,skill,hausdorff,hausdorff_ratio`
@@ -364,6 +368,127 @@ The tables above are the **corpus** scope. The **frozen** harness still carries 
 - `docs/actionsense/trait_partition.csv` — `verb,trait_class,contentious,opentouch_correspondent,recordings,frames_10hz,windows,scored_recordings,scored_windows`
 
 None of those is a forecast-metric table — `trait_partition.csv` is a clip-count partition (verb → trait class) with no skill, R² or Hausdorff column. The frozen harness is restricted to `actions: [slice, peel]` (`configs/actionsense/eval_harness.yaml:51`), so a per-action breakdown of it would have exactly two rows. That is the gap the corpus runs fill, and the reason their numbers may not be quoted beside frozen ones.
+
+## 5. EgoTouch — per action, with all three metrics actually on disk
+
+This section is the one that answers the original question without a caveat. Sections 2-4
+had to derive skill from R², and report that per-action Hausdorff does not exist at all;
+EgoTouch's numbers come from `scripts/shared/score_preds_per_action.py`, which writes R²,
+skill AND Hausdorff at action granularity into one CSV, for baselines and neural arms alike.
+
+The 3 s history, matching what `docs/skill_comparison.md` quotes, so the two documents
+describe one run. Metrics are recording-balanced; CoP is masked by the TRAIN-fitted
+thresholds the harness config declares.
+
+**`test_seen` and `test_unseen` are different populations, not difficulty levels of one.**
+`test_seen` holds out recordings of tasks TRAIN has seen; `test_unseen` holds out ten whole
+tasks that never appear in TRAIN. Their columns are read down, never across: persistence
+itself scores far better on the unseen split, so a model can look better there while being
+further behind its own reference.
+
+**EgoTouch's F is an aggregate normalised pressure (P_Σ), not newtons** — its grids ship
+normalised and may mix tactile and bending channels. R², skill and the scaled Hausdorff are
+dimensionless, which is what lets them sit beside the other corpora at all.
+
+
+### 5.1 Which arm, before which action
+
+Whole-split rows, ranked by skill. Read this first: an action ranking is only meaningful once the arm it ranks is fixed.
+
+**test_seen**
+
+| arm | R² | skill | HD | HD ratio |
+|---|---:|---:|---:|---:|
+| `ar_group` | 0.4671 | **+0.2771** | 4.692 | 1.529 |
+| `aggregate_probgru` | 0.4600 | **+0.2630** | 4.074 | 1.328 |
+| `aggregate_seq2seq` | 0.4495 | **+0.2464** | 3.633 | 1.184 |
+| `ar_global` | 0.4391 | **+0.2288** | 4.012 | 1.308 |
+| `cnn_seq2seq` | 0.4051 | **+0.1919** | 3.764 | 1.227 |
+| `flatten_seq2seq` | 0.3486 | **+0.1097** | 3.289 | 1.072 |
+| `seasonal_global` | 0.2717 | **+0.0000** | 3.068 | 1.000 |
+| `persistence` | 0.2717 | **+0.0000** | 3.068 | 1.000 |
+| `seasonal_group` | 0.2352 | **-0.0474** | 3.233 | 1.054 |
+
+**test_unseen**
+
+| arm | R² | skill | HD | HD ratio |
+|---|---:|---:|---:|---:|
+| `aggregate_seq2seq` | 0.4807 | **+0.2264** | 3.607 | 1.190 |
+| `aggregate_probgru` | 0.4908 | **+0.2244** | 3.935 | 1.298 |
+| `cnn_seq2seq` | 0.4636 | **+0.2078** | 3.694 | 1.219 |
+| `ar_global` | 0.4607 | **+0.1743** | 4.407 | 1.454 |
+| `ar_group` | 0.4533 | **+0.1632** | 4.723 | 1.558 |
+| `flatten_seq2seq` | 0.3968 | **+0.1203** | 3.609 | 1.190 |
+| `seasonal_global` | 0.3140 | **+0.0000** | 3.031 | 1.000 |
+| `seasonal_group` | 0.3140 | **+0.0000** | 3.031 | 1.000 |
+| `persistence` | 0.3140 | **+0.0000** | 3.031 | 1.000 |
+
+### 5.2 Per action, sorted by skill
+
+### test_seen — ranked by skill of `aggregate_probgru`, high → low
+
+Whole split (132 recordings): R² **0.4600**, skill **+0.2630**, Hausdorff **4.074** (1.328× persistence). Measured against the whole split's mean, so it is NOT the average of the rows below.
+
+| # | action | n | R² | skill | HD | HD ratio | skill `ar_group` | HD `persistence` |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| 1 | arrange ⚠ | 2 | 0.2053 | **+0.3731** | 5.915 | 1.946 | +0.3737 | 3.039 |
+| 2 | swing | 3 | 0.4907 | **+0.3514** | 4.190 | 1.413 | +0.3341 | 2.965 |
+| 3 | take ⚠ | 1 | 0.0406 | **+0.3390** | 2.787 | 0.947 | +0.3437 | 2.943 |
+| 4 | fold ⚠ | 2 | 0.2430 | **+0.3216** | 2.744 | 0.898 | +0.2238 | 3.055 |
+| 5 | buy ⚠ | 1 | -0.1218 | **+0.3158** | 6.862 | 2.069 | +0.3379 | 3.316 |
+| 6 | shop | 4 | 0.4075 | **+0.3153** | 3.495 | 1.147 | +0.2584 | 3.048 |
+| 7 | boil ⚠ | 2 | 0.1140 | **+0.3121** | 5.887 | 1.812 | +0.4158 | 3.249 |
+| 8 | spread ⚠ | 1 | 0.2478 | **+0.3031** | 2.778 | 0.931 | +0.3134 | 2.985 |
+| 9 | open | 9 | 0.3796 | **+0.2924** | 2.791 | 0.921 | +0.3257 | 3.031 |
+| 10 | place ⚠ | 1 | 0.2677 | **+0.2898** | 2.646 | 0.842 | +0.2775 | 3.144 |
+| 11 | grip ⚠ | 1 | 0.2366 | **+0.2882** | 3.512 | 1.225 | +0.3167 | 2.867 |
+| 12 | turn ⚠ | 1 | -0.4124 | **+0.2845** | 2.904 | 0.960 | +0.2564 | 3.025 |
+| 13 | work ⚠ | 2 | 0.1765 | **+0.2840** | 2.704 | 0.881 | +0.3226 | 3.068 |
+| 14 | pick | 34 | 0.3839 | **+0.2825** | 5.463 | 1.768 | +0.2911 | 3.089 |
+| 15 | organize | 4 | 0.3877 | **+0.2824** | 4.866 | 1.569 | +0.2689 | 3.101 |
+| 16 | assemble | 3 | 0.4772 | **+0.2823** | 2.943 | 0.986 | +0.2626 | 2.985 |
+| 17 | flip ⚠ | 1 | -0.0963 | **+0.2778** | 2.411 | 0.825 | +0.2654 | 2.923 |
+| 18 | pack | 3 | 0.4921 | **+0.2764** | 3.687 | 1.193 | +0.2814 | 3.092 |
+| 19 | bounce | 4 | 0.5394 | **+0.2662** | 3.449 | 1.164 | +0.2410 | 2.963 |
+| 20 | squeeze | 6 | 0.4617 | **+0.2584** | 3.781 | 1.232 | +0.2269 | 3.068 |
+| 21 | grasp | 3 | 0.4200 | **+0.2560** | 3.161 | 1.006 | +0.1514 | 3.142 |
+| 22 | put ⚠ | 2 | 0.3037 | **+0.2439** | 2.899 | 0.940 | +0.2899 | 3.083 |
+| 23 | metadata ⚠ | 1 | -0.1286 | **+0.2368** | 2.974 | 1.044 | +0.0838 | 2.849 |
+| 24 | play | 3 | 0.4967 | **+0.2283** | 2.710 | 0.945 | -0.2544 | 2.867 |
+| 25 | prepare ⚠ | 2 | 0.4963 | **+0.2266** | 3.358 | 1.112 | +0.1997 | 3.021 |
+| 26 | change ⚠ | 1 | 0.0366 | **+0.2234** | 2.427 | 0.835 | -0.1809 | 2.907 |
+| 27 | clean ⚠ | 1 | 0.0683 | **+0.2043** | 2.504 | 0.879 | -0.0248 | 2.850 |
+| 28 | remove ⚠ | 2 | 0.3421 | **+0.2027** | 3.234 | 1.054 | +0.1699 | 3.070 |
+| 29 | make ⚠ | 1 | 0.1739 | **+0.2009** | 2.572 | 0.873 | +0.2269 | 2.947 |
+| 30 | plug | 5 | -0.2479 | **+0.1999** | 3.854 | 1.093 | +0.2431 | 3.527 |
+| 31 | pull ⚠ | 1 | 0.4941 | **+0.1935** | 4.569 | 1.471 | +0.1976 | 3.107 |
+| 32 | split ⚠ | 1 | 0.4060 | **+0.1909** | 3.127 | 1.035 | +0.2151 | 3.021 |
+| 33 | cut ⚠ | 1 | 0.6322 | **+0.1909** | 3.540 | 1.214 | +0.1660 | 2.917 |
+| 34 | cook ⚠ | 1 | 0.4839 | **+0.1874** | 3.503 | 1.157 | +0.1713 | 3.028 |
+| 35 | push | 5 | 0.4198 | **+0.1241** | 3.735 | 1.203 | +0.2818 | 3.104 |
+| 36 | over ⚠ | 1 | -0.1406 | **+0.0920** | 3.661 | 1.216 | -0.1209 | 3.012 |
+| 37 | use | 13 | 0.3925 | **+0.0337** | 3.440 | 1.125 | +0.0854 | 3.058 |
+| 38 | twist ⚠ | 1 | -0.1541 | **-0.1751** | 3.619 | 1.249 | -0.0928 | 2.898 |
+| 39 | toss ⚠ | 1 | -1.2034 | **-0.4653** | 2.731 | 0.929 | -184.5696 | 2.941 |
+| 40 | lift ⚠ | 1 | -195.5690 | **-39.3983** | 12.019 | 3.982 | -40.7262 | 3.018 |
+
+⚠ marks the **26 actions with n < 3 recordings**. Their R² is not trustworthy: R² divides by the action's own variance, which a single short recording can drive near zero — `lift` reads **-195.6** here while its skill is only **-39.398**, because skill divides by persistence instead and persistence fails on that recording too. Quote the n ≥ 3 rows in the body and keep the rest in an appendix.
+
+### test_unseen — ranked by skill of `aggregate_probgru`, high → low
+
+Whole split (56 recordings): R² **0.4908**, skill **+0.2244**, Hausdorff **3.935** (1.298× persistence). Measured against the whole split's mean, so it is NOT the average of the rows below.
+
+| # | action | n | R² | skill | HD | HD ratio | skill `ar_group` | HD `persistence` |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| 1 | fold | 9 | 0.2850 | **+0.3015** | 3.136 | 1.051 | +0.2907 | 2.984 |
+| 2 | pick | 10 | 0.5026 | **+0.2450** | 3.600 | 1.194 | +0.1150 | 3.014 |
+| 3 | open | 20 | 0.5265 | **+0.2319** | 4.332 | 1.421 | +0.1978 | 3.048 |
+| 4 | rotate | 6 | 0.3262 | **+0.1757** | 3.028 | 1.066 | +0.2431 | 2.841 |
+| 5 | put | 5 | 0.3831 | **+0.0680** | 4.534 | 1.412 | +0.0466 | 3.211 |
+| 6 | wring | 6 | -1.9512 | **-0.3893** | 4.779 | 1.533 | -0.5258 | 3.118 |
+
+⚠ marks the **0 actions with n < 3 recordings**. Their R² is not trustworthy: R² divides by the action's own variance, which a single short recording can drive near zero — `wring` reads **-2.0** here while its skill is only **-0.389**, because skill divides by persistence instead and persistence fails on that recording too. Quote the n ≥ 3 rows in the body and keep the rest in an appendix.
+
 
 ## 5. Reading the numbers
 
