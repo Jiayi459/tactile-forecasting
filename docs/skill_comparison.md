@@ -164,48 +164,48 @@ See SESSION_LOG 2026-08-22.
 
 ## F_R
 
-| model | ActionSense | `ego seen` | `ego unseen` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|---|---|
-| AR | 0.200 | 0.224 | 0.106 | 0.148 | 0.148 | 0.367 | 0.367 | 0.367 | 0.367 | 0.367 |
-| AR (global fit) | — | 0.186 | 0.145 | — | — | — | — | — | — | — |
-| seasonal | 0.000 | −0.064 | 0.000 | −0.019 | −0.019 | −0.038 | −0.038 | −0.038 | −0.038 | −0.038 |
-| probGRU | — | 0.265 | 0.228 | 0.203 | 0.207 | 0.386 | 0.383 | — | — | 0.386 |
-| GRU-aggregate | 0.181 | 0.243 | 0.217 | — | — | — | — | 0.360 | 0.360 | — |
-| CNN (map) | 0.138 | 0.244 | 0.215 | — | — | — | — | 0.333 | 0.330 | — |
-| flatten (map) | −0.042 | 0.142 | 0.129 | — | — | — | — | 0.273 | 0.269 | — |
-| probGRU + CNN | — | — | — | — | — | — | — | — | — | 0.356 |
-| probGRU + flatten | — | — | — | — | — | — | — | — | — | 0.322 |
-| **R** (persistence difficulty) | 0.655 | — | — | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 |
+| model | ActionSense | `AS corpus` | `ego seen` | `ego unseen` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| AR | 0.200 | 0.163 | 0.224 | 0.106 | 0.148 | 0.148 | 0.367 | 0.367 | 0.367 | 0.367 | 0.367 |
+| AR (global fit) | — | — | 0.186 | 0.145 | — | — | — | — | — | — | — |
+| seasonal | 0.000 | −0.015 | −0.064 | 0.000 | −0.019 | −0.019 | −0.038 | −0.038 | −0.038 | −0.038 | −0.038 |
+| probGRU | — | 0.137 | 0.265 | 0.228 | 0.203 | 0.207 | 0.386 | 0.383 | — | — | 0.386 |
+| GRU-aggregate | 0.181 | 0.130 | 0.243 | 0.217 | — | — | — | — | 0.360 | 0.360 | — |
+| CNN (map) | 0.138 | 0.124 | 0.244 | 0.215 | — | — | — | — | 0.333 | 0.330 | — |
+| flatten (map) | −0.042 | 0.044 | 0.142 | 0.129 | — | — | — | — | 0.273 | 0.269 | — |
+| probGRU + CNN | — | 0.111 | — | — | — | — | — | — | — | — | 0.356 |
+| probGRU + flatten | — | 0.082 | — | — | — | — | — | — | — | — | 0.322 |
+| **R** (persistence difficulty) | 0.655 | 0.655 | — | — | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 |
 
 ## CoPx_R
 
-| model | ActionSense | `ego seen` | `ego unseen` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|---|---|
-| AR | 0.254 | 0.281 | 0.228 | 0.214 | 0.214 | 0.431 | 0.431 | 0.431 | 0.431 | 0.431 |
-| AR (global fit) | — | 0.271 | 0.248 | — | — | — | — | — | — | — |
-| seasonal | 0.000 | −0.040 | 0.000 | −0.015 | −0.015 | −0.033 | −0.033 | −0.033 | −0.033 | −0.033 |
-| probGRU | — | 0.300 | 0.248 | 0.288 | 0.278 | 0.427 | 0.431 | — | — | 0.427 |
-| GRU-aggregate | 0.233 | 0.284 | 0.259 | — | — | — | — | 0.422 | 0.422 | — |
-| CNN (map) | 0.011 | 0.222 | 0.191 | — | — | — | — | 0.374 | 0.370 | — |
-| flatten (map) | −0.002 | 0.147 | 0.137 | — | — | — | — | 0.331 | 0.328 | — |
-| probGRU + CNN | — | — | — | — | — | — | — | — | — | 0.414 |
-| probGRU + flatten | — | — | — | — | — | — | — | — | — | 0.393 |
-| **R** (persistence difficulty) | 0.746 | — | — | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 |
+| model | ActionSense | `AS corpus` | `ego seen` | `ego unseen` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| AR | 0.254 | 0.234 | 0.281 | 0.228 | 0.214 | 0.214 | 0.431 | 0.431 | 0.431 | 0.431 | 0.431 |
+| AR (global fit) | — | — | 0.271 | 0.248 | — | — | — | — | — | — | — |
+| seasonal | 0.000 | −0.016 | −0.040 | 0.000 | −0.015 | −0.015 | −0.033 | −0.033 | −0.033 | −0.033 | −0.033 |
+| probGRU | — | 0.216 | 0.300 | 0.248 | 0.288 | 0.278 | 0.427 | 0.431 | — | — | 0.427 |
+| GRU-aggregate | 0.233 | 0.235 | 0.284 | 0.259 | — | — | — | — | 0.422 | 0.422 | — |
+| CNN (map) | 0.011 | 0.026 | 0.222 | 0.191 | — | — | — | — | 0.374 | 0.370 | — |
+| flatten (map) | −0.002 | 0.000 | 0.147 | 0.137 | — | — | — | — | 0.331 | 0.328 | — |
+| probGRU + CNN | — | 0.144 | — | — | — | — | — | — | — | — | 0.414 |
+| probGRU + flatten | — | 0.079 | — | — | — | — | — | — | — | — | 0.393 |
+| **R** (persistence difficulty) | 0.746 | 0.746 | — | — | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 |
 
 ## CoPy_R
 
-| model | ActionSense | `ego seen` | `ego unseen` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|---|---|
-| AR | 0.194 | 0.279 | 0.240 | 0.171 | 0.171 | 0.476 | 0.476 | 0.476 | 0.476 | 0.476 |
-| AR (global fit) | — | 0.260 | 0.266 | — | — | — | — | — | — | — |
-| seasonal | 0.000 | −0.083 | 0.000 | −0.016 | −0.016 | −0.009 | −0.009 | −0.009 | −0.009 | −0.009 |
-| probGRU | — | 0.300 | 0.266 | 0.221 | 0.227 | 0.472 | 0.472 | — | — | 0.472 |
-| GRU-aggregate | 0.175 | 0.263 | 0.238 | — | — | — | — | 0.469 | 0.469 | — |
-| CNN (map) | 0.045 | 0.187 | 0.207 | — | — | — | — | 0.424 | 0.419 | — |
-| flatten (map) | −0.051 | 0.114 | 0.117 | — | — | — | — | 0.407 | 0.408 | — |
-| probGRU + CNN | — | — | — | — | — | — | — | — | — | 0.430 |
-| probGRU + flatten | — | — | — | — | — | — | — | — | — | 0.446 |
-| **R** (persistence difficulty) | 0.658 | — | — | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 |
+| model | ActionSense | `AS corpus` | `ego seen` | `ego unseen` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| AR | 0.194 | 0.182 | 0.279 | 0.240 | 0.171 | 0.171 | 0.476 | 0.476 | 0.476 | 0.476 | 0.476 |
+| AR (global fit) | — | — | 0.260 | 0.266 | — | — | — | — | — | — | — |
+| seasonal | 0.000 | −0.027 | −0.083 | 0.000 | −0.016 | −0.016 | −0.009 | −0.009 | −0.009 | −0.009 | −0.009 |
+| probGRU | — | 0.195 | 0.300 | 0.266 | 0.221 | 0.227 | 0.472 | 0.472 | — | — | 0.472 |
+| GRU-aggregate | 0.175 | 0.206 | 0.263 | 0.238 | — | — | — | — | 0.469 | 0.469 | — |
+| CNN (map) | 0.045 | 0.037 | 0.187 | 0.207 | — | — | — | — | 0.424 | 0.419 | — |
+| flatten (map) | −0.051 | −0.001 | 0.114 | 0.117 | — | — | — | — | 0.407 | 0.408 | — |
+| probGRU + CNN | — | 0.154 | — | — | — | — | — | — | — | — | 0.430 |
+| probGRU + flatten | — | 0.075 | — | — | — | — | — | — | — | — | 0.446 |
+| **R** (persistence difficulty) | 0.658 | 0.658 | — | — | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 |
 
 ## Hausdorff distance between forecast and truth curves
 
@@ -229,65 +229,70 @@ per-clip from its report; ActionSense is per-clip from its CV table at the
 longest history; EgoTouch is per-clip (recording-balanced) from the shared
 scorer, so it shares OpenTouch's and ActionSense's convention, not d256's.
 
-**EgoTouch is the only column with its own `persistence` row measured under the
-same mask as the models above it**, because the shared scorer synthesises
-persistence from the saved truth and origins rather than requiring the run to
-have trained it. That makes its column internally readable in the way the
-ActionSense one is not.
+**The columns fed by the shared scorer — `AS corpus`, `ego seen`, `ego unseen`
+— each carry their own `persistence` row measured under the same mask as the
+models above it**, because that scorer synthesises persistence from the saved
+truth and origins rather than requiring the run to have trained it. Those
+columns are internally readable in the way the `ActionSense` one is not.
 
-**The ActionSense column is not readable on its own.** Its CV table carries only
-the `aggregate` encoder and NO persistence row, so there is no reference to
+**The `ActionSense` column is not readable on its own.** Its CV table carries
+only the `aggregate` encoder and NO persistence row, so there is no reference to
 divide by and the single number in that column cannot be interpreted the way the
 others can. What that arm does report is one run-level ratio,
 **0.81x persistence**, which is the only figure from it that
 compares to the others -- against d256's AR at 0.89x and OpenTouch's
-map_aggregate at 0.83x. Getting the column itself usable means re-running that
-arm with persistence scored, which has not been done.
+map_aggregate at 0.83x.
+
+**`AS corpus` is what that column should have been.** Same sensor, scored by the
+shared scorer, so it brings its own persistence row and every arm at once. It is
+not a drop-in replacement for the cell beside it, though: the frozen column is 75
+slice-and-peel recordings under a stratified 60/20/20, this one is all 299 over
+14 actions under 5-fold CV, and the Norm is fitted to that wider population.
 
 ### Hausdorff — F_R
 
-| model | ActionSense | `ego seen` | `ego unseen` | `d1_map2` | `d1_pg` |
-|---|---|---|---|---|---|
-| AR | — | 6.941 | 7.651 | 2.766 | 2.766 |
-| AR (global fit) | — | 6.173 | 7.349 | — | — |
-| seasonal | — | 3.639 | 2.967 | 2.699 | 2.699 |
-| probGRU | — | 5.583 | 5.795 | — | 2.883 |
-| GRU-aggregate | 2.413 | 4.855 | 5.487 | 2.738 | — |
-| CNN (map) | — | 4.959 | 5.375 | 2.748 | — |
-| flatten (map) | — | 4.070 | 5.504 | 2.820 | — |
-| probGRU + CNN | — | — | — | — | 2.975 |
-| probGRU + flatten | — | — | — | — | 3.013 |
-| persistence | — | 3.244 | 2.967 | 3.301 | 3.301 |
+| model | ActionSense | `AS corpus` | `ego seen` | `ego unseen` | `d1_map2` | `d1_pg` |
+|---|---|---|---|---|---|---|
+| AR | — | 2.566 | 6.941 | 7.651 | 2.766 | 2.766 |
+| AR (global fit) | — | — | 6.173 | 7.349 | — | — |
+| seasonal | — | 2.976 | 3.639 | 2.967 | 2.699 | 2.699 |
+| probGRU | — | 2.589 | 5.583 | 5.795 | — | 2.883 |
+| GRU-aggregate | 2.413 | 2.560 | 4.855 | 5.487 | 2.738 | — |
+| CNN (map) | — | 2.581 | 4.959 | 5.375 | 2.748 | — |
+| flatten (map) | — | 2.594 | 4.070 | 5.504 | 2.820 | — |
+| probGRU + CNN | — | 2.655 | — | — | — | 2.975 |
+| probGRU + flatten | — | 2.900 | — | — | — | 3.013 |
+| persistence | — | 2.958 | 3.244 | 2.967 | 3.301 | 3.301 |
 
 ### Hausdorff — CoPx_R
 
-| model | ActionSense | `ego seen` | `ego unseen` | `d1_map2` | `d1_pg` |
-|---|---|---|---|---|---|
-| AR | — | 2.737 | 3.399 | 2.558 | 2.558 |
-| AR (global fit) | — | 2.821 | 3.062 | — | — |
-| seasonal | — | 3.055 | 2.948 | 2.396 | 2.396 |
-| probGRU | — | 2.778 | 3.021 | — | 2.669 |
-| GRU-aggregate | 2.193 | 2.620 | 2.692 | 2.552 | — |
-| CNN (map) | — | 2.649 | 2.748 | 2.594 | — |
-| flatten (map) | — | 2.728 | 2.858 | 2.649 | — |
-| probGRU + CNN | — | — | — | — | 2.705 |
-| probGRU + flatten | — | — | — | — | 2.764 |
-| persistence | — | 2.958 | 2.948 | 3.151 | 3.151 |
+| model | ActionSense | `AS corpus` | `ego seen` | `ego unseen` | `d1_map2` | `d1_pg` |
+|---|---|---|---|---|---|---|
+| AR | — | 2.296 | 2.737 | 3.399 | 2.558 | 2.558 |
+| AR (global fit) | — | — | 2.821 | 3.062 | — | — |
+| seasonal | — | 2.883 | 3.055 | 2.948 | 2.396 | 2.396 |
+| probGRU | — | 2.455 | 2.778 | 3.021 | — | 2.669 |
+| GRU-aggregate | 2.193 | 2.285 | 2.620 | 2.692 | 2.552 | — |
+| CNN (map) | — | 2.560 | 2.649 | 2.748 | 2.594 | — |
+| flatten (map) | — | 2.468 | 2.728 | 2.858 | 2.649 | — |
+| probGRU + CNN | — | 2.495 | — | — | — | 2.705 |
+| probGRU + flatten | — | 2.705 | — | — | — | 2.764 |
+| persistence | — | 2.880 | 2.958 | 2.948 | 3.151 | 3.151 |
 
 ### Hausdorff — CoPy_R
 
-| model | ActionSense | `ego seen` | `ego unseen` | `d1_map2` | `d1_pg` |
-|---|---|---|---|---|---|
-| AR | — | 2.882 | 2.799 | 2.418 | 2.418 |
-| AR (global fit) | — | 2.810 | 2.744 | — | — |
-| seasonal | — | 3.013 | 3.011 | 2.226 | 2.226 |
-| probGRU | — | 2.713 | 2.973 | — | 2.566 |
-| GRU-aggregate | 2.308 | 2.592 | 2.710 | 2.425 | — |
-| CNN (map) | — | 2.669 | 2.662 | 2.484 | — |
-| flatten (map) | — | 2.776 | 2.825 | 2.511 | — |
-| probGRU + CNN | — | — | — | — | 2.663 |
-| probGRU + flatten | — | — | — | — | 2.637 |
-| persistence | — | 2.948 | 3.011 | 3.070 | 3.070 |
+| model | ActionSense | `AS corpus` | `ego seen` | `ego unseen` | `d1_map2` | `d1_pg` |
+|---|---|---|---|---|---|---|
+| AR | — | 2.534 | 2.882 | 2.799 | 2.418 | 2.418 |
+| AR (global fit) | — | — | 2.810 | 2.744 | — | — |
+| seasonal | — | 2.923 | 3.013 | 3.011 | 2.226 | 2.226 |
+| probGRU | — | 2.579 | 2.713 | 2.973 | — | 2.566 |
+| GRU-aggregate | 2.308 | 2.459 | 2.592 | 2.710 | 2.425 | — |
+| CNN (map) | — | 2.592 | 2.669 | 2.662 | 2.484 | — |
+| flatten (map) | — | 2.540 | 2.776 | 2.825 | 2.511 | — |
+| probGRU + CNN | — | 2.645 | — | — | — | 2.663 |
+| probGRU + flatten | — | 2.805 | — | — | — | 2.637 |
+| persistence | — | 2.916 | 2.948 | 3.011 | 3.070 | 3.070 |
 
 ## R² against the dataset mean
 
@@ -296,8 +301,9 @@ beat the mean comfortably and still lose to persistence, which on a smooth
 1 s horizon is a strong reference -- so read this section beside the skill
 tables, never instead of them.
 
-Per-clip (recording-balanced) on both sensors shown. ActionSense and d256 do
-not write per-channel R² in their CV tables, so they have no column here yet.
+Per-clip (recording-balanced) everywhere shown. The frozen `ActionSense` column
+and d256 do not write per-channel R² in their CV tables, so they are absent here;
+`AS corpus` is the same sensor read through the shared scorer, which does.
 
 **`ego seen` and `ego unseen` are different populations, so their R² columns do
 not compare to each other.** The persistence row makes this concrete: it scores
@@ -309,48 +315,48 @@ how one concludes that unseen tasks are easier to forecast, which is backwards.
 
 ### R² — F_R
 
-| model | `ego seen` | `ego unseen` | `d1` | `d1_mse` | `d1_map2` | `d1_pg` |
-|---|---|---|---|---|---|---|
-| AR | 0.581 | 0.600 | 0.653 | 0.653 | 0.653 | 0.653 |
-| AR (global fit) | 0.504 | 0.607 | — | — | — | — |
-| seasonal | 0.336 | 0.635 | 0.460 | 0.460 | 0.460 | 0.460 |
-| probGRU | 0.556 | 0.648 | 0.647 | 0.651 | — | 0.647 |
-| GRU-aggregate | 0.543 | 0.679 | — | — | 0.661 | — |
-| CNN (map) | 0.542 | 0.676 | — | — | 0.649 | — |
-| flatten (map) | 0.445 | 0.678 | — | — | 0.622 | — |
-| probGRU + CNN | — | — | — | — | — | 0.636 |
-| probGRU + flatten | — | — | — | — | — | 0.614 |
-| persistence | 0.349 | 0.635 | 0.503 | 0.503 | 0.503 | 0.503 |
+| model | `AS corpus` | `ego seen` | `ego unseen` | `d1` | `d1_mse` | `d1_map2` | `d1_pg` |
+|---|---|---|---|---|---|---|---|
+| AR | 0.803 | 0.581 | 0.600 | 0.653 | 0.653 | 0.653 | 0.653 |
+| AR (global fit) | — | 0.504 | 0.607 | — | — | — | — |
+| seasonal | 0.768 | 0.336 | 0.635 | 0.460 | 0.460 | 0.460 | 0.460 |
+| probGRU | 0.798 | 0.556 | 0.648 | 0.647 | 0.651 | — | 0.647 |
+| GRU-aggregate | 0.798 | 0.543 | 0.679 | — | — | 0.661 | — |
+| CNN (map) | 0.792 | 0.542 | 0.676 | — | — | 0.649 | — |
+| flatten (map) | 0.777 | 0.445 | 0.678 | — | — | 0.622 | — |
+| probGRU + CNN | 0.790 | — | — | — | — | — | 0.636 |
+| probGRU + flatten | 0.785 | — | — | — | — | — | 0.614 |
+| persistence | 0.769 | 0.349 | 0.635 | 0.503 | 0.503 | 0.503 | 0.503 |
 
 ### R² — CoPx_R
 
-| model | `ego seen` | `ego unseen` | `d1` | `d1_mse` | `d1_map2` | `d1_pg` |
-|---|---|---|---|---|---|---|
-| AR | 0.401 | 0.472 | 0.265 | 0.265 | 0.265 | 0.265 |
-| AR (global fit) | 0.383 | 0.478 | — | — | — | — |
-| seasonal | 0.195 | 0.331 | −0.369 | −0.369 | −0.369 | −0.369 |
-| probGRU | 0.389 | 0.472 | 0.262 | 0.263 | — | 0.262 |
-| GRU-aggregate | 0.389 | 0.469 | — | — | 0.248 | — |
-| CNN (map) | 0.326 | 0.421 | — | — | 0.159 | — |
-| flatten (map) | 0.274 | 0.414 | — | — | 0.109 | — |
-| probGRU + CNN | — | — | — | — | — | 0.247 |
-| probGRU + flatten | — | — | — | — | — | 0.223 |
-| persistence | 0.215 | 0.331 | −0.346 | −0.346 | −0.346 | −0.346 |
+| model | `AS corpus` | `ego seen` | `ego unseen` | `d1` | `d1_mse` | `d1_map2` | `d1_pg` |
+|---|---|---|---|---|---|---|---|
+| AR | 0.560 | 0.401 | 0.472 | 0.265 | 0.265 | 0.265 | 0.265 |
+| AR (global fit) | — | 0.383 | 0.478 | — | — | — | — |
+| seasonal | 0.408 | 0.195 | 0.331 | −0.369 | −0.369 | −0.369 | −0.369 |
+| probGRU | 0.535 | 0.389 | 0.472 | 0.262 | 0.263 | — | 0.262 |
+| GRU-aggregate | 0.550 | 0.389 | 0.469 | — | — | 0.248 | — |
+| CNN (map) | 0.430 | 0.326 | 0.421 | — | — | 0.159 | — |
+| flatten (map) | 0.413 | 0.274 | 0.414 | — | — | 0.109 | — |
+| probGRU + CNN | 0.508 | — | — | — | — | — | 0.247 |
+| probGRU + flatten | 0.477 | — | — | — | — | — | 0.223 |
+| persistence | 0.412 | 0.215 | 0.331 | −0.346 | −0.346 | −0.346 | −0.346 |
 
 ### R² — CoPy_R
 
-| model | `ego seen` | `ego unseen` | `d1` | `d1_mse` | `d1_map2` | `d1_pg` |
-|---|---|---|---|---|---|---|
-| AR | 0.439 | 0.523 | 0.115 | 0.115 | 0.115 | 0.115 |
-| AR (global fit) | 0.419 | 0.530 | — | — | — | — |
-| seasonal | 0.216 | 0.434 | −0.721 | −0.721 | −0.721 | −0.721 |
-| probGRU | 0.426 | 0.523 | 0.107 | 0.106 | — | 0.107 |
-| GRU-aggregate | 0.410 | 0.545 | — | — | 0.101 | — |
-| CNN (map) | 0.349 | 0.555 | — | — | 0.011 | — |
-| flatten (map) | 0.331 | 0.449 | — | — | −0.012 | — |
-| probGRU + CNN | — | — | — | — | — | 0.038 |
-| probGRU + flatten | — | — | — | — | — | 0.058 |
-| persistence | 0.255 | 0.434 | −0.711 | −0.711 | −0.711 | −0.711 |
+| model | `AS corpus` | `ego seen` | `ego unseen` | `d1` | `d1_mse` | `d1_map2` | `d1_pg` |
+|---|---|---|---|---|---|---|---|
+| AR | 0.710 | 0.439 | 0.523 | 0.115 | 0.115 | 0.115 | 0.115 |
+| AR (global fit) | — | 0.419 | 0.530 | — | — | — | — |
+| seasonal | 0.642 | 0.216 | 0.434 | −0.721 | −0.721 | −0.721 | −0.721 |
+| probGRU | 0.693 | 0.426 | 0.523 | 0.107 | 0.106 | — | 0.107 |
+| GRU-aggregate | 0.696 | 0.410 | 0.545 | — | — | 0.101 | — |
+| CNN (map) | 0.652 | 0.349 | 0.555 | — | — | 0.011 | — |
+| flatten (map) | 0.647 | 0.331 | 0.449 | — | — | −0.012 | — |
+| probGRU + CNN | 0.686 | — | — | — | — | — | 0.038 |
+| probGRU + flatten | 0.662 | — | — | — | — | — | 0.058 |
+| persistence | 0.645 | 0.255 | 0.434 | −0.711 | −0.711 | −0.711 | −0.711 |
 
 ## The backbones side by side, one input at a time
 

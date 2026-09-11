@@ -47,50 +47,73 @@ D256_RUNS = [("d256 none", "runs/d256_probgru_none/metrics.csv"),
 EGOTOUCH_RUNS = [("ego seen", "docs/egotouch/results/test_seen/egotouch_test_seen_3s.csv"),
                  ("ego unseen", "docs/egotouch/results/test_unseen/egotouch_test_unseen_3s.csv")]
 
+_ASC = "docs/actionsense/results/corpus-aggregate-flatten-cnn"
 
-def egotouch(path):
+# Columns fed by the SHARED scorer. The int is which slot of a ROWS tuple names the model in
+# that column -- EgoTouch and the ActionSense corpus call the same arm different things
+# (`aggregate_seq2seq` against `seq2seq_aggregate`), and a single shared slot would have
+# silently blanked one of them.
+#
+# `AS corpus` IS NOT the `ActionSense` column. That one is the frozen harness: 75 recordings,
+# slice and peel only, a stratified 60/20/20. This one is all 299 recordings over 14 actions
+# under 5-fold CV, with a Norm fitted to that wider population. A model's two cells are the
+# same architecture answering two different questions, and the corpus one is the harder.
+SCORER_COLS = [("AS corpus", [f"{_ASC}/as_preds_seq2seq_plus_baselines.csv",
+                              f"{_ASC}/as_preds_tmap_probgru_corpus3s.csv"], 5),
+               ("ego seen", [EGOTOUCH_RUNS[0][1]], 4),
+               ("ego unseen", [EGOTOUCH_RUNS[1][1]], 4)]
+
+
+def scorer(paths):
     """-> {(metric, model, channel): value} for metric in skill/skill_clip/hausdorff/r2.
+
+    Reads ANY CSV the shared scorer wrote, and merges several of them into one column. The
+    ActionSense corpus column needs that: its Seq2Seq arms and the classical baselines were
+    scored in one file, its probGRU arms in another, and the two agree on the `persistence`
+    row to the digit -- same recordings, same origins -- which is what makes merging them a
+    column rather than a splice.
 
     `skill` here is the FRAME-POOLED column, chosen to match the estimator the skill tables
     already use across the other three sensors; the per-clip one is kept under `skill_clip`
     so the Hausdorff section, which is per-clip, has its matching skill available.
     """
     out = {}
-    if not os.path.exists(path):
-        return out
-    for r in csv.DictReader(open(path)):
-        if r.get("action") != "(all actions)":
+    for path in ([paths] if isinstance(paths, str) else paths):
+        if not os.path.exists(path):
             continue
-        m = r["model"]
-        for c in AS_CH_ALL:
-            for src, dst in (("skill_pooled", "skill"), ("skill", "skill_clip"),
-                             ("hausdorff", "hausdorff"), ("r2", "r2")):
-                v = r.get(f"{src}_{c}")
-                if v not in (None, ""):
-                    out[(dst, m, c)] = float(v)
+        for r in csv.DictReader(open(path)):
+            if r.get("action") != "(all actions)":
+                continue
+            m = r["model"]
+            for c in AS_CH_ALL:
+                for src, dst in (("skill_pooled", "skill"), ("skill", "skill_clip"),
+                                 ("hausdorff", "hausdorff"), ("r2", "r2")):
+                    v = r.get(f"{src}_{c}")
+                    if v not in (None, ""):
+                        out[(dst, m, c)] = float(v)
     return out
 
 
 # (label, ActionSense model name, OpenTouch model name). None means the arm has no
 # counterpart there -- NOT that it scored zero.
-# (label, ActionSense name, OpenTouch name, d256 name, EgoTouch name)
-ROWS = [("AR", "ar", "ar", "ar", "ar_group"),
+# (label, ActionSense name, OpenTouch name, d256 name, EgoTouch name, AS-corpus name)
+ROWS = [("AR", "ar", "ar", "ar", "ar_group", "ar"),
         # EgoTouch only. The group-fitted AR above is ~168 per-(action,object) linear models
         # against everyone else's single global one; this row is the capacity-matched
         # reference, and the gap between the two rows IS the value of group specialization.
-        ("AR (global fit)", None, None, None, "ar_global"),
-        ("seasonal", "seasonal", "seasonal", "seasonal", "seasonal_group"),
+        ("AR (global fit)", None, None, None, "ar_global", None),
+        ("seasonal", "seasonal", "seasonal", "seasonal", "seasonal_group", "seasonal"),
         # ActionSense's probGRU predicts the FAST component against persistence-of-fast,
         # OpenTouch's predicts the RAW target under the harness. Same name, different
         # question, so the ActionSense side stays empty rather than inviting the comparison.
-        ("probGRU", None, "prob_gru", "probgru", "aggregate_probgru"),
-        ("GRU-aggregate", "aggregate", "map_aggregate", None, "aggregate_seq2seq"),
-        ("CNN (map)", "cnn", "cnn", None, "cnn_seq2seq"),
-        ("flatten (map)", "flatten", "flatten", None, "flatten_seq2seq"),
+        ("probGRU", None, "prob_gru", "probgru", "aggregate_probgru", "probgru_aggregate"),
+        ("GRU-aggregate", "aggregate", "map_aggregate", None, "aggregate_seq2seq", "seq2seq_aggregate"),
+        ("CNN (map)", "cnn", "cnn", None, "cnn_seq2seq", "seq2seq_cnn"),
+        ("flatten (map)", "flatten", "flatten", None, "flatten_seq2seq", "seq2seq_flatten"),
         # the probGRU backbone reading the map: same architecture as the probGRU row above,
         # only the input differs, which is what the d1_pg run exists to isolate
-        ("probGRU + CNN", None, "pg_cnn", None, None),
-        ("probGRU + flatten", None, "pg_flatten", None, None)]
+        ("probGRU + CNN", None, "pg_cnn", None, None, "probgru_cnn"),
+        ("probGRU + flatten", None, "pg_flatten", None, None, "probgru_flatten")]
 
 # d1_map (08-22) is absent on purpose: flatten and cnn predicted arrays of zeros in it.
 RUNS = [("raw", "08-17", "4-fold, location held out, uncorrected target",
@@ -281,9 +304,12 @@ def main():
     D2H = {n: d256_hausdorff(p) for n, p in D256_RUNS if os.path.exists(p)}
     if not D2:
         print("note: no d256 metrics.csv -- its columns will be absent")
-    EG = {n: egotouch(p) for n, p in EGOTOUCH_RUNS if os.path.exists(p)}
-    if not EG:
-        print("note: no EgoTouch scorer CSV -- its columns will be absent")
+    SC = {n: scorer(ps) for n, ps, _ in SCORER_COLS}
+    SC = {n: v for n, v in SC.items() if v}
+    SLOT = {n: i for n, _, i in SCORER_COLS}
+    for n, ps, _ in SCORER_COLS:
+        if n not in SC:
+            print(f"note: no scorer CSV for {n} ({', '.join(ps)}) -- its column will be absent")
     OT = {n: opentouch(p) for n, _, _, p in RUNS if os.path.exists(p)}
     missing = [n for n, _, _, p in RUNS if not os.path.exists(p)]
     if missing:
@@ -322,10 +348,13 @@ def main():
           "See SESSION_LOG 2026-08-22.", ""]
 
     d2names = [n for n, _ in D256_RUNS if n in D2]
-    egnames = [n for n, _ in EGOTOUCH_RUNS if n in EG]
+    egnames = [n for n, _, _ in SCORER_COLS if n in SC]
+
+    def sc_name(run, row):
+        return row[SLOT[run]]
 
     def eg_cell(run, metric, name, ch):
-        v = EG.get(run, {}).get((metric, name, ch)) if name else None
+        v = SC.get(run, {}).get((metric, name, ch)) if name else None
         return "—" if v is None else f"{v:.3f}".replace("-", "−")
 
     ncol = len(RUNS) + len(d2names) + len(egnames) + 2
@@ -335,9 +364,10 @@ def main():
               + (" | " if egnames else "") + " | ".join(f"`{n}`" for n in d2names)
               + (" | " if d2names else "") + " | ".join(f"`{n}`" for n, *_ in RUNS) + " |",
               "|---" * ncol + "|"]
-        for label, asn, otn, d2n, egn in ROWS:
+        for row in ROWS:
+            label, asn, otn, d2n = row[0], row[1], row[2], row[3]
             cells = ([cell(AS, asn, ch)]
-                     + [eg_cell(n, "skill", egn, ch) for n in egnames]
+                     + [eg_cell(n, "skill", sc_name(n, row), ch) for n in egnames]
                      + [cell(D2[n], d2n, ch) for n in d2names]
                      + [cell(OT.get(n, {}), otn, ch) for n, *_ in RUNS])
             L.append(f"| {label} | " + " | ".join(cells) + " |")
@@ -348,7 +378,9 @@ def main():
             def rcell(sensor):
                 v = FL.get((sensor, ch))
                 return "—" if v is None else f"{v[0]:.3f}".replace("-", "−")
-            cells = ([rcell("actionsense")] + [rcell("egotouch") for _ in egnames]
+            cells = ([rcell("actionsense")]
+                     + [rcell("actionsense" if n == "AS corpus" else "egotouch")
+                        for n in egnames]
                      + [rcell("d256") for _ in d2names]
                      + [rcell("opentouch") for _ in RUNS])
             L.append("| **R** (persistence difficulty) | " + " | ".join(cells) + " |")
@@ -357,7 +389,8 @@ def main():
     # Same column order and the same ROWS mapping the skill tables use, plus persistence,
     # which skill omits because it is 0 by construction while Hausdorff and R2 cannot.
     # Defined out here because the R2 section below reads it too.
-    HD_ROWS = list(ROWS) + [("persistence", None, "persistence", "persistence", "persistence")]
+    HD_ROWS = list(ROWS) + [("persistence", None, "persistence", "persistence", "persistence",
+                            "persistence")]
 
     RM = {n: report_metrics(p) for n, p in REPORTS}
     have = [n for n in RM if any(k[0] == "hausdorff" for k in RM[n])]
@@ -365,7 +398,7 @@ def main():
     # -- d256" heading immediately above this one, and two near-identically named sections made
     # the same metric on different sensors read as two different things. Skill puts all three
     # sensors in one table; this now matches.
-    if have or (D2H and any(D2H.values())) or ASH or EG:
+    if have or (D2H and any(D2H.values())) or ASH or SC:
         L += ["## Hausdorff distance between forecast and truth curves", "",
               "Laid out exactly like the skill tables above -- one section per channel, models",
               "down, sensors and runs across -- so a model can be followed along a row without",
@@ -383,19 +416,23 @@ def main():
               "per-clip from its report; ActionSense is per-clip from its CV table at the",
               "longest history; EgoTouch is per-clip (recording-balanced) from the shared",
               "scorer, so it shares OpenTouch's and ActionSense's convention, not d256's.", "",
-              "**EgoTouch is the only column with its own `persistence` row measured under the",
-              "same mask as the models above it**, because the shared scorer synthesises",
-              "persistence from the saved truth and origins rather than requiring the run to",
-              "have trained it. That makes its column internally readable in the way the",
-              "ActionSense one is not.", "",
-              "**The ActionSense column is not readable on its own.** Its CV table carries only",
-              "the `aggregate` encoder and NO persistence row, so there is no reference to",
+              "**The columns fed by the shared scorer — `AS corpus`, `ego seen`, `ego unseen`",
+              "— each carry their own `persistence` row measured under the same mask as the",
+              "models above it**, because that scorer synthesises persistence from the saved",
+              "truth and origins rather than requiring the run to have trained it. Those",
+              "columns are internally readable in the way the `ActionSense` one is not.", "",
+              "**The `ActionSense` column is not readable on its own.** Its CV table carries",
+              "only the `aggregate` encoder and NO persistence row, so there is no reference to",
               "divide by and the single number in that column cannot be interpreted the way the",
               "others can. What that arm does report is one run-level ratio,",
               f"**{_as_ratio():.2f}x persistence**, which is the only figure from it that",
               "compares to the others -- against d256's AR at 0.89x and OpenTouch's",
-              "map_aggregate at 0.83x. Getting the column itself usable means re-running that",
-              "arm with persistence scored, which has not been done.", ""]
+              "map_aggregate at 0.83x.", "",
+              "**`AS corpus` is what that column should have been.** Same sensor, scored by the",
+              "shared scorer, so it brings its own persistence row and every arm at once. It is",
+              "not a drop-in replacement for the cell beside it, though: the frozen column is 75",
+              "slice-and-peel recordings under a stratified 60/20/20, this one is all 299 over",
+              "14 actions under 5-fold CV, and the Norm is fitted to that wider population.", ""]
 
         def hd_as(name, ch):
             v = ASH.get((name, ch)) if name else None
@@ -412,7 +449,7 @@ def main():
             return f"{v[0]:.3f}" if isinstance(v, tuple) else f"{v:.3f}"
 
         def hd_eg(run, name, ch):
-            v = EG.get(run, {}).get(("hausdorff", name, ch)) if name else None
+            v = SC.get(run, {}).get(("hausdorff", name, ch)) if name else None
             return "—" if v is None else f"{v:.3f}"
 
         nhd = len(have) + len(d2names) + len(egnames) + 2
@@ -422,9 +459,10 @@ def main():
                   + (" | " if egnames else "") + " | ".join(f"`{n}`" for n in d2names)
                   + (" | " if d2names else "") + " | ".join(f"`{n}`" for n in have) + " |",
                   "|---" * nhd + "|"]
-            for label, asn, otn, d2n, egn in HD_ROWS:
+            for row in HD_ROWS:
+                label, asn, otn, d2n = row[0], row[1], row[2], row[3]
                 cells = ([hd_as(asn, ch)]
-                         + [hd_eg(n, egn, ch) for n in egnames]
+                         + [hd_eg(n, sc_name(n, row), ch) for n in egnames]
                          + [hd_d2(n, d2n, ch) for n in d2names]
                          + [hd_ot(n, otn, ch) for n in have])
                 if all(c == "—" for c in cells):
@@ -437,15 +475,15 @@ def main():
     # DIFFERENT denominators -- the action/dataset mean versus persistence -- so a reader who
     # met them in one table would compare two questions as though they were one.
     otr2 = [n for n in RM if any(k[0] == "R2" for k in RM[n])]
-    if EG or otr2:
+    if SC or otr2:
         L += ["## R² against the dataset mean", "",
               "Skill above divides by PERSISTENCE; R² here divides by the MEAN. A model can",
               "beat the mean comfortably and still lose to persistence, which on a smooth",
               "1 s horizon is a strong reference -- so read this section beside the skill",
               "tables, never instead of them.", "",
-              "Per-clip (recording-balanced) on both sensors shown. ActionSense and d256 do",
-              "not write per-channel R² in their CV tables, so they have no column here yet.",
-              "",
+              "Per-clip (recording-balanced) everywhere shown. The frozen `ActionSense` column",
+              "and d256 do not write per-channel R² in their CV tables, so they are absent here;",
+              "`AS corpus` is the same sensor read through the shared scorer, which does.", "",
               "**`ego seen` and `ego unseen` are different populations, so their R² columns do",
               "not compare to each other.** The persistence row makes this concrete: it scores",
               "R² 0.349 on seen and 0.635 on unseen, meaning the unseen split's signals are",
@@ -460,8 +498,9 @@ def main():
                   + (" | " if egnames and otr2 else "")
                   + " | ".join(f"`{n}`" for n in otr2) + " |",
                   "|---" * (len(egnames) + len(otr2) + 1) + "|"]
-            for label, asn, otn, d2n, egn in HD_ROWS:
-                cells = ([eg_cell(n, "r2", egn, ch) for n in egnames]
+            for row in HD_ROWS:
+                label, otn = row[0], row[2]
+                cells = ([eg_cell(n, "r2", sc_name(n, row), ch) for n in egnames]
                          + [("—" if not otn or RM.get(n, {}).get(("R2", otn, ch)) is None
                              else f"{RM[n][('R2', otn, ch)]:.3f}".replace("-", "−"))
                             for n in otr2])

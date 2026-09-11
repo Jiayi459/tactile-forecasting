@@ -12442,3 +12442,45 @@ AR 在 val 上选阶。理由:baseline 若拟合在与被比较臂不同的划�
 **R(persistence 难度)格子是 "—"**。而上面刚说明 persistence 强度正是解释 seen/unseen 差异的关键,
 所以这一格值得补 —— 需在 CRC 上跑 `scripts/shared/predictability_floor.py`(要读 states)。
 **未补,不编造。**
+
+### 2026-09-11 续 — corpus baseline 的结果,与 skill_comparison 增列
+
+**AR 打赢了所有神经臂(全数据集行,290 条)**
+
+| model | R² | skill_pooled | Hausdorff |
+|---|---|---|---|
+| **ar** | **0.7476** | **+0.1576** | 2.543 |
+| seq2seq_aggregate | 0.7414 | +0.1453 | **2.419** |
+| seq2seq_cnn | 0.7033 | +0.0442 | 2.554 |
+| seq2seq_flatten | 0.6946 | +0.0084 | 2.554 |
+| persistence | 0.6925 | 0 | 2.914 |
+| seasonal | 0.6897 | −0.0208 | 2.930 |
+
+**最好的神经臂在 corpus 上打不过一个线性 AR**(+0.145 vs +0.157),R² 同序。
+**唯一反向的是 Hausdorff**:seq2seq_aggregate 2.419 优于 AR 2.543 ——
+轨迹形状上神经网络更好,逐点误差上不如。seasonal 为 −0.0208 而非恰好 0,
+说明 corpus 上部分组确实找到了周期,而那些周期帮了倒忙(冻结 split 上 peel 各组均无周期、
+回退为 persistence,故恒等于 0)。
+
+**九宫格校验改判据**:原 `check_is_test` 查冻结 slice+peel split,问错了两次 ——
+既拒绝了所有 corpus 动作(而 corpus baseline 对它们是正确留出的),
+又会放行冻结 TRAIN 录制(若有朝一日被写出)。改为 `report_heldout`:
+**baseline 对某条 clip 存在预测,本身就是留出的保证**,因为两个 exporter 都只写
+其拟合从未见过的录制(frozen 写 TEST,corpus 每条恰好留出一次)。`--allow-non-test` 随之删除。
+
+**`skill_comparison.md` 增加 `AS corpus` 列**(用户要求,F/CoPx/CoPy 三族表格横向对比)
+- `egotouch(path)` 泛化为 `scorer(paths)`,接受多个共享评分器 CSV 并合并为一列。
+  AS corpus 需要合并两份:Seq2Seq 臂与经典 baseline 在
+  `as_preds_seq2seq_plus_baselines.csv`,probGRU 臂在 `as_preds_tmap_probgru_corpus3s.csv`。
+  **两份的 `persistence` 行逐位一致**(hausdorff 2.9579、r2 0.7692)—— 同批录制、同 origins,
+  这才使合并成为「一列」而非拼接。
+- 新增 `SCORER_COLS`,每列记录该列取 ROWS 元组的第几个槽位作模型名 ——
+  EgoTouch 与 AS corpus 对同一条臂的命名不同(`aggregate_seq2seq` vs `seq2seq_aggregate`),
+  共用一个槽位会静默把其中一个清空。`ROWS`/`HD_ROWS` 扩为 6 元组。
+- 三族表格(skill / Hausdorff / R²)全部填满九行,**且带自己的 `persistence` 行**。
+- 随之更正三处过时说明:EgoTouch 不再是「唯一带 persistence 行的列」;
+  R² 节不再说「ActionSense 没有逐通道 R²」;Hausdorff 节补充 `AS corpus` 与冻结
+  `ActionSense` 列**不可互换**(75 条 slice+peel 分层 60/20/20 vs 299 条 14 动作 5 折,
+  且 Norm 拟合于更宽的总体)。
+
+`pytest tests/ -q` → 183 passed。
