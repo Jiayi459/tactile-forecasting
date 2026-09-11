@@ -196,8 +196,8 @@ def report_heldout(arms: dict, clip: int, layout: list, dataset: str) -> None:
     """
     base = [cell[0] for cell in layout[-1][1] if cell and cell[0] in arms]
     if base:
-        print(f"  baselines present for clip {clip}: {base} -- held out by construction "
-              f"({HELD_OUT[dataset]})")
+        print(f"  baselines present for clip {clip}: {base} -- held out by construction, "
+              f"{HELD_OUT[dataset]}")
     else:
         print(f"  no baseline arms for clip {clip}; the bottom row will be empty.")
 
@@ -256,8 +256,12 @@ def main():
         for c, cell in enumerate(models):
             ax = axes[r, c]
             if cell is None:
-                # Never run, as opposed to run-and-missing: the sweep has no such arm at all.
+                # Never run, as opposed to run-and-missing ("not available" below): the sweep
+                # has no such arm at all. Say which it is -- a blank cell alone reads as a
+                # broken figure, and the two absences mean different things about the work.
                 ax.set_axis_off()
+                ax.text(0.5, 0.5, "not in this sweep", transform=ax.transAxes, ha="center",
+                        va="center", fontsize=10, color=MUTED)
                 continue
             m, ckey, coltitle = cell
             ax.plot(tt, y[:, k], "-", color=TRUTH, lw=1.2, label="ground truth", zorder=3)

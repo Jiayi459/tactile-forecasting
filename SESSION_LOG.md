@@ -12694,3 +12694,18 @@ R² 除以该动作自身方差、skill 除以该条录制自己的 persistence,
 三个传感器都含 `F_R`,故 `plot_clip_model_grid.py` 的默认 `--channel F_R` 无需按数据集改。
 matplotlib 在 `scripts/crc/environment_tactile_cuda.yaml` 中,脚本已 `matplotlib.use("Agg")`,
 可在登录节点直接出图,无需 qsub(纯 numpy+matplotlib,秒级)。
+
+### 十二、交付前的两项验证与一处可读性修正
+
+**`None` 格补文字。** 原设计把"该臂根本没跑过"画成完全空白轴,但空白格在读者眼里与"图坏了"
+无法区分。现补 `not in this sweep`,与"跑了但文件缺失"的 `not available` 区分开——两种缺失
+对应的是两件不同的事(一个是没做,一个是产物丢了),图上必须能分辨。
+
+**EgoTouch 路径用合成 npz 验证(本地无该数据)。** 七个臂全部识别、无 MISSING、held-out 语句
+正确指向 `train_tactile_map.py:157`。图上 Seq2Seq 行呈现**蓝/橙/绿三色**——这正是旧 `rsplit`
+解析下会三格全灰的那一行,修复得到目视确认。
+
+**新增 `scripts/make_grids.sh`** — 四张图一条命令。源目录缺失或为空则**报告并跳过**,不致命:
+ActionSense 三 encoder 目录自 9/8 起为空,不应因此赔上另外三张图。脚本注释里写明
+`runs/preds_d1_map` 被**故意排除**(作废产物,与 map2 名字只差一个字符)。
+本地实测:跳过三个不存在的源、正常产出 ActionSense clip 109 一张。
