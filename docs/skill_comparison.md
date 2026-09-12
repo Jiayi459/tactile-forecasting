@@ -150,7 +150,7 @@ See SESSION_LOG 2026-08-22.
 | CNN (map) | 0.138 | 0.124 | 0.244 | 0.215 | — | — | — | — | 0.333 | 0.330 | — |
 | flatten (map) | −0.042 | 0.044 | 0.142 | 0.129 | — | — | — | — | 0.273 | 0.269 | — |
 | probGRU + CNN | — | 0.111 | 0.258 | 0.245 | — | — | — | — | — | — | 0.356 |
-| probGRU + flatten | — | 0.082 | — | — | — | — | — | — | — | — | 0.322 |
+| probGRU + flatten | — | 0.082 | 0.212 | 0.187 | — | — | — | — | — | — | 0.322 |
 | **R** (persistence difficulty) | 0.655 | 0.655 | — | — | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 |
 
 ## CoPx_R
@@ -165,7 +165,7 @@ See SESSION_LOG 2026-08-22.
 | CNN (map) | 0.011 | 0.026 | 0.222 | 0.191 | — | — | — | — | 0.374 | 0.370 | — |
 | flatten (map) | −0.002 | 0.000 | 0.147 | 0.137 | — | — | — | — | 0.331 | 0.328 | — |
 | probGRU + CNN | — | 0.144 | 0.286 | 0.219 | — | — | — | — | — | — | 0.414 |
-| probGRU + flatten | — | 0.079 | — | — | — | — | — | — | — | — | 0.393 |
+| probGRU + flatten | — | 0.079 | 0.274 | 0.194 | — | — | — | — | — | — | 0.393 |
 | **R** (persistence difficulty) | 0.746 | 0.746 | — | — | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 |
 
 ## CoPy_R
@@ -180,7 +180,7 @@ See SESSION_LOG 2026-08-22.
 | CNN (map) | 0.045 | 0.037 | 0.187 | 0.207 | — | — | — | — | 0.424 | 0.419 | — |
 | flatten (map) | −0.051 | −0.001 | 0.114 | 0.117 | — | — | — | — | 0.407 | 0.408 | — |
 | probGRU + CNN | — | 0.154 | 0.239 | 0.158 | — | — | — | — | — | — | 0.430 |
-| probGRU + flatten | — | 0.075 | — | — | — | — | — | — | — | — | 0.446 |
+| probGRU + flatten | — | 0.075 | 0.222 | 0.145 | — | — | — | — | — | — | 0.446 |
 | **R** (persistence difficulty) | 0.658 | 0.658 | — | — | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 |
 
 ## Hausdorff distance between forecast and truth curves
@@ -234,7 +234,7 @@ slice-and-peel recordings under a stratified 60/20/20, this one is all 299 over
 | CNN (map) | — | 2.581 | 4.959 | 5.375 | 2.748 | — |
 | flatten (map) | — | 2.594 | 4.070 | 5.504 | 2.820 | — |
 | probGRU + CNN | — | 2.655 | 5.056 | 6.003 | — | 2.975 |
-| probGRU + flatten | — | 2.900 | — | — | — | 3.013 |
+| probGRU + flatten | — | 2.900 | 5.108 | 6.526 | — | 3.013 |
 | persistence | — | 2.958 | 3.244 | 2.967 | 3.301 | 3.301 |
 
 ### Hausdorff — CoPx_R
@@ -249,7 +249,7 @@ slice-and-peel recordings under a stratified 60/20/20, this one is all 299 over
 | CNN (map) | — | 2.560 | 2.649 | 2.748 | 2.594 | — |
 | flatten (map) | — | 2.468 | 2.728 | 2.858 | 2.649 | — |
 | probGRU + CNN | — | 2.495 | 2.673 | 3.225 | — | 2.705 |
-| probGRU + flatten | — | 2.705 | — | — | — | 2.764 |
+| probGRU + flatten | — | 2.705 | 2.726 | 3.168 | — | 2.764 |
 | persistence | — | 2.880 | 2.958 | 2.948 | 3.151 | 3.151 |
 
 ### Hausdorff — CoPy_R
@@ -264,7 +264,7 @@ slice-and-peel recordings under a stratified 60/20/20, this one is all 299 over
 | CNN (map) | — | 2.592 | 2.669 | 2.662 | 2.484 | — |
 | flatten (map) | — | 2.540 | 2.776 | 2.825 | 2.511 | — |
 | probGRU + CNN | — | 2.645 | 2.676 | 3.072 | — | 2.663 |
-| probGRU + flatten | — | 2.805 | — | — | — | 2.637 |
+| probGRU + flatten | — | 2.805 | 2.863 | 3.183 | — | 2.637 |
 | persistence | — | 2.916 | 2.948 | 3.011 | 3.070 | 3.070 |
 
 ## R² against the dataset mean
@@ -298,7 +298,7 @@ how one concludes that unseen tasks are easier to forecast, which is backwards.
 | CNN (map) | 0.792 | 0.542 | 0.676 | — | — | 0.649 | — |
 | flatten (map) | 0.777 | 0.445 | 0.678 | — | — | 0.622 | — |
 | probGRU + CNN | 0.790 | 0.572 | 0.666 | — | — | — | 0.636 |
-| probGRU + flatten | 0.785 | — | — | — | — | — | 0.614 |
+| probGRU + flatten | 0.785 | 0.549 | 0.678 | — | — | — | 0.614 |
 | persistence | 0.769 | 0.349 | 0.635 | 0.503 | 0.503 | 0.503 | 0.503 |
 
 ### R² — CoPx_R
@@ -313,7 +313,7 @@ how one concludes that unseen tasks are easier to forecast, which is backwards.
 | CNN (map) | 0.430 | 0.326 | 0.421 | — | — | 0.159 | — |
 | flatten (map) | 0.413 | 0.274 | 0.414 | — | — | 0.109 | — |
 | probGRU + CNN | 0.508 | 0.392 | 0.431 | — | — | — | 0.247 |
-| probGRU + flatten | 0.477 | — | — | — | — | — | 0.223 |
+| probGRU + flatten | 0.477 | 0.388 | 0.427 | — | — | — | 0.223 |
 | persistence | 0.412 | 0.215 | 0.331 | −0.346 | −0.346 | −0.346 | −0.346 |
 
 ### R² — CoPy_R
@@ -328,7 +328,7 @@ how one concludes that unseen tasks are easier to forecast, which is backwards.
 | CNN (map) | 0.652 | 0.349 | 0.555 | — | — | 0.011 | — |
 | flatten (map) | 0.647 | 0.331 | 0.449 | — | — | −0.012 | — |
 | probGRU + CNN | 0.686 | 0.402 | 0.425 | — | — | — | 0.038 |
-| probGRU + flatten | 0.662 | — | — | — | — | — | 0.058 |
+| probGRU + flatten | 0.662 | 0.386 | 0.385 | — | — | — | 0.058 |
 | persistence | 0.645 | 0.255 | 0.434 | −0.711 | −0.711 | −0.711 | −0.711 |
 
 ## The backbones side by side, one input at a time

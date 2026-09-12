@@ -404,6 +404,7 @@ Whole-split rows, ranked by skill. Read this first: an action ranking is only me
 | `cnn_probgru` | 0.4504 | **+0.2503** | 3.515 | 1.146 |
 | `aggregate_seq2seq` | 0.4495 | **+0.2464** | 3.633 | 1.184 |
 | `ar_global` | 0.4391 | **+0.2288** | 4.012 | 1.308 |
+| `flatten_probgru` | 0.4336 | **+0.2251** | 3.997 | 1.303 |
 | `cnn_seq2seq` | 0.4051 | **+0.1919** | 3.764 | 1.227 |
 | `flatten_seq2seq` | 0.3486 | **+0.1097** | 3.289 | 1.072 |
 | `seasonal_global` | 0.2717 | **+0.0000** | 3.068 | 1.000 |
@@ -418,6 +419,7 @@ Whole-split rows, ranked by skill. Read this first: an action ranking is only me
 | `aggregate_probgru` | 0.4908 | **+0.2244** | 3.935 | 1.298 |
 | `cnn_seq2seq` | 0.4636 | **+0.2078** | 3.694 | 1.219 |
 | `cnn_probgru` | 0.4628 | **+0.1904** | 3.925 | 1.295 |
+| `flatten_probgru` | 0.4540 | **+0.1750** | 4.132 | 1.363 |
 | `ar_global` | 0.4607 | **+0.1743** | 4.407 | 1.454 |
 | `ar_group` | 0.4533 | **+0.1632** | 4.723 | 1.558 |
 | `flatten_seq2seq` | 0.3968 | **+0.1203** | 3.609 | 1.190 |

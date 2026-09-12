@@ -92,6 +92,21 @@ per action:
 
 Lowest Hausdorff: **rotate** (2.713); highest R²: **open** (0.5064).
 
+**model `flatten_probgru`** — whole dataset (56 recordings): R² **0.4409**, skill **+0.1552**, skill (frame-pooled, OpenTouch's estimator) **+0.1766**, Hausdorff **4.314** (1.423× persistence). This is measured against the whole dataset's mean, so it is **not** the average of the rows below, each of which uses its own action's mean.
+
+per action:
+
+| # | action | n | R² | skill vs pers | Hausdorff | HD ratio |
+|---:|---|---:|---:|---:|---:|---:|
+| 1 | pick | 10 | **0.4808** | 0.2098 | 4.105 | 1.362 |
+| 2 | open | 20 | **0.4753** | 0.1298 | 4.943 | 1.622 |
+| 3 | put | 5 | **0.4078** | 0.0975 | 4.152 | 1.293 |
+| 4 | fold | 9 | **0.2572** | 0.2770 | 3.034 | 1.017 |
+| 5 | rotate | 6 | **-0.0154** | -0.2411 | 5.090 | 1.792 |
+| 6 | wring | 6 | **-1.3560** | -0.0083 | 3.846 | 1.233 |
+
+Lowest Hausdorff: **fold** (3.034); highest R²: **pick** (0.4808).
+
 **model `flatten_seq2seq`** — whole dataset (56 recordings): R² **0.4079**, skill **+0.1389**, skill (frame-pooled, OpenTouch's estimator) **+0.1487**, Hausdorff **3.638** (1.200× persistence). This is measured against the whole dataset's mean, so it is **not** the average of the rows below, each of which uses its own action's mean.
 
 per action:
