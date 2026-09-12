@@ -8,7 +8,13 @@
 # Submit from repo root after `git pull` and `mkdir -p logs`:
 #   qsub scripts/crc/train_egotouch_gpu.job
 #   qsub -v EPOCHS=5 scripts/crc/train_egotouch_gpu.job     # smoke
-#   qsub -v PAIRS=probgru/cnn,probgru/flatten scripts/crc/train_egotouch_gpu.job
+#   qsub -v PAIRS=probgru/cnn+probgru/flatten scripts/crc/train_egotouch_gpu.job
+#
+# SEPARATE PAIRS WITH "+", NEVER A COMMA. qsub -v takes a COMMA-SEPARATED variable list, so
+# `-v PAIRS=probgru/cnn,probgru/flatten` sets PAIRS=probgru/cnn and treats `probgru/flatten`
+# as a second variable name -- the job then trains half the arms requested and exits 0. That
+# happened on 2026-09-12: the flatten arms were silently dropped and only the cnn ones ran.
+# The job translates "+" back to "," below, and prints the pair list it resolved.
 #
 # THIS NEEDS THE GPU QUEUE. The map arms train over ~494k windows for 60 epochs; on a login
 # node that is not slow, it is unfinishable, and the driver prints nothing mid-arm so it looks
@@ -54,7 +60,9 @@ python scripts/shared/export_mask_thresholds.py --config configs/egotouch/eval_h
 python scripts/egotouch/run_baselines.py
 
 # The 8-model sweep (Q-F(b)): seq2seq x {aggregate,flatten,cnn} + probgru x aggregate, x {1,3} s.
-python scripts/egotouch/train_tactile_map.py ${EPOCHS:+--epochs $EPOCHS} ${PAIRS:+--pairs $PAIRS}
+PAIRS_ARG="${PAIRS//+/,}"
+echo "resolved PAIRS='${PAIRS:-<default: the full 6-arm matrix>}' -> --pairs '${PAIRS_ARG}'"
+python scripts/egotouch/train_tactile_map.py ${EPOCHS:+--epochs $EPOCHS} ${PAIRS_ARG:+--pairs $PAIRS_ARG}
 
 echo "score next (CPU, can be local):"
 echo "  python scripts/shared/score_preds_per_action.py --preds runs/egotouch_tactile_map/test_seen_1s \\"
