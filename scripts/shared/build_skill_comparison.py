@@ -370,6 +370,15 @@ def main():
               "horizon, value is divided by the truth's own standard deviation there. Unlike",
               "MSE this is not pointwise, so a flat forecast through an oscillation is charged",
               "roughly its amplitude.", "",
+              "**A Hausdorff ratio near 1.0 is ambiguous, and it cannot rank arms on its own.**",
+              "persistence's ratio is 1.000 by construction, so an arm that barely departs from",
+              "persistence inherits its shape score. On EgoTouch's seen split at 3 s the LOWEST",
+              "neural Hausdorff belongs to `flatten (map)` under Seq2Seq, which also has the",
+              "LOWEST skill of any neural arm there: it scores well on shape by not moving.",
+              "Across the eight EgoTouch neural arms, Spearman(skill, HD ratio) is +0.26, +0.49,",
+              "+0.49 and -0.26 over the four split-by-history combinations — unstable, and mostly",
+              "POSITIVE, meaning better point error tends to come with worse shape. Always read a",
+              "Hausdorff cell beside that arm's skill.", "",
               "**`persistence` is a row here, not a zero.** Skill divides it out; Hausdorff does",
               "not, so the reference has to be visible for a number to mean anything. Read each",
               "column against its own persistence, never across columns: the three sensors do",
@@ -507,6 +516,73 @@ def main():
               "between input representations within either backbone (0.08 within Seq2Seq,",
               "0.13 within probGRU), so on this data the decoder matters more than what it",
               "is fed.", ""]
+
+    # --- The same decoder-vs-input question on every corpus that can now answer it ------
+    # OpenTouch could answer it first because d1_pg ran probGRU over all three inputs. The
+    # ActionSense corpus sweep and EgoTouch now both carry the full 2x3 through the shared
+    # scorer, so the comparison is no longer one sensor's property. EgoTouch's probGRU map
+    # arms existed only from 2026-09-12: they were cut from its matrix on the false premise
+    # that the other sensors had not run them, which is exactly the cell this table needs.
+    BACKBONE_PAIRS = [("aggregate", "GRU-aggregate", "probGRU"),
+                      ("cnn", "CNN (map)", "probGRU + CNN"),
+                      ("flatten", "flatten (map)", "probGRU + flatten")]
+    by_label = {r[0]: r for r in ROWS}
+    if SC:
+        L += ["## Decoder versus input representation, on every corpus that has both", "",
+              "The section above is OpenTouch's. These are the same nine cells per corpus,",
+              "read from the shared scorer: per-clip skill, Δ = probGRU − Seq2Seq at one",
+              "fixed input, beside the spread ACROSS inputs within each decoder. Positive Δ",
+              "means the autoregressive absolute-target decoder helped that input.", "",
+              "**The two factors are not additive.** Where Seq2Seq already does well the",
+              "decoder buys little; where it does badly the decoder recovers most of the gap.",
+              "So a representation ordering measured under one decoder overstates how much",
+              "the representation itself matters.", ""]
+        for col in egnames:
+            rowsd = SC[col]
+
+            def sk(label, ch):
+                nm = by_label[label][SLOT[col]]
+                return rowsd.get(("skill_clip", nm, ch)) if nm else None
+
+            L += [f"### {col}", "",
+                  "| input | " + " | ".join(f"{c} S2S / pgru / Δ" for c in CH) + " |",
+                  "|---|" + "---:|" * len(CH)]
+            spread = {"S2S": [], "pgru": []}
+            for inp, s2_lab, pg_lab in BACKBONE_PAIRS:
+                cells, ok = [], True
+                for ch in CH:
+                    # NOT `a`: that is the argparse namespace this function still needs.
+                    v_s2, v_pg = sk(s2_lab, ch), sk(pg_lab, ch)
+                    if v_s2 is None or v_pg is None:
+                        cells.append("—"); ok = False; continue
+                    cells.append(f"{v_s2:.3f} / {v_pg:.3f} / **{v_pg - v_s2:+.3f}**")
+                if ok:
+                    spread["S2S"].append(sum(sk(s2_lab, c) for c in CH) / len(CH))
+                    spread["pgru"].append(sum(sk(pg_lab, c) for c in CH) / len(CH))
+                L.append(f"| {inp} | " + " | ".join(cells) + " |")
+            if len(spread["S2S"]) == len(BACKBONE_PAIRS):
+                sp2 = max(spread["S2S"]) - min(spread["S2S"])
+                spp = max(spread["pgru"]) - min(spread["pgru"])
+                deltas = [p - s for s, p in zip(spread["S2S"], spread["pgru"])]
+                worst = BACKBONE_PAIRS[spread["S2S"].index(min(spread["S2S"]))][0]
+                best = BACKBONE_PAIRS[spread["S2S"].index(max(spread["S2S"]))][0]
+                i_worst = spread["S2S"].index(min(spread["S2S"]))
+                i_best = spread["S2S"].index(max(spread["S2S"]))
+                # "gain" only when the deltas are actually positive. On ego unseen every
+                # channel-mean delta is negative, and calling the least-negative one a gain
+                # would invert what the row says.
+                verb = "gain" if max(deltas) > 0 else "change"
+                L += ["",
+                      f"Channel-mean spread across the three inputs: **{sp2:.3f} under "
+                      f"Seq2Seq, {spp:.3f} under probGRU**"
+                      + (f" — the decoder shrinks it {sp2 / spp:.1f}x."
+                         if spp > 1e-9 else "."),
+                      f"Δ runs {min(deltas):+.3f} to {max(deltas):+.3f}"
+                      + (", every input worse under probGRU. " if max(deltas) <= 0 else ". ")
+                      + f"The largest {verb} is `{worst}` ({deltas[i_worst]:+.3f}), the input "
+                        f"Seq2Seq handles worst; `{best}`, the one it handles best, is "
+                        f"{deltas[i_best]:+.3f}.",
+                      ""]
 
     # --- Both backbones, every input, against all three baselines ---------------------
     # The section above compares the two decoders to EACH OTHER, which cannot say whether

@@ -350,7 +350,7 @@ This matters for how the corpus-level result is read. probGRU's pooled skill ove
 
 ### 4.5 Frozen-harness audit (regenerated, not asserted)
 
-The tables above are the **corpus** scope. The **frozen** harness still carries no per-action forecast metric, and this is re-checked rather than asserted: scanned **42** CSVs under `docs/actionsense/`, of which **14** have an action/verb column.
+The tables above are the **corpus** scope. The **frozen** harness still carries no per-action forecast metric, and this is re-checked rather than asserted: scanned **40** CSVs under `docs/actionsense/`, of which **14** have an action/verb column.
 
 - `docs/actionsense/results/corpus-aggregate-flatten-cnn/as_preds_seq2seq_plus_baselines.csv` — `label,action,n_clips,model,r2,skill,skill_pooled,hausdorff,hausdorff_ratio,r2_f_l,skill_f_l,skill_pooled_f_l,hausdorff_f_l,r2_copx_l,skill_copx_l,skill_pooled_copx_l,hausdorff_copx_l,r2_copy_l,skill_copy_l,skill_pooled_copy_l,hausdorff_copy_l,r2_f_r,skill_f_r,skill_pooled_f_r,hausdorff_f_r,r2_copx_r,skill_copx_r,skill_pooled_copx_r,hausdorff_copx_r,r2_copy_r,skill_copy_r,skill_pooled_copy_r,hausdorff_copy_r`
 - `docs/actionsense/results/corpus-aggregate-flatten-cnn/as_preds_tmap_probgru_corpus3s.csv` — `label,action,n_clips,model,r2,skill,skill_pooled,hausdorff,hausdorff_ratio,r2_f_l,skill_f_l,skill_pooled_f_l,hausdorff_f_l,r2_copx_l,skill_copx_l,skill_pooled_copx_l,hausdorff_copx_l,r2_copy_l,skill_copy_l,skill_pooled_copy_l,hausdorff_copy_l,r2_f_r,skill_f_r,skill_pooled_f_r,hausdorff_f_r,r2_copx_r,skill_copx_r,skill_pooled_copx_r,hausdorff_copx_r,r2_copy_r,skill_copy_r,skill_pooled_copy_r,hausdorff_copy_r`

@@ -194,6 +194,16 @@ horizon, value is divided by the truth's own standard deviation there. Unlike
 MSE this is not pointwise, so a flat forecast through an oscillation is charged
 roughly its amplitude.
 
+**A Hausdorff ratio near 1.0 is ambiguous, and it cannot rank arms on its own.**
+persistence's ratio is 1.000 by construction, so an arm that barely departs from
+persistence inherits its shape score. On EgoTouch's seen split at 3 s the LOWEST
+neural Hausdorff belongs to `flatten (map)` under Seq2Seq, which also has the
+LOWEST skill of any neural arm there: it scores well on shape by not moving.
+Across the eight EgoTouch neural arms, Spearman(skill, HD ratio) is +0.26, +0.49,
++0.49 and -0.26 over the four split-by-history combinations — unstable, and mostly
+POSITIVE, meaning better point error tends to come with worse shape. Always read a
+Hausdorff cell beside that arm's skill.
+
 **`persistence` is a row here, not a zero.** Skill divides it out; Hausdorff does
 not, so the reference has to be visible for a number to mean anything. Read each
 column against its own persistence, never across columns: the three sensors do
@@ -360,6 +370,51 @@ The backbone effect on shape (0.11-0.23) is at least as large as the spread
 between input representations within either backbone (0.08 within Seq2Seq,
 0.13 within probGRU), so on this data the decoder matters more than what it
 is fed.
+
+## Decoder versus input representation, on every corpus that has both
+
+The section above is OpenTouch's. These are the same nine cells per corpus,
+read from the shared scorer: per-clip skill, Δ = probGRU − Seq2Seq at one
+fixed input, beside the spread ACROSS inputs within each decoder. Positive Δ
+means the autoregressive absolute-target decoder helped that input.
+
+**The two factors are not additive.** Where Seq2Seq already does well the
+decoder buys little; where it does badly the decoder recovers most of the gap.
+So a representation ordering measured under one decoder overstates how much
+the representation itself matters.
+
+### AS corpus
+
+| input | F_R S2S / pgru / Δ | CoPx_R S2S / pgru / Δ | CoPy_R S2S / pgru / Δ |
+|---|---:|---:|---:|
+| aggregate | 0.124 / 0.126 / **+0.002** | 0.235 / 0.209 / **-0.026** | 0.143 / 0.134 / **-0.009** |
+| cnn | 0.099 / 0.091 / **-0.008** | 0.031 / 0.163 / **+0.132** | 0.019 / 0.116 / **+0.096** |
+| flatten | 0.032 / 0.070 / **+0.038** | 0.003 / 0.111 / **+0.108** | 0.005 / 0.046 / **+0.041** |
+
+Channel-mean spread across the three inputs: **0.154 under Seq2Seq, 0.081 under probGRU** — the decoder shrinks it 1.9x.
+Δ runs -0.011 to +0.074. The largest gain is `flatten` (+0.062), the input Seq2Seq handles worst; `aggregate`, the one it handles best, is -0.011.
+
+### ego seen
+
+| input | F_R S2S / pgru / Δ | CoPx_R S2S / pgru / Δ | CoPy_R S2S / pgru / Δ |
+|---|---:|---:|---:|
+| aggregate | 0.297 / 0.317 / **+0.020** | 0.222 / 0.221 / **-0.000** | 0.209 / 0.230 / **+0.021** |
+| cnn | 0.297 / 0.342 / **+0.045** | 0.141 / 0.226 / **+0.085** | 0.126 / 0.198 / **+0.072** |
+| flatten | 0.147 / 0.307 / **+0.160** | 0.075 / 0.221 / **+0.146** | 0.102 / 0.175 / **+0.073** |
+
+Channel-mean spread across the three inputs: **0.135 under Seq2Seq, 0.022 under probGRU** — the decoder shrinks it 6.1x.
+Δ runs +0.014 to +0.126. The largest gain is `flatten` (+0.126), the input Seq2Seq handles worst; `aggregate`, the one it handles best, is +0.014.
+
+### ego unseen
+
+| input | F_R S2S / pgru / Δ | CoPx_R S2S / pgru / Δ | CoPy_R S2S / pgru / Δ |
+|---|---:|---:|---:|
+| aggregate | 0.119 / 0.035 / **-0.084** | 0.205 / 0.210 / **+0.004** | 0.195 / 0.156 / **-0.040** |
+| cnn | 0.110 / 0.085 / **-0.025** | 0.133 / 0.149 / **+0.015** | 0.214 / -0.016 / **-0.230** |
+| flatten | 0.117 / 0.117 / **+0.001** | 0.124 / 0.143 / **+0.019** | 0.025 / -0.088 / **-0.113** |
+
+Channel-mean spread across the three inputs: **0.085 under Seq2Seq, 0.076 under probGRU** — the decoder shrinks it 1.1x.
+Δ runs -0.080 to -0.031, every input worse under probGRU. The largest change is `flatten` (-0.031), the input Seq2Seq handles worst; `aggregate`, the one it handles best, is -0.040.
 
 ## Both backbones against the baselines, one input at a time
 
