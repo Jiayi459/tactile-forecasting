@@ -350,7 +350,7 @@ This matters for how the corpus-level result is read. probGRU's pooled skill ove
 
 ### 4.5 Frozen-harness audit (regenerated, not asserted)
 
-The tables above are the **corpus** scope. The **frozen** harness still carries no per-action forecast metric, and this is re-checked rather than asserted: scanned **40** CSVs under `docs/actionsense/`, of which **14** have an action/verb column.
+The tables above are the **corpus** scope. The **frozen** harness still carries no per-action forecast metric, and this is re-checked rather than asserted: scanned **42** CSVs under `docs/actionsense/`, of which **14** have an action/verb column.
 
 - `docs/actionsense/results/corpus-aggregate-flatten-cnn/as_preds_seq2seq_plus_baselines.csv` — `label,action,n_clips,model,r2,skill,skill_pooled,hausdorff,hausdorff_ratio,r2_f_l,skill_f_l,skill_pooled_f_l,hausdorff_f_l,r2_copx_l,skill_copx_l,skill_pooled_copx_l,hausdorff_copx_l,r2_copy_l,skill_copy_l,skill_pooled_copy_l,hausdorff_copy_l,r2_f_r,skill_f_r,skill_pooled_f_r,hausdorff_f_r,r2_copx_r,skill_copx_r,skill_pooled_copx_r,hausdorff_copx_r,r2_copy_r,skill_copy_r,skill_pooled_copy_r,hausdorff_copy_r`
 - `docs/actionsense/results/corpus-aggregate-flatten-cnn/as_preds_tmap_probgru_corpus3s.csv` — `label,action,n_clips,model,r2,skill,skill_pooled,hausdorff,hausdorff_ratio,r2_f_l,skill_f_l,skill_pooled_f_l,hausdorff_f_l,r2_copx_l,skill_copx_l,skill_pooled_copx_l,hausdorff_copx_l,r2_copy_l,skill_copy_l,skill_pooled_copy_l,hausdorff_copy_l,r2_f_r,skill_f_r,skill_pooled_f_r,hausdorff_f_r,r2_copx_r,skill_copx_r,skill_pooled_copx_r,hausdorff_copx_r,r2_copy_r,skill_copy_r,skill_pooled_copy_r,hausdorff_copy_r`
@@ -401,6 +401,7 @@ Whole-split rows, ranked by skill. Read this first: an action ranking is only me
 |---|---:|---:|---:|---:|
 | `ar_group` | 0.4671 | **+0.2771** | 4.692 | 1.529 |
 | `aggregate_probgru` | 0.4600 | **+0.2630** | 4.074 | 1.328 |
+| `cnn_probgru` | 0.4504 | **+0.2503** | 3.515 | 1.146 |
 | `aggregate_seq2seq` | 0.4495 | **+0.2464** | 3.633 | 1.184 |
 | `ar_global` | 0.4391 | **+0.2288** | 4.012 | 1.308 |
 | `cnn_seq2seq` | 0.4051 | **+0.1919** | 3.764 | 1.227 |
@@ -416,6 +417,7 @@ Whole-split rows, ranked by skill. Read this first: an action ranking is only me
 | `aggregate_seq2seq` | 0.4807 | **+0.2264** | 3.607 | 1.190 |
 | `aggregate_probgru` | 0.4908 | **+0.2244** | 3.935 | 1.298 |
 | `cnn_seq2seq` | 0.4636 | **+0.2078** | 3.694 | 1.219 |
+| `cnn_probgru` | 0.4628 | **+0.1904** | 3.925 | 1.295 |
 | `ar_global` | 0.4607 | **+0.1743** | 4.407 | 1.454 |
 | `ar_group` | 0.4533 | **+0.1632** | 4.723 | 1.558 |
 | `flatten_seq2seq` | 0.3968 | **+0.1203** | 3.609 | 1.190 |
