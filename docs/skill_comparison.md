@@ -1,15 +1,15 @@
-# Skill against persistence — every run, all four sensors
+# Skill against persistence — every run, all three sensors
 
 Skill = 1 − MSE(model)/MSE(persistence) at the full 1 s horizon, pooled over
 frames, averaged over folds. Right hand only: OpenTouch instruments one hand, so
-ActionSense's and d256's `_R` channels are the closest their two-handed targets allow.
+ActionSense's `_R` channels are the closest its two-handed target allows.
 
-**The columns are not the same experiment.** d256 holds out a whole SUBJECT
-(5-fold LOSO), OpenTouch holds out a location (4-fold), ActionSense is a stratified
-60/20/20 by recording, and EgoTouch uses the dataset's OWN split — `ego seen` holds
-out recordings of tasks TRAIN has seen, `ego unseen` holds out ten whole tasks that
-never appear in TRAIN. Unseen-person and unseen-task are the hardest questions here,
-so those columns scoring lower is not on its own evidence of a worse model.
+**The columns are not the same experiment.** OpenTouch holds out a location
+(4-fold), ActionSense is a stratified 60/20/20 by recording, and EgoTouch uses the
+dataset's OWN split — `ego seen` holds out recordings of tasks TRAIN has seen,
+`ego unseen` holds out ten whole tasks that never appear in TRAIN. Unseen-task is
+the hardest question here, so that column scoring lower is not on its own evidence
+of a worse model.
 The 1 s horizon and the persistence reference ARE identical across all four,
 which is what makes any comparison possible at all.
 
@@ -58,7 +58,7 @@ same clip set; a channel with no usable clip yields NaN rather than 0 or 1.
 $\mathrm{skill}=0$ ties persistence, $1$ is perfect, $<0$ is worse than assuming nothing
 changes.
 
-### The same name across the three datasets
+### The same name across the two datasets
 
 `skill` always means "against persistence" and never "against the mean" -- the mean is the
 denominator of $R^2$, which the report prints in a separate table and which is a different
@@ -71,7 +71,6 @@ frames are counted:
 | OpenTouch, `opentouch_report*.csv` | persistence | clip-balanced | yes |
 | OpenTouch $R^2$ | the scored subset's own mean | clip-balanced | yes |
 | ActionSense, `tactile_map` | persistence | frame-pooled per fold, then averaged over folds | **no** |
-| d256 | — | — | — |
 
 Two consequences worth carrying:
 
@@ -81,29 +80,6 @@ Two consequences worth carrying:
 - **ActionSense computes in z-normalised residual space and OpenTouch in raw absolute units,
   and that one does NOT matter.** Skill is a ratio, so a per-channel constant scale cancels
   from numerator and denominator alike.
-
-**d256 has no skill number**, and the reason is worth stating precisely because the loose
-version of it is wrong. A skill number is COMPUTABLE there -- pick a horizon in frames, hold
-the last observation, take the ratio. What is not computable is a skill number belonging in
-this table, and there are three separate obstacles of quite different weight:
-
-1. **No forecaster exists.** `src/d256.py` reads the archive and `scripts/d256/` probes it;
-   nothing trains. This is work not yet done, not an impossibility.
-2. **The sampling rate is unknown and not recoverable from the archive.** Clips carry no
-   timestamps; only the relative 1:2:3 stride between the three signal groups is known. Every
-   number in this document is at a ONE-SECOND horizon, and one second cannot be located in a
-   stream whose rate nobody knows. A d256 column would be "skill at H frames" against
-   "skill at 1 s" elsewhere, which is not the same quantity. Resolving this needs the
-   ActionSense release or the authors, not more computation.
-3. **The split unit is forced and the obvious one leaks.** Neighbouring clips overlap 15/16,
-   so a clip-level random split puts near-duplicates on both sides. The sound unit is the
-   reconstructed recording, of which there are 94 -- and a recording is a SEGMENT found by
-   testing whether consecutive clips actually advance by one frame, not a directory: the
-   stream jumps inside cells, and splicing across a jump would train a forecaster on an
-   artefact. `scripts/d256/extract_d256_states.py` does this correctly; the point is that
-   the mistake is available and silent.
-
-Only (2) is a genuine barrier. It is also the one that no amount of care on our side removes.
 
 ### Hausdorff distance between forecast and truth curves
 
@@ -164,48 +140,48 @@ See SESSION_LOG 2026-08-22.
 
 ## F_R
 
-| model | ActionSense | `AS corpus` | `ego seen` | `ego unseen` | `d256 none` | `d256 class` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| AR | 0.200 | 0.163 | 0.224 | 0.106 | 0.101 | 0.101 | 0.148 | 0.148 | 0.367 | 0.367 | 0.367 | 0.367 | 0.367 |
-| AR (global fit) | — | — | 0.186 | 0.145 | — | — | — | — | — | — | — | — | — |
-| seasonal | 0.000 | −0.015 | −0.064 | 0.000 | −0.047 | −0.047 | −0.019 | −0.019 | −0.038 | −0.038 | −0.038 | −0.038 | −0.038 |
-| probGRU | — | 0.137 | 0.265 | 0.228 | 0.002 | −0.027 | 0.203 | 0.207 | 0.386 | 0.383 | — | — | 0.386 |
-| GRU-aggregate | 0.181 | 0.130 | 0.243 | 0.217 | — | — | — | — | — | — | 0.360 | 0.360 | — |
-| CNN (map) | 0.138 | 0.124 | 0.244 | 0.215 | — | — | — | — | — | — | 0.333 | 0.330 | — |
-| flatten (map) | −0.042 | 0.044 | 0.142 | 0.129 | — | — | — | — | — | — | 0.273 | 0.269 | — |
-| probGRU + CNN | — | 0.111 | 0.258 | 0.245 | — | — | — | — | — | — | — | — | 0.356 |
-| probGRU + flatten | — | 0.082 | — | — | — | — | — | — | — | — | — | — | 0.322 |
-| **R** (persistence difficulty) | 0.655 | 0.655 | — | — | 0.750 | 0.750 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 |
+| model | ActionSense | `AS corpus` | `ego seen` | `ego unseen` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| AR | 0.200 | 0.163 | 0.224 | 0.106 | 0.148 | 0.148 | 0.367 | 0.367 | 0.367 | 0.367 | 0.367 |
+| AR (global fit) | — | — | 0.186 | 0.145 | — | — | — | — | — | — | — |
+| seasonal | 0.000 | −0.015 | −0.064 | 0.000 | −0.019 | −0.019 | −0.038 | −0.038 | −0.038 | −0.038 | −0.038 |
+| probGRU | — | 0.137 | 0.265 | 0.228 | 0.203 | 0.207 | 0.386 | 0.383 | — | — | 0.386 |
+| GRU-aggregate | 0.181 | 0.130 | 0.243 | 0.217 | — | — | — | — | 0.360 | 0.360 | — |
+| CNN (map) | 0.138 | 0.124 | 0.244 | 0.215 | — | — | — | — | 0.333 | 0.330 | — |
+| flatten (map) | −0.042 | 0.044 | 0.142 | 0.129 | — | — | — | — | 0.273 | 0.269 | — |
+| probGRU + CNN | — | 0.111 | 0.258 | 0.245 | — | — | — | — | — | — | 0.356 |
+| probGRU + flatten | — | 0.082 | — | — | — | — | — | — | — | — | 0.322 |
+| **R** (persistence difficulty) | 0.655 | 0.655 | — | — | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 | 1.045 |
 
 ## CoPx_R
 
-| model | ActionSense | `AS corpus` | `ego seen` | `ego unseen` | `d256 none` | `d256 class` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| AR | 0.254 | 0.234 | 0.281 | 0.228 | 0.131 | 0.131 | 0.214 | 0.214 | 0.431 | 0.431 | 0.431 | 0.431 | 0.431 |
-| AR (global fit) | — | — | 0.271 | 0.248 | — | — | — | — | — | — | — | — | — |
-| seasonal | 0.000 | −0.016 | −0.040 | 0.000 | −0.040 | −0.040 | −0.015 | −0.015 | −0.033 | −0.033 | −0.033 | −0.033 | −0.033 |
-| probGRU | — | 0.216 | 0.300 | 0.248 | −0.057 | −0.019 | 0.288 | 0.278 | 0.427 | 0.431 | — | — | 0.427 |
-| GRU-aggregate | 0.233 | 0.235 | 0.284 | 0.259 | — | — | — | — | — | — | 0.422 | 0.422 | — |
-| CNN (map) | 0.011 | 0.026 | 0.222 | 0.191 | — | — | — | — | — | — | 0.374 | 0.370 | — |
-| flatten (map) | −0.002 | 0.000 | 0.147 | 0.137 | — | — | — | — | — | — | 0.331 | 0.328 | — |
-| probGRU + CNN | — | 0.144 | 0.286 | 0.219 | — | — | — | — | — | — | — | — | 0.414 |
-| probGRU + flatten | — | 0.079 | — | — | — | — | — | — | — | — | — | — | 0.393 |
-| **R** (persistence difficulty) | 0.746 | 0.746 | — | — | 0.791 | 0.791 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 |
+| model | ActionSense | `AS corpus` | `ego seen` | `ego unseen` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| AR | 0.254 | 0.234 | 0.281 | 0.228 | 0.214 | 0.214 | 0.431 | 0.431 | 0.431 | 0.431 | 0.431 |
+| AR (global fit) | — | — | 0.271 | 0.248 | — | — | — | — | — | — | — |
+| seasonal | 0.000 | −0.016 | −0.040 | 0.000 | −0.015 | −0.015 | −0.033 | −0.033 | −0.033 | −0.033 | −0.033 |
+| probGRU | — | 0.216 | 0.300 | 0.248 | 0.288 | 0.278 | 0.427 | 0.431 | — | — | 0.427 |
+| GRU-aggregate | 0.233 | 0.235 | 0.284 | 0.259 | — | — | — | — | 0.422 | 0.422 | — |
+| CNN (map) | 0.011 | 0.026 | 0.222 | 0.191 | — | — | — | — | 0.374 | 0.370 | — |
+| flatten (map) | −0.002 | 0.000 | 0.147 | 0.137 | — | — | — | — | 0.331 | 0.328 | — |
+| probGRU + CNN | — | 0.144 | 0.286 | 0.219 | — | — | — | — | — | — | 0.414 |
+| probGRU + flatten | — | 0.079 | — | — | — | — | — | — | — | — | 0.393 |
+| **R** (persistence difficulty) | 0.746 | 0.746 | — | — | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 | 1.060 |
 
 ## CoPy_R
 
-| model | ActionSense | `AS corpus` | `ego seen` | `ego unseen` | `d256 none` | `d256 class` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| AR | 0.194 | 0.182 | 0.279 | 0.240 | −0.032 | −0.032 | 0.171 | 0.171 | 0.476 | 0.476 | 0.476 | 0.476 | 0.476 |
-| AR (global fit) | — | — | 0.260 | 0.266 | — | — | — | — | — | — | — | — | — |
-| seasonal | 0.000 | −0.027 | −0.083 | 0.000 | −0.073 | −0.073 | −0.016 | −0.016 | −0.009 | −0.009 | −0.009 | −0.009 | −0.009 |
-| probGRU | — | 0.195 | 0.300 | 0.266 | −0.218 | −0.192 | 0.221 | 0.227 | 0.472 | 0.472 | — | — | 0.472 |
-| GRU-aggregate | 0.175 | 0.206 | 0.263 | 0.238 | — | — | — | — | — | — | 0.469 | 0.469 | — |
-| CNN (map) | 0.045 | 0.037 | 0.187 | 0.207 | — | — | — | — | — | — | 0.424 | 0.419 | — |
-| flatten (map) | −0.051 | −0.001 | 0.114 | 0.117 | — | — | — | — | — | — | 0.407 | 0.408 | — |
-| probGRU + CNN | — | 0.154 | 0.239 | 0.158 | — | — | — | — | — | — | — | — | 0.430 |
-| probGRU + flatten | — | 0.075 | — | — | — | — | — | — | — | — | — | — | 0.446 |
-| **R** (persistence difficulty) | 0.658 | 0.658 | — | — | 0.715 | 0.715 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 |
+| model | ActionSense | `AS corpus` | `ego seen` | `ego unseen` | `raw` | `df` | `d1` | `d1_mse` | `d1_map2` | `d1_map3` | `d1_pg` |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| AR | 0.194 | 0.182 | 0.279 | 0.240 | 0.171 | 0.171 | 0.476 | 0.476 | 0.476 | 0.476 | 0.476 |
+| AR (global fit) | — | — | 0.260 | 0.266 | — | — | — | — | — | — | — |
+| seasonal | 0.000 | −0.027 | −0.083 | 0.000 | −0.016 | −0.016 | −0.009 | −0.009 | −0.009 | −0.009 | −0.009 |
+| probGRU | — | 0.195 | 0.300 | 0.266 | 0.221 | 0.227 | 0.472 | 0.472 | — | — | 0.472 |
+| GRU-aggregate | 0.175 | 0.206 | 0.263 | 0.238 | — | — | — | — | 0.469 | 0.469 | — |
+| CNN (map) | 0.045 | 0.037 | 0.187 | 0.207 | — | — | — | — | 0.424 | 0.419 | — |
+| flatten (map) | −0.051 | −0.001 | 0.114 | 0.117 | — | — | — | — | 0.407 | 0.408 | — |
+| probGRU + CNN | — | 0.154 | 0.239 | 0.158 | — | — | — | — | — | — | 0.430 |
+| probGRU + flatten | — | 0.075 | — | — | — | — | — | — | — | — | 0.446 |
+| **R** (persistence difficulty) | 0.658 | 0.658 | — | — | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 | 1.017 |
 
 ## Hausdorff distance between forecast and truth curves
 
@@ -223,11 +199,9 @@ not, so the reference has to be visible for a number to mean anything. Read each
 column against its own persistence, never across columns: the three sensors do
 not present equally hard signals (see the R row in the skill tables).
 
-Two estimators are mixed and cannot be compared cell to cell. d256 is
-frame-pooled from the driver's table, matching the skill above; OpenTouch is
-per-clip from its report; ActionSense is per-clip from its CV table at the
-longest history; EgoTouch is per-clip (recording-balanced) from the shared
-scorer, so it shares OpenTouch's and ActionSense's convention, not d256's.
+OpenTouch is per-clip from its report; ActionSense is per-clip from its CV
+table at the longest history; EgoTouch is per-clip (recording-balanced) from
+the shared scorer. All three therefore share one convention.
 
 **The columns fed by the shared scorer — `AS corpus`, `ego seen`, `ego unseen`
 — each carry their own `persistence` row measured under the same mask as the
@@ -240,8 +214,7 @@ only the `aggregate` encoder and NO persistence row, so there is no reference to
 divide by and the single number in that column cannot be interpreted the way the
 others can. What that arm does report is one run-level ratio,
 **0.81x persistence**, which is the only figure from it that
-compares to the others -- against d256's AR at 0.89x and OpenTouch's
-map_aggregate at 0.83x.
+compares to the others -- against OpenTouch's map_aggregate at 0.83x.
 
 **`AS corpus` is what that column should have been.** Same sensor, scored by the
 shared scorer, so it brings its own persistence row and every arm at once. It is
@@ -251,48 +224,48 @@ slice-and-peel recordings under a stratified 60/20/20, this one is all 299 over
 
 ### Hausdorff — F_R
 
-| model | ActionSense | `AS corpus` | `ego seen` | `ego unseen` | `d256 none` | `d256 class` | `d1_map2` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|
-| AR | — | 2.566 | 6.941 | 7.651 | 2.694 | 2.694 | 2.766 | 2.766 |
-| AR (global fit) | — | — | 6.173 | 7.349 | — | — | — | — |
-| seasonal | — | 2.976 | 3.639 | 2.967 | 3.065 | 3.065 | 2.699 | 2.699 |
-| probGRU | — | 2.589 | 5.583 | 5.795 | 3.022 | 3.071 | — | 2.883 |
-| GRU-aggregate | 2.413 | 2.560 | 4.855 | 5.487 | — | — | 2.738 | — |
-| CNN (map) | — | 2.581 | 4.959 | 5.375 | — | — | 2.748 | — |
-| flatten (map) | — | 2.594 | 4.070 | 5.504 | — | — | 2.820 | — |
-| probGRU + CNN | — | 2.655 | 5.056 | 6.003 | — | — | — | 2.975 |
-| probGRU + flatten | — | 2.900 | — | — | — | — | — | 3.013 |
-| persistence | — | 2.958 | 3.244 | 2.967 | 3.023 | 3.023 | 3.301 | 3.301 |
+| model | ActionSense | `AS corpus` | `ego seen` | `ego unseen` | `d1_map2` | `d1_pg` |
+|---|---|---|---|---|---|---|
+| AR | — | 2.566 | 6.941 | 7.651 | 2.766 | 2.766 |
+| AR (global fit) | — | — | 6.173 | 7.349 | — | — |
+| seasonal | — | 2.976 | 3.639 | 2.967 | 2.699 | 2.699 |
+| probGRU | — | 2.589 | 5.583 | 5.795 | — | 2.883 |
+| GRU-aggregate | 2.413 | 2.560 | 4.855 | 5.487 | 2.738 | — |
+| CNN (map) | — | 2.581 | 4.959 | 5.375 | 2.748 | — |
+| flatten (map) | — | 2.594 | 4.070 | 5.504 | 2.820 | — |
+| probGRU + CNN | — | 2.655 | 5.056 | 6.003 | — | 2.975 |
+| probGRU + flatten | — | 2.900 | — | — | — | 3.013 |
+| persistence | — | 2.958 | 3.244 | 2.967 | 3.301 | 3.301 |
 
 ### Hausdorff — CoPx_R
 
-| model | ActionSense | `AS corpus` | `ego seen` | `ego unseen` | `d256 none` | `d256 class` | `d1_map2` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|
-| AR | — | 2.296 | 2.737 | 3.399 | 2.427 | 2.427 | 2.558 | 2.558 |
-| AR (global fit) | — | — | 2.821 | 3.062 | — | — | — | — |
-| seasonal | — | 2.883 | 3.055 | 2.948 | 2.872 | 2.872 | 2.396 | 2.396 |
-| probGRU | — | 2.455 | 2.778 | 3.021 | 2.646 | 2.570 | — | 2.669 |
-| GRU-aggregate | 2.193 | 2.285 | 2.620 | 2.692 | — | — | 2.552 | — |
-| CNN (map) | — | 2.560 | 2.649 | 2.748 | — | — | 2.594 | — |
-| flatten (map) | — | 2.468 | 2.728 | 2.858 | — | — | 2.649 | — |
-| probGRU + CNN | — | 2.495 | 2.673 | 3.225 | — | — | — | 2.705 |
-| probGRU + flatten | — | 2.705 | — | — | — | — | — | 2.764 |
-| persistence | — | 2.880 | 2.958 | 2.948 | 2.857 | 2.857 | 3.151 | 3.151 |
+| model | ActionSense | `AS corpus` | `ego seen` | `ego unseen` | `d1_map2` | `d1_pg` |
+|---|---|---|---|---|---|---|
+| AR | — | 2.296 | 2.737 | 3.399 | 2.558 | 2.558 |
+| AR (global fit) | — | — | 2.821 | 3.062 | — | — |
+| seasonal | — | 2.883 | 3.055 | 2.948 | 2.396 | 2.396 |
+| probGRU | — | 2.455 | 2.778 | 3.021 | — | 2.669 |
+| GRU-aggregate | 2.193 | 2.285 | 2.620 | 2.692 | 2.552 | — |
+| CNN (map) | — | 2.560 | 2.649 | 2.748 | 2.594 | — |
+| flatten (map) | — | 2.468 | 2.728 | 2.858 | 2.649 | — |
+| probGRU + CNN | — | 2.495 | 2.673 | 3.225 | — | 2.705 |
+| probGRU + flatten | — | 2.705 | — | — | — | 2.764 |
+| persistence | — | 2.880 | 2.958 | 2.948 | 3.151 | 3.151 |
 
 ### Hausdorff — CoPy_R
 
-| model | ActionSense | `AS corpus` | `ego seen` | `ego unseen` | `d256 none` | `d256 class` | `d1_map2` | `d1_pg` |
-|---|---|---|---|---|---|---|---|---|
-| AR | — | 2.534 | 2.882 | 2.799 | 2.628 | 2.628 | 2.418 | 2.418 |
-| AR (global fit) | — | — | 2.810 | 2.744 | — | — | — | — |
-| seasonal | — | 2.923 | 3.013 | 3.011 | 2.905 | 2.905 | 2.226 | 2.226 |
-| probGRU | — | 2.579 | 2.713 | 2.973 | 2.959 | 2.914 | — | 2.566 |
-| GRU-aggregate | 2.308 | 2.459 | 2.592 | 2.710 | — | — | 2.425 | — |
-| CNN (map) | — | 2.592 | 2.669 | 2.662 | — | — | 2.484 | — |
-| flatten (map) | — | 2.540 | 2.776 | 2.825 | — | — | 2.511 | — |
-| probGRU + CNN | — | 2.645 | 2.676 | 3.072 | — | — | — | 2.663 |
-| probGRU + flatten | — | 2.805 | — | — | — | — | — | 2.637 |
-| persistence | — | 2.916 | 2.948 | 3.011 | 2.870 | 2.870 | 3.070 | 3.070 |
+| model | ActionSense | `AS corpus` | `ego seen` | `ego unseen` | `d1_map2` | `d1_pg` |
+|---|---|---|---|---|---|---|
+| AR | — | 2.534 | 2.882 | 2.799 | 2.418 | 2.418 |
+| AR (global fit) | — | — | 2.810 | 2.744 | — | — |
+| seasonal | — | 2.923 | 3.013 | 3.011 | 2.226 | 2.226 |
+| probGRU | — | 2.579 | 2.713 | 2.973 | — | 2.566 |
+| GRU-aggregate | 2.308 | 2.459 | 2.592 | 2.710 | 2.425 | — |
+| CNN (map) | — | 2.592 | 2.669 | 2.662 | 2.484 | — |
+| flatten (map) | — | 2.540 | 2.776 | 2.825 | 2.511 | — |
+| probGRU + CNN | — | 2.645 | 2.676 | 3.072 | — | 2.663 |
+| probGRU + flatten | — | 2.805 | — | — | — | 2.637 |
+| persistence | — | 2.916 | 2.948 | 3.011 | 3.070 | 3.070 |
 
 ## R² against the dataset mean
 
@@ -301,8 +274,8 @@ beat the mean comfortably and still lose to persistence, which on a smooth
 1 s horizon is a strong reference -- so read this section beside the skill
 tables, never instead of them.
 
-Per-clip (recording-balanced) everywhere shown. The frozen `ActionSense` column
-and d256 do not write per-channel R² in their CV tables, so they are absent here;
+Per-clip (recording-balanced) everywhere shown. The frozen `ActionSense`
+column does not write per-channel R² in its CV table, so it is absent here;
 `AS corpus` is the same sensor read through the shared scorer, which does.
 
 **`ego seen` and `ego unseen` are different populations, so their R² columns do
@@ -387,6 +360,67 @@ The backbone effect on shape (0.11-0.23) is at least as large as the spread
 between input representations within either backbone (0.08 within Seq2Seq,
 0.13 within probGRU), so on this data the decoder matters more than what it
 is fed.
+
+## Both backbones against the baselines, one input at a time
+
+The section above asks which decoder wins. It cannot answer whether either is
+worth having, because both are compared only to each other. Here the same nine
+arms are put against the three references on the same folds and the same mask.
+
+The two runs' baseline rows are **bit-identical**, so one baseline column
+serves both backbones: same fits, same folds, same mask.
+
+`persistence` carries skill **0.000 by construction** -- skill is measured
+against it -- so a positive skill IS beating persistence, and the persistence
+column is a reminder rather than a measurement. Hausdorff does not divide it
+out, so there it is a real number.
+
+Skill: HIGHER is better. `best` is the strongest of AR, seasonal and
+persistence in that cell.
+
+| input | channel | Seq2Seq | probGRU | AR | seasonal | persistence | best | Seq2Seq − best | probGRU − best |
+|---|---|---|---|---|---|---|---|---|---|
+| aggregate | F_R | 0.3179 | 0.2905 | 0.3016 | −0.0871 | 0.0000 | ar 0.3016 | **+0.0162** | **−0.0111** |
+| aggregate | CoPx_R | 0.4409 | 0.4517 | 0.4541 | −0.0175 | 0.0000 | ar 0.4541 | **−0.0132** | **−0.0024** |
+| aggregate | CoPy_R | 0.4746 | 0.4780 | 0.4827 | −0.0064 | 0.0000 | ar 0.4827 | **−0.0082** | **−0.0047** |
+| cnn | F_R | 0.2935 | 0.2679 | 0.3016 | −0.0871 | 0.0000 | ar 0.3016 | **−0.0082** | **−0.0338** |
+| cnn | CoPx_R | 0.3749 | 0.4407 | 0.4541 | −0.0175 | 0.0000 | ar 0.4541 | **−0.0792** | **−0.0134** |
+| cnn | CoPy_R | 0.4216 | 0.4378 | 0.4827 | −0.0064 | 0.0000 | ar 0.4827 | **−0.0611** | **−0.0449** |
+| flatten | F_R | 0.2386 | 0.2240 | 0.3016 | −0.0871 | 0.0000 | ar 0.3016 | **−0.0630** | **−0.0776** |
+| flatten | CoPx_R | 0.3382 | 0.4223 | 0.4541 | −0.0175 | 0.0000 | ar 0.4541 | **−0.1160** | **−0.0318** |
+| flatten | CoPy_R | 0.4083 | 0.4491 | 0.4827 | −0.0064 | 0.0000 | ar 0.4827 | **−0.0744** | **−0.0336** |
+
+**Seq2Seq beats the best baseline in 1 of 9 cells, probGRU in 0 of 9.** Where a backbone loses, the arm beating it is `ar` in 9 of those cells.
+
+A linear autoregression on the channel's own past is therefore the thing to
+beat on this sensor, and 17 of the 18 arm-by-channel
+cells here do not beat it. That is a statement about these runs at a 1 s
+horizon, not about the architectures in general -- but it is the comparison
+the two-backbone table above cannot make, because there both arms can lose
+and one still looks like the winner.
+
+Hausdorff: LOWER is better, so `best` is the smallest of the three and a
+NEGATIVE margin is the arm winning.
+
+| input | channel | Seq2Seq | probGRU | AR | seasonal | persistence | best | Seq2Seq − best | probGRU − best |
+|---|---|---|---|---|---|---|---|---|---|
+| aggregate | F_R | 2.738 | 2.883 | 2.766 | 2.699 | 3.301 | seasonal 2.699 | **+0.040** | **+0.184** |
+| aggregate | CoPx_R | 2.552 | 2.669 | 2.558 | 2.396 | 3.151 | seasonal 2.396 | **+0.156** | **+0.273** |
+| aggregate | CoPy_R | 2.425 | 2.566 | 2.418 | 2.226 | 3.070 | seasonal 2.226 | **+0.199** | **+0.339** |
+| cnn | F_R | 2.748 | 2.975 | 2.766 | 2.699 | 3.301 | seasonal 2.699 | **+0.049** | **+0.277** |
+| cnn | CoPx_R | 2.594 | 2.705 | 2.558 | 2.396 | 3.151 | seasonal 2.396 | **+0.199** | **+0.309** |
+| cnn | CoPy_R | 2.484 | 2.663 | 2.418 | 2.226 | 3.070 | seasonal 2.226 | **+0.258** | **+0.437** |
+| flatten | F_R | 2.820 | 3.013 | 2.766 | 2.699 | 3.301 | seasonal 2.699 | **+0.122** | **+0.315** |
+| flatten | CoPx_R | 2.649 | 2.764 | 2.558 | 2.396 | 3.151 | seasonal 2.396 | **+0.254** | **+0.368** |
+| flatten | CoPy_R | 2.511 | 2.637 | 2.418 | 2.226 | 3.070 | seasonal 2.226 | **+0.285** | **+0.411** |
+
+**On shape, Seq2Seq beats the best baseline in 0 of 9 cells and probGRU in 0 of 9.**
+Note which baseline is hardest to beat under each metric: `seasonal` has the
+LOWEST Hausdorff of the three while its skill is NEGATIVE on every channel. A
+seasonal-naive forecast repeats a whole past cycle, so it has the right shape
+and the wrong phase: pointwise error punishes it, curve distance does not. It
+is the clearest case in this document of the two metrics measuring different
+things, and a reason not to read either alone.
 
 ## The two skill conventions disagree on F
 
@@ -526,59 +560,4 @@ pending:
   unattributed — `seq2seq_agg_recheck` closes that.
 
 **Until both land, the cross-sensor reversal is an observation and not a finding.**
-
-## d256 is ActionSense reprocessed, not a fourth collection
-
-The ICLR page presents `d256.zip` as its own dataset. The evidence says it is ActionSense,
-decimated 5x in time and cut into 16-frame sliding windows with paired video:
-
-* All 20 class strings match ActionSense's verbatim ("Slice a cucumber", "Get/replace items
-  from refrigerator/cabinets/drawers", ...).
-* The sensor suite is identical -- two tactile gloves, Myo EMG and accelerometer,
-  joint-position, both hand poses -- and the subject codes S01-S05 are the same.
-* Pairing recordings by label and taking the three classes where the counts match 1:1, the
-  length ratio over **15 independent recordings** is **4.948 +- 0.085**. Independently
-  collected recordings of the same activity do not come out to a constant 4.95x.
-* 6 Hz is 30 Hz / 5, and ActionSense is natively 30 Hz.
-
-This is inference from length ratios, not frame-level alignment. The check that would settle
-it: cross-correlate a d256 F(t) against the matching ActionSense F(t) decimated by 5 --
-same recording means correlation near 1 once aligned, since the rescaling to [0,1] changes
-amplitude but not shape. Not yet run.
-
-It matters for reading the tables. d256 and ActionSense are not independent evidence about
-tactile forecasting; they are the same recordings at two rates, under two protocols
-(leave-one-subject-out against a stratified split). Their agreement is not corroboration.
-
-## ActionSense and d256 are the same recordings, and their skills still differ
-
-Frame-level cross-correlation settles the provenance: a 150-frame probe from a d256 recording
-matches exactly one of 299 ActionSense recordings at **0.995**, carrying the same label, while
-the runner-up reaches 0.943 (`scripts/shared/compare_d256_actionsense.py`). d256 is ActionSense
-repackaged. So running both is not two experiments, and their agreement is not corroboration.
-
-The skills nonetheless differ -- AR averages 0.216 on ActionSense against 0.067 on d256 -- and
-the reason is worth stating, because it is not model quality.
-
-**Not the sampling rate.** ActionSense decimated to 30 / 10 / 6 Hz, with and without an
-anti-aliasing filter, gives R = 0.605 / 0.605 / 0.604 / 0.602. R measures decorrelation over a
-fixed *wall-clock* second, so resampling does not move it, and the aliasing hypothesis this was
-written to test is refuted.
-
-**Segment length.** Cutting the same ActionSense signals into fixed windows and measuring R:
-
-| window | 10 s | 20 s | 40 s | 80 s | 160 s |
-|---|---|---|---|---|---|
-| R | 0.807 | 0.692 | 0.616 | 0.560 | 0.569 |
-
-d256's median recording is **12.9 s** and measures R = 0.717; ActionSense's is **22.0 s** and
-measures 0.649. Both land where the curve puts them. The mechanism is in the definition:
-R = E[(y[t+H]-y[t])²] / (2·Var), where the numerator is a fixed one-second change and the
-denominator is the variance *within* the segment. A short segment truncates the slow drift, so
-Var shrinks, so R rises -- and a higher R means less structure above persistence to win.
-
-So d256 scores lower largely because it was cut into shorter pieces. **The protocol difference
-is a separate, uncontrolled effect on top of this**: d256 holds out a subject, ActionSense
-splits by recording. Isolating it would take running d256 under a stratified-by-recording
-split, which has not been done.
 

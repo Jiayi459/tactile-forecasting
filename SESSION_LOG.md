@@ -12868,3 +12868,73 @@ caption 只用到已定义的 `\Rdiff`、`\Rtwo` 与标准 `\textbf/\emph/\ref`,
 本次交付**不含任何需要在别处运行的命令**,图与 tex 都是本机产物。未提交、未推送:
 `scripts/shared/plot_study_logic.py`、`figures/overview.{pdf,png}`、`main.tex`、本日志。
 提交前请确认第 5 节的 Q1–Q3。
+
+---
+
+## 2026-09-12 — 【skill_comparison】清除 d256;新增"两骨干 × 三输入 vs 三基线"
+
+### 一、这份文档是生成的,改的是生成器
+
+`docs/skill_comparison.md` 由 `scripts/shared/build_skill_comparison.py` 组装,
+正文两段散文来自 `docs/_skill_comparison_defs.md` 与 `docs/_skill_comparison_notes.md`。
+三处全部修改,直接编辑 md 会在下次重跑时被覆盖。
+
+### 二、删除 d256(共 3 个文件)
+
+**生成器**:`D256_RUNS`、`d256_hausdorff()`、`D2`/`D2H`/`d2names`、6 张表的列与列数、
+`ROWS` 元组的第 4 槽(d256 名)、`SCORER_COLS` 的槽位索引(5→4、4→3)、`HD_ROWS`,
+以及散文中 6 处提及。
+**`_skill_comparison_defs.md`**:口径表的 d256 行,与"**d256 has no skill number**"整段。
+**`_skill_comparison_notes.md`**:末尾两节(provenance 与时长解释)整体删去。
+
+**连带必须改的两处,否则文档自相矛盾:**
+- 标题 "all four sensors" → **three**(d256 曾是第四个)。
+- "Unseen-person and unseen-task are the hardest questions here" —— **unseen-person 指的正是
+  d256 的 leave-one-SUBJECT-out**。d256 一删,该列不复存在,这句话会指向一个不存在的列。
+  已改为只讲 unseen-task。
+
+**⚠️ 随 d256 一并离开本文档的两项结论**,在 `docs/d256.md` 中**没有**对应记载:
+1. 帧级互相关的 provenance 证据(匹配 0.987 / 次优 0.943,`scripts/shared/compare_d256_actionsense.py`);
+2. "d256 分数更低主要因为被切成更短的片段"(中位时长 12.9 s vs 22.0 s,R=0.717)。
+`docs/d256.md` 只有定性的"d256 是 ActionSense 的预处理版本"。**若要保留这两项,需另行迁移**;
+本轮按指示只做删除,未迁移。
+
+### 三、新增"## Both backbones against the baselines, one input at a time"
+
+原有的"backbones side by side"只把两个骨干**互相**比较,因此无法回答
+"这两个骨干是否值得存在"。新节把同样的 9 个臂(2 骨干 × 3 输入,× 3 通道)
+放到 AR / seasonal / persistence 三条基线上,skill 与 Hausdorff 各一张表。
+
+**前置检查(写进文档):** `d1_map2` 与 `d1_pg` 两份 report 的基线行**逐位相同**
+(差异恰为 0),这才使"一列基线同时服务两个骨干"成立;若漂移,每个臂只能与自己 run 的基线比。
+代码里是计算出来的,不是假设。
+
+**`persistence` 的 skill 恒为 0**(skill 的定义就是对它取比值),文档中明写这是"构造使然而非缺失"。
+Hausdorff 不除掉它,故那里是真实数值。
+
+#### 结果
+
+| | skill | Hausdorff |
+|---|---|---|
+| Seq2Seq 胜过最强基线 | **1 / 9** | **0 / 9** |
+| probGRU 胜过最强基线 | **0 / 9** | **0 / 9** |
+
+- skill 上 **17/18 个"臂 × 通道"格输给基线**,赢的那条基线 9 次全是 `ar`。唯一的例外是
+  Seq2Seq-aggregate 在 F_R 上 +0.0162。这与"How to read it"里既有的
+  "AR is the strongest arm on OpenTouch, on every channel" 一致,本节把它量化了。
+- Hausdorff 上最难打败的基线**换成了 `seasonal`**:它的 HD 在三条基线中最低,而它的 skill
+  在每个通道上都是**负的**。seasonal 重复整个历史周期,于是**形状对、相位错**——逐点误差重罚,
+  曲线距离不罚。这是本文档中两个指标测量不同事物的最清楚一例。
+
+### 四、一处自查:我把数字写死了,已改为计算
+
+首版总结句写的是 "eight of the nine neural arms do not beat it",按表的 9 **行**数;
+但表是 9 行 × 2 骨干 = **18** 个对比,实际是 17/18。生成器里原就有一条注释警告过同类错误
+("counted, not asserted...which is exactly the drift generating the document was meant to stop")。
+已改为由 `2*tot - n2 - npg` 算出,并补注释记下这次踩坑。
+
+### 五、验证
+
+- 输出中 `d256` 出现 **0** 次。
+- 全文档表格**列数一致性自检通过**(每张表的数据行列数 == 表头列数,0 处不符)——
+  删列最容易出的错就是漏改 `ncol`/`nhd`。
