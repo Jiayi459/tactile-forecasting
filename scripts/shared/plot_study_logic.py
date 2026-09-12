@@ -38,6 +38,7 @@ Usage:  python scripts/shared/plot_study_logic.py [--out figures/overview] [--no
 from __future__ import annotations
 
 import argparse
+import csv
 import glob
 import os
 import sys
@@ -73,6 +74,7 @@ C_BAND = "#bcd8ef"
 C_ANN = "#b5561f"
 C_SMOOTH = "#4e9468"
 C_ABRUPT = "#c9852f"
+C_OTHER = "#6a4c93"          # OpenTouch, the corpus present here only as an aggregate
 
 
 # --------------------------------------------------------------------------- data --
@@ -114,6 +116,24 @@ def demo_forecast():
             str(z["action"]))
 
 
+def opentouch_floor() -> tuple[float, int]:
+    """OpenTouch's F_R difficulty, read from the frozen cross-sensor table -> (R, n clips).
+
+    NOT recomputed here, because it cannot be: this machine holds no OpenTouch state cache
+    and no OpenTouch per-clip forecasts, only `docs/opentouch/**` report CSVs. What it does
+    hold is `docs/predictability_floor.csv`, written by predictability_floor.py, which
+    measures THE SAME R as `r_difficulty` above -- one definition, each sensor at its own
+    1 s horizon. Reading the file rather than typing .045 keeps the figure tied to the
+    artefact, so a regenerated table moves the figure instead of silently disagreeing.
+    """
+    path = os.path.join(ROOT, "docs", "predictability_floor.csv")
+    with open(path) as fh:
+        for row in csv.DictReader(fh):
+            if row["sensor"] == "opentouch" and row["channel"] == "F_R":
+                return float(row["R"]), int(row["n_recordings"])
+    raise SystemExit(f"no opentouch F_R row in {path}")
+
+
 def demo_map() -> np.ndarray:
     """The most-loaded real right-hand frame of the demo recording, pedestal-corrected."""
     m = np.load(os.path.join(MAPS, f"clip_{DEMO}.npy"), mmap_mode="r")
@@ -149,25 +169,30 @@ def panel_persistence(ax_slow, ax_fast, ax_strip, traces, rs):
     ax_fast.set_xlabel("time (s)", fontsize=6.6, labelpad=1)
 
     rng = np.random.default_rng(0)
-    for cls, col, yc in (("smooth", C_SMOOTH, .68), ("abrupt", C_ABRUPT, .26)):
+    for cls, col, yc in (("smooth", C_SMOOTH, .80), ("abrupt", C_ABRUPT, .50)):
         xs = np.array([r for _, c, r in rs if c == cls])
-        ax_strip.scatter(xs, yc + rng.uniform(-.11, .11, len(xs)), s=3.0, color=col,
+        ax_strip.scatter(xs, yc + rng.uniform(-.095, .095, len(xs)), s=3.0, color=col,
                          alpha=.6, lw=0)
-        ax_strip.text(1.78, yc, f"{cls} ({len(xs)})", fontsize=5.7, color=col,
+        ax_strip.text(1.72, yc, f"{cls} ({len(xs)})", fontsize=5.7, color=col,
                       va="center", ha="left", linespacing=1.1)
-    for r in (traces[0][1], traces[1][1]):
-        ax_strip.plot([r], [.97], marker="v", ms=4.0, color=C_ANN)
-    ax_strip.text(1.15, .97, "the two traces", fontsize=5.7, color=C_ANN, ha="left",
-                  va="center", style="italic")
-    ax_strip.set_xlim(0, 2.18)
+
+    # The other corpus. Only its aggregate is on disk, so only its aggregate is drawn --
+    # docs/predictability_floor.csv, one definition of R measured on both sensors. Its own
+    # row is empty of dots, so the label sits beside the marker rather than in the margin.
+    ot_r, ot_n = opentouch_floor()
+    ax_strip.plot([ot_r], [.16], marker="D", ms=4.4, color=C_OTHER)
+    ax_strip.text(ot_r + .075, .16, f"OpenTouch mean, {ot_n:,} clips",
+                  fontsize=5.7, color=C_OTHER, va="center", ha="left")
+
+    ax_strip.set_xlim(0, 2.35)
     ax_strip.set_ylim(0, 1.0)
     ax_strip.set_yticks([])
     ax_strip.set_xticks([0, .5, 1.0, 1.5])
     ax_strip.tick_params(labelsize=6, length=2, pad=1)
     ax_strip.set_xlabel(r"$\mathcal{R}=\mathbb{E}[(y_{t+H}-y_t)^2]\,/\,2\,\mathrm{Var}(y)$",
                         fontsize=7.0, labelpad=2)
-    ax_strip.set_title("every one of the 290 recordings", fontsize=6.4, color=C_GREY,
-                       pad=3, loc="left")
+    ax_strip.set_title("every one of the 290 ActionSense recordings", fontsize=6.4,
+                       color=C_GREY, pad=3, loc="left")
     for s in ("top", "right", "left"):
         ax_strip.spines[s].set_visible(False)
 
@@ -195,10 +220,10 @@ def panel_setup(ax, frame):
                                  color=C_GREY, mutation_scale=8))
     ax.text(44, 82, r"$\mathbf{s}_t=[\,F,\;c^x,\;c^y\,]$", ha="left", fontsize=8.4,
             color=C_TXT)
-    ax.text(44, 68, "total force and centre of pressure,\none state per frame",
-            ha="left", fontsize=6.1, color=C_GREY, linespacing=1.3)
+    ax.text(44, 74, "total force and\ncentre of pressure,\none state per frame",
+            ha="left", va="top", fontsize=6.1, color=C_GREY, linespacing=1.3)
 
-    base, dy, x0, org, x1 = 50, 9.5, 4, 58, 88
+    base, dy, x0, org, x1 = 40, 9.5, 4, 58, 88
     for k in range(3):
         yk = base - k * dy
         a = 1.0 if k == 0 else .34
@@ -210,12 +235,12 @@ def panel_setup(ax, frame):
             fontsize=6.6, color="#1d425f", zorder=3)
     ax.text((org + x1) / 2, base + 3.0, "$H\\!=\\!1$ s", ha="center", va="center",
             fontsize=6.6, color=C_MODEL, zorder=3)
-    ax.plot([org, org], [base - 2 * dy - 3, base + 8.5], color=C_ANN, lw=1.0, zorder=4)
+    ax.plot([org, org], [base - 2 * dy, base + 8.5], color=C_ANN, lw=1.0, zorder=4)
     ax.text(org, base + 10.5, "origin $t$", ha="center", fontsize=6.8, color=C_ANN)
-    ax.text(x0, base - 2 * dy - 7, "origins step by one sample", ha="left", va="center",
-            fontsize=6.0, color=C_GREY)
-    ax.text(0, 6, "tactile history only\nno future action, pose or image", ha="left",
-            fontsize=6.6, color=C_TXT, linespacing=1.35)
+    ax.text(x0, 17.5, "origins step by one sample", ha="left", va="center",
+            fontsize=5.8, color=C_GREY)
+    ax.text(0, 0, "tactile history only\nno future action, pose or image", ha="left",
+            va="bottom", fontsize=6.6, color=C_TXT, linespacing=1.35)
 
 
 # ------------------------------------------ panel 3: one forecast, three questions --
@@ -268,8 +293,8 @@ def panel_forecast(ax, truth, pers, model, skill, hm, origin_val, act, r_act):
     ax.tick_params(labelsize=6, length=2, pad=1)
     for s in ("top", "right", "left"):
         ax.spines[s].set_visible(False)
-    ax.set_title(f"one held-out origin   ({act}, $\\mathcal{{R}}$ = {r_act:.2f} "
-                 "for this action)", fontsize=6.6, color=C_GREY, pad=2, loc="left")
+    ax.set_title(f"one held-out origin   ($\\mathcal{{R}}$ = {r_act:.2f} for {act})",
+                 fontsize=6.6, color=C_GREY, pad=2, loc="left")
 
 
 
@@ -323,11 +348,11 @@ def main():
                          "xtick.color": C_GREY, "ytick.color": C_GREY})
 
     fig = plt.figure(figsize=(7.16, 3.05))
-    outer = fig.add_gridspec(2, 1, height_ratios=[1, .21], left=.042, right=.988,
+    outer = fig.add_gridspec(2, 1, height_ratios=[1, .21], left=.042, right=.974,
                              top=.895, bottom=.035, hspace=.36)
-    top = outer[0].subgridspec(1, 3, width_ratios=[.30, .30, .40], wspace=.26)
+    top = outer[0].subgridspec(1, 3, width_ratios=[.335, .275, .39], wspace=.25)
 
-    g1 = top[0].subgridspec(3, 1, height_ratios=[1, 1, .95], hspace=.95)
+    g1 = top[0].subgridspec(3, 1, height_ratios=[1, 1, 1.18], hspace=.95)
     panel_persistence(fig.add_subplot(g1[0]), fig.add_subplot(g1[1]),
                       fig.add_subplot(g1[2]), traces, rs)
     panel_setup(fig.add_subplot(top[1]), frame)
@@ -337,8 +362,8 @@ def main():
     ladder(fig.add_subplot(outer[1]))
 
     for num, txt, x in (("1", "How persistent is the signal?", .042),
-                        ("2", "What the model sees", .372),
-                        ("3", "One forecast, three questions", .658)):
+                        ("2", "What the model sees", .405),
+                        ("3", "One forecast, three questions", .662)):
         fig.text(x, .965, num, fontsize=7.4, color="white", weight="bold", ha="center",
                  va="center", bbox=dict(boxstyle="circle,pad=.26", fc=C_TXT, ec="none"))
         fig.text(x + .019, .965, txt, fontsize=8.4, color=C_TXT, weight="bold",
