@@ -12823,3 +12823,48 @@ python scripts/shared/export_per_action_metrics.py
 ```
 `save_predictions` 会把新臂合并进已有的 `clip_*.npz`(y/origins 不一致会报错而非拼接),
 所以**不必重跑前 8 条臂**。
+
+### 6. 产出与实现结果
+
+**新文件**
+- `scripts/shared/plot_study_logic.py` — 生成脚本。docstring 写明每个元素的数据来源、
+  以及**故意不画**的两样东西(smooth/abrupt 标签、Table II 的 corpus 数字)及其理由。
+- `figures/overview.pdf`(59 KB,矢量,字体已嵌入;唯一的栅格对象是那张 tactile map,
+  本来就是像素数据)+ `figures/overview.png`(400 dpi,预览用)。
+
+**`main.tex` 改动**(仅 `fig:overview` 一处)
+`main.tex:79` 的 `\placeholderfigure` 换成 `\IfFileExists{figures/overview.pdf}` +
+`\includegraphics[width=\textwidth]`,fallback 文案改为"跑这条命令再上传",与
+`fig:model_architectures` 同一模式,缺图仍可编译。caption 重写为按 (1)(2)(3) 点名三栏,
+并**显式声明** panel (3) 是单 origin 图示、population 结果在
+Tables~\ref{tab:opentouch_results}--\ref{tab:actionsense_results}。
+
+**图上最终元素**(7.16 × 3.05 in,上排三栏 + 下排 ladder)
+- ① `slowly varying (peel)` $\Rdiff$=0.13 / `rapidly changing (get)` $\Rdiff$=1.05,
+  各标出一个 1 s 窗与该窗内信号走了多远的箭头;下方 290 点散点带,smooth(136)/abrupt(154)
+  分色、两条 trace 用 ▼ 标位;x 轴标注即 eq. (3) 本身。
+- ② 真实 32×32 右手帧(取该录制总力最大的一帧,减 5th percentile)+ CoP 十字
+  → $\mathbf{s}_t=[F,c^x,c^y]$;history $L$ | origin $t$ | horizon $H=1$ s 三层错位窗;
+  收尾一行 `tactile history only / no future action, pose or image`。
+- ③ truth / persistence / forecast 三条线直接在右端标名(不用 legend box,避免压曲线);
+  灰+蓝双箭头 = 同一步上 persistence 误差与 model 误差之比($S$);橙线 = model 上离
+  truth 整条曲线最远的那个点($D_{\mathrm{H}}$)。标题给出该动作的实测 $\Rdiff$=0.61。
+- 下排 ladder:$\Rdiff \to \Rtwo \to S_{\mathrm{pers}} \to D_{\mathrm{H}}$,每级一句问句;
+  底下两条横线把 `signal property` 与 `model scores — each only readable against R` 分开。
+
+**实现中修掉的一个自纪律问题。** 首版把 panel ③ 标题里的 `R = 0.61 for this action`
+**写成了字面量**。已改为从 `corpus_r()` 按动作求均值算出(`demo action peel: mean R = 0.611`),
+与 `docs/per_action_metrics.md` 的口径一致;硬编码的数会随数据漂移而不报错,这在本项目
+已经出过事(见 2026-09-05 的 SCOPE 事故),不留。
+
+### 7. 未验证项(诚实记录)
+
+**本机没有 LaTeX**(`pdflatex`、`latexmk` 均 not found),故 `main.tex` 的改动**未经编译验证**。
+caption 只用到已定义的 `\Rdiff`、`\Rtwo` 与标准 `\textbf/\emph/\ref`,`\ref` 指向文档后面的
+两个 table label(两遍编译即可解析),但这是代码审查结论,不是编译结论。
+
+### 8. Git 状态(CLAUDE.md 第 6 条)
+
+本次交付**不含任何需要在别处运行的命令**,图与 tex 都是本机产物。未提交、未推送:
+`scripts/shared/plot_study_logic.py`、`figures/overview.{pdf,png}`、`main.tex`、本日志。
+提交前请确认第 5 节的 Q1–Q3。
