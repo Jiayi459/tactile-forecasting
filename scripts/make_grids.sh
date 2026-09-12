@@ -2,6 +2,8 @@
 # Build one 3x3 forecast grid per sensor/split, picking each clip by the same criteria.
 #
 # Run it from the repo root with the environment already active (`conda activate tactile`).
+# With no arguments it builds every figure; name one or more to rebuild only those, e.g.
+#   bash scripts/make_grids.sh ego_seen ego_unseen
 # Pure numpy + matplotlib, seconds per figure, so the login node is fine -- no qsub.
 #
 # A source directory that is absent or empty is REPORTED AND SKIPPED, not fatal: the three
@@ -17,8 +19,18 @@ OUT=${OUT:-docs/grids}
 CHANNEL=${CHANNEL:-F_R}
 mkdir -p "$OUT"
 
+# Which figures to build: all of them, or only the names given on the command line.
+WANT=("$@")
+wanted () {
+  [ ${#WANT[@]} -eq 0 ] && return 0
+  local w
+  for w in "${WANT[@]}"; do [ "$w" = "$1" ] && return 0; done
+  return 1
+}
+
 grid () {
   local ds=$1 name=$2; shift 2
+  wanted "$name" || return 0
   local preds=() d
   for d in "$@"; do
     if [ -n "$(ls "$d"/clip_*.npz 2>/dev/null | head -1)" ]; then
@@ -38,9 +50,18 @@ grid () {
   clip=$(ls "runs/grid_stage_$name"/*/clip_*.npz 2>/dev/null | head -1 \
          | sed 's/.*clip_//; s/\.npz//')
   if [ -z "$clip" ]; then echo "  [FAIL] nothing staged"; return 0; fi
+  local out="$OUT/${name}_clip${clip}_${CHANNEL}.png"
   python scripts/actionsense/plot_clip_model_grid.py --dataset "$ds" "${preds[@]}" \
-      --clip "$clip" --channel "$CHANNEL" \
-      --out "$OUT/${name}_clip${clip}_${CHANNEL}.png" || echo "  [FAIL] plot"
+      --clip "$clip" --channel "$CHANNEL" --out "$out" || { echo "  [FAIL] plot"; return 0; }
+  # The filename carries the clip number, so a rebuild that picks a DIFFERENT clip would
+  # otherwise leave the old figure sitting beside the new one, both looking current. Drop the
+  # stale ones only after the new figure exists.
+  local old
+  for old in "$OUT/${name}_clip"*"_${CHANNEL}.png"; do
+    [ -e "$old" ] || continue
+    [ "$old" = "$out" ] && continue
+    rm -f "$old" && echo "  [replaced] $(basename "$old")"
+  done
 }
 
 grid opentouch   opentouch   runs/preds_d1_map2 runs/preds_d1_pg
@@ -50,5 +71,6 @@ grid actionsense actionsense runs/as_preds_seq2seq_corpus runs/as_preds_probgru_
                              runs/as_preds_baselines_corpus
 
 echo
-echo "figures written to $OUT:"
+if [ ${#WANT[@]} -gt 0 ]; then echo "rebuilt only: ${WANT[*]}"; fi
+echo "figures now in $OUT:"
 ls -1 "$OUT" 2>/dev/null | sed 's/^/  /'

@@ -12938,3 +12938,321 @@ Hausdorff 不除掉它,故那里是真实数值。
 - 输出中 `d256` 出现 **0** 次。
 - 全文档表格**列数一致性自检通过**(每张表的数据行列数 == 表头列数,0 处不符)——
   删列最容易出的错就是漏改 `ncol`/`nhd`。
+
+---
+
+## 2026-09-12 — 【问答】为什么 horizon 取 1 s、为什么预测 F/CoPx/CoPy(仅据已有结果)
+
+### Q1. 为什么是 1 s,不是更长
+
+**(a) 跨传感器可比性是硬约束。** 四份 config 全部 `horizon_s: 1.0`
+(`configs/{actionsense,opentouch,egotouch,d256}/eval_harness*.yaml`),各自换算成
+10 步 @10 Hz、30 步 @30 Hz、6 步 @6 Hz。d256 的注释直说 "Same physical look-ahead as
+ActionSense"。`skill_comparison.md` 之所以能把几个传感器放进一张表,靠的就是
+"1 s horizon 与 persistence 参照在四者间完全相同"。
+
+**(b) 上界由数据定死,尤其是 OpenTouch。** `docs/predictability_floor.csv`,
+$R=\mathbb{E}[(y_{t+H}-y_t)^2]/2\mathrm{Var}(y)$,而 $R = 1-\rho_H$:
+
+| 传感器 | R @1 s | ⇒ $\rho_{1s}$ |
+|---|---|---|
+| ActionSense | 0.58–0.75 | 0.25–0.42 |
+| d256 | 0.66–0.79 | 0.21–0.34 |
+| **OpenTouch** | **1.02–1.06** | **≈ −0.05…−0.02** |
+
+`predictability_floor.py:96` 自己标注 "R~1 = decorrelated by the horizon"。
+**OpenTouch 在 1 s 处已经完全去相关**——再拉长就是在预测与当前状态统计独立的目标,
+persistence 参照失去意义,skill 也不再可解释。1 s 不是留有余量的选择,在最难的那个
+传感器上它已经贴到极限。
+
+**(c) 下界:更短则 persistence 几乎不可战胜。** SESSION_LOG:981 的 per-step 结果
+"rises with horizon (raw/right 3s: 0.19@0.1s -> 0.50@1.0s)"——技能随 horizon 单调上升,
+0.1 s 处只有 0.19。另有 P5(SESSION_LOG:811):ActionSense 原生 ~6 Hz 被上采样到 30 Hz,
+相邻帧近似重复,**短 horizon 上的 persistence 被人为抬高**。
+
+**(d) 但必须承认:更长的 horizon 从未真正跑过。** SESSION_LOG:1874 的 CAVEATS 原文:
+"**1-s horizon only**; linear AR dominates at 1 s -- longer horizons (where linear
+extrapolation breaks) were not tested and could favor the map/nonlinear models."
+且早期探针(SESSION_LOG:123)给出的建议是 "honest horizon **0.1–0.5s**",1.0 s 实际**超出**
+该建议。**这是本项目最主要的头号结论("AR 胜过一切")最可能被推翻的地方**,
+因为线性外推正是在长 horizon 上失效。
+
+### Q2. 为什么预测 F / CoPx / CoPy
+
+**(a) 不同传感器网格尺寸不同,3 维物理量是唯一的公共目标。**
+`src/actionsense/physical_state.py:18`:坐标归一化到 [-1,1] "so features are
+sensor-size-agnostic (comparable across the **16/21/32-wide** gloves)"。
+F 是全taxel求和、CoP 是压力加权质心,都与网格尺寸无关;原始 map 不是。
+
+**(b) 更完整的状态曾经算过,是被结果否掉的,不是没想到。** `physical_state.py:8-16`
+实际计算 $[F,\bar x,\bar y,s_{xx},s_{yy},s_{xy}]$ 及派生量(面积/朝向/离心率/CoP 速度/dF/dt/相位)。
+SESSION_LOG:814 **P6**:"The 2nd-moment shape terms (orientation/covariance) are unpredictable
+jitter and irrelevant to feedback, but equal-weighting dragged the mean skill negative.
+*Fix:* focus targets/metrics on the core feedback variables (F, CoP)."
+
+**(c) 降到 3 维不仅没损失,给模型更多空间细节反而更差。** `skill_comparison.md` 的
+"How to read it":排序 **AR > GRU-aggregate > CNN > flatten**,"falls monotonically with how
+much raw spatial detail an arm is handed"。本轮新增节把它量化到极致:只吃 F/CoP 的线性 AR
+在 **17/18** 个"臂×通道"格上胜过两个神经骨干。dF/dt 输入消融亦为零结果(`raw`→`df`:0.203→0.207)。
+
+**(d) 边界条件。** SESSION_LOG:1871 记明 "map doesn't help" 只对**当前数据规模**成立
+(45 条训练录制,2048 维 map 模型在第 1–4 轮即过拟合)。
+
+### 结论(两问共用)
+
+1 s + (F,CoP) 这一组合是**被可比性与去相关上界夹出来的**,不是自由选择:
+往长了走 OpenTouch 已无信号,往短了走 persistence 不可战胜;通道再加则退化为不可预测的抖动,
+再减则失去物理意义。**唯一未经检验、且足以改写主结论的自由度是 horizon**——
+AR 的统治地位只在 1 s 上被验证过。
+
+### 补充(同日) — 两个自相关量的区分、阈值方向的澄清、以及 EgoTouch 的空白
+
+**`scripts/shared/predictability_floor.py:88-89` 的实际计算(逐录制算,再跨录制平均):**
+```python
+R    = mean((x[H:] - x[:-H])**2) / (2 * var)   # 滞后 H = 整个 horizon
+rho1 = mean(d[1:] * d[:-1]) / var              # 滞后 1 个采样点, d = x - x.mean()
+```
+**两者滞后不同,不可混用。** `rho1` 是**一个采样点**的滞后(OpenTouch @30 Hz 即 33 ms,
+ActionSense @10 Hz 即 100 ms),docstring 说明它的用途是"R 单独无法区分 smooth 与
+slow drift + noise"。**"1 秒后与当前的相关"对应的是 $\rho_H$,由 $R$ 给出,不是 `rho1`。**
+
+**修正前一条记录的措辞:** 表中"⇒ $\rho_{1s}$"一列是由 $R=1-\rho_H$ **推导**的,
+该恒等式需平稳性假设($\mathrm{Var}(x_{t+H})\approx\mathrm{Var}(x_t)$),
+而代码并不直接计算 $\rho_H$。作为一阶读法成立,但不是脚本的输出量。
+
+**阈值的方向容易读反。** 低自相关**不等于**"没东西可预测",而等于"persistence 这个
+基线很弱,因而 skill 容易拿高"。docstring 原文:"R ~ 1 means ... persistence is then no
+better than predicting the mean, and it is **easy to beat**"。
+**本项目内部就有反证**:OpenTouch 的 $\rho_{1s}\approx 0$(R=1.045),但其 AR 在 F_R 上
+skill = **0.367**,高于 ActionSense 的 0.200(R=0.655)。**上一个采样点不含信息,
+不代表更长的历史不含信息**——AR 的阶数最高到 30。
+两个传感器 skill 的高低差,主要来自基线难度而非模型优劣,这正是该脚本存在的理由。
+
+**⚠️ EgoTouch 没有 R/rho1。** `docs/predictability_floor.csv` 只有 actionsense / d256 /
+opentouch 三个传感器;`build_skill_comparison.py` 会去查 `FL[("egotouch", ch)]`,查不到,
+于是 `skill_comparison.md` 每张表的 **R 行在 `ego seen` / `ego unseen` 两列上都是 `—`**。
+**这恰是最需要它的一列**:EgoTouch 的 skill 是全表最高的(probGRU 0.265 @ego seen,
+对比 OpenTouch raw 的 0.203),而在没有 R 的情况下无法判断这是"模型更好"还是"基线更弱"。
+`data/egotouch_states` 不在本机,需在 CRC 上补算(命令见回复)。
+
+---
+
+## 2026-09-12 — Fig. 1 追问:"只用了 ActionSense 一个数据集吗"
+
+用户的质疑成立。**第一版三栏全部来自 ActionSense**。下面是为什么、以及改了什么。
+
+### 1. 本机到底有什么(核对过,不是推断)
+
+| 需要的东西 | ActionSense | OpenTouch |
+|---|---|---|
+| per-clip 物理状态 / 原始 map | ✅ `data/actionsense_states/clip_*.npy`(401 条) | ❌ 无任何 state cache 或原始数据 |
+| per-clip 预测存档(画预测曲线用) | ✅ `runs/as_preds_*`(16 个目录) | ❌ `runs/` 下**一个** opentouch 目录都没有 |
+| 聚合报表 | ✅ | ✅ `docs/opentouch/{d1,d1_pg,d1_map2,…}/*.csv` |
+| 跨传感器 $\Rdiff$ | ✅ | ✅ `docs/predictability_floor.csv`(已提交,commit acf6fa4) |
+
+所以 panel ② 的真实 map 帧、panel ③ 的真实预测曲线,**在本机上物理上只能是 ActionSense**。
+这不是取舍,是数据可得性。
+
+### 2. 但这暴露了一个真问题,不只是"少画一个数据集"
+
+Fig. 1 的第一句主张是 *temporal structure determines how strong persistence is*。
+全篇**最强**的该主张证据恰恰是跨语料对比 —— 正文自己写着:
+"mean $\Rdiff$ is .649 over 299 recordings, versus 1.041 over 2,902 OpenTouch clips"。
+只画 ActionSense,等于把本图自己论点的最强实例藏起来了。
+
+第二个问题:panel ① 的散点按 smooth/abrupt 分色,而**预注册的 smooth/abrupt 检验是
+OpenTouch 的**(299 vs 2,544 clips,`scope=trait` 的 dR2 行,18 个通道×模型组合的 95% CI
+**全部跨零**,核对自 `docs/opentouch/d1_pg/opentouch_report_d1_pg.csv`)。ActionSense 上
+这个划分是次要的、且方向相反。读者很容易把 Fig. 1 的色点误读成 H4 的检验。
+
+### 3. 改动
+
+**新增 `opentouch_floor()`**(`scripts/shared/plot_study_logic.py`):从
+`docs/predictability_floor.csv` 读 `opentouch / F_R` 行 → $\Rdiff$=1.045, n=2,902。
+该 CSV 由 `predictability_floor.py` 生成,和图里 `r_difficulty()` 用的是**同一个定义、
+各自的 1 s horizon**,所以两者放同一根轴上是合法的。**读文件而不是把 1.045 敲进去** ——
+表重算时图跟着动,不会无声地和 artefact 分家(同 §6 里 `R = 0.61` 那处硬编码的教训)。
+
+**panel ① 的散点带现在有三行**:smooth(136)/abrupt(154) 两行 ActionSense 逐录制点,
+外加第三行一个菱形 = OpenTouch 语料均值,并注明 `2,902 clips`。它**只画均值**,因为
+本机只有均值 —— 图上不假装有它没有的分布。
+
+**caption 重写**:点明 panel 2–3 是 ActionSense、panel 1 的 OpenTouch 标记来自 frozen 表;
+写出这条轴的读法("identical scores on the two corpora do not describe equally hard
+problems");并**显式说明**预注册的 smooth/abrupt 对比是在 OpenTouch 上做的,
+指向 `sec:results_actions`,堵住 §2 那个误读。
+
+**版面**:panel 宽度比 `.30/.30/.40` → `.335/.275/.39`(第一栏需要容下第三行标签,
+第二栏本来就有富余空白)。
+
+### 4. 仍然做不到的(诚实边界)
+
+- panel ② 的 map、panel ③ 的预测曲线**无法**换成 OpenTouch,除非把 OpenTouch 的
+  per-clip 预测存档(`runs/preds/clip_*.npz` 那种格式)取到本机。这与
+  `docs/per_action_metrics.md` §1 记的是同一个缺口("OpenTouch 逐动作 Hausdorff 不存在,
+  因为缺 per-clip forecast archives")—— **同一个缺口卡住了两件事**。
+- 若要 panel ③ 变成双语料并排(ActionSense 一个 origin + OpenTouch 一个 origin),
+  只需要那批 npz,是纯 scoring/绘图任务,不需要 GPU、不需要重训。**这是一个明确的
+  待办,不是本次能补的**。
+- `main.tex` 改动依旧**未经编译验证**(本机无 pdflatex),caption 新增了一个
+  `\ref{sec:results_actions}`,该 label 存在于 `main.tex` 的 Results 小节。
+
+---
+
+## 2026-09-12 — 【问答与更正】R、rho1，以及“相隔 1 秒的自相关”如何计算
+
+### 请求、计划与 OPEN QUESTIONS
+
+- 用户引用前次 R/rho1 解释，要求说明两个数字各自的含义、自相关的算法，以及是否是“两秒之间的 correlation”。
+- 计划：只读核对计算代码、采样率配置和已存 CSV；用相隔固定时间的逐点配对解释自相关；核对 R 与自相关、均值预测及 skill 的关系；记录对前次解释的修正。
+- OPEN QUESTIONS：无阻塞问题。用具体时间配对同时说明“相隔一秒的点”和“两段各一秒的片段”的区别即可回答；本次没有代码实施方案需要用户决策。
+- 使用 academic-research-suite 的 experiment-agent / validate 流程，按 inline 方式分析；不重跑实验。源文件此前已有未提交修改，本次只追加本日志。
+
+### Material Passport
+
+- Origin Skill: academic-research-suite / experiment-agent
+- Origin Mode: validate
+- Origin Date: 2026-09-12
+- Verification Status: ANALYZED
+- Version Label: autocorrelation_explanation_v1
+
+### 源码与数值核对
+
+- `scripts/shared/predictability_floor.py:67,77`：先按配置降采样，H 为降采样后预测步数。
+- `:85–92`：逐录制、逐通道取 x，按整条录制的均值中心化，使用全录制总体方差；跳过方差 <= 1e-12 的通道。实际两行计算现在位于 91–92，不是引用中的 88–89。
+- `:98–102,114–119`：对每通道的有效录制结果等权平均，而非把不同录制首尾拼接后计算。
+- `configs/actionsense/eval_harness.yaml:14–16`：30 Hz / 3 = 10 Hz，lag 1 为 0.1 s，H=10 为 1 s。
+- `configs/opentouch/eval_harness_d1.yaml:21–23`：30 Hz / 1 = 30 Hz，lag 1 约 0.0333 s，H=30 为 1 s。
+- `docs/predictability_floor.csv`：ActionSense F_R，R=0.6551、rho1=0.9309；OpenTouch F_R，R=1.045、rho1=0.303。由 1-R 推读的 1 s 相关分别为 0.3449、-0.045，不是直接计算输出。
+- `docs/skill_comparison.md` 的 Definitions：skill 对有效的 (origin, step) 配对计分，覆盖 h=1,...,H；floor 的 R 只用 lag H。这两者还存在录制权重、方差权重、mask 和 split 差异，不能把汇总 R 直接代入汇总 skill 做精确换算。
+- 外部基础定义核对：[NIST Autocorrelation](https://www.itl.nist.gov/div898/handbook/eda/section3/eda35c.htm)。其估计量以求和归一化；本脚本分子对 N-k 个配对取 mean、分母对 N 个点取方差，相比 NIST 展示的公式多 N/(N-k) 的因子。概念相同，有限样本估计约定不同。
+
+### 解释与推导
+
+1. 自相关衡量同一通道在 t 和 t+k 两时刻数值的线性关系，必须收集许多时间配对；单个数值对不能计算 correlation。10 Hz 下 lag 10 的配对是 (0.0 s,1.0 s)、(0.1 s,1.1 s)、(0.2 s,1.2 s)，依此遍历整条录制。不是默认把前一秒和后一秒各当一个对象比较形状；两段移位数组通常大量重叠。
+2. 对 x_0,...,x_{N-1}，mu=mean(x)、v=mean((x-mu)^2)，本脚本的 lag 1 为 mean((x[1:]-mu)*(x[:-1]-mu))/v。正值表示相隔该时间的值倾向同处均值上方或下方；负值表示倾向分处两侧；零附近表示这种线性联系弱。不是预测正确率，也不是两点数值相等的概率。相邻数值接近与线性相关有关，但不是同一性质。
+3. R=mean((x[H:]-x[:-H])^2)/(2v) 是相隔整个 horizon 的均方变化，除以整条录制方差的两倍，衡量 persistence 在终点的相对误差尺度；它本身不是相关系数。
+4. 总体恒等式完整形式为 E[(Y-X)^2]=Var(Y)+Var(X)+(E[Y]-E[X])^2-2Cov(X,Y)。当均值相同、方差均为 sigma² 时，R=1-rho_H。平稳性支持这些条件，但本次没有验证各录制是否平稳。
+5. 即使沿用全录制均值，有限样本也不能强行令 R=1-rhohat_H。精确的样本关系是 R=(mean(d[H:]²)+mean(d[:-H]²))/(2v)-rhohat_H，其中 rhohat_H=mean(d[H:]*d[:-H])/v。两个截断段的二阶矩未必等于全录制方差。代码也不是分别对两个截断数组中心化、标准化的 Pearson corrcoef。
+
+### 对先前日志和用户引文的明确修正
+
+- **撤回“OpenTouch 1 s 已无信号、未来与当前统计独立、再延长 horizon 无意义”的结论。** 零相关不等于独立，不同录制的正负相关还可能在均值中抵消；一个 lag 的弱线性相关不限定更长历史、非线性关系或更长 lag 的可预测性。明显负相关也可能有很强预测价值。
+- **收紧 docstring 中“no better than predicting the mean”的读法。** 在真实总体均值已知、同一平稳分布和同一终点计分的理论比较中，MSE(persistence)=2sigma²R，而 MSE(mean)=sigma²；R=1 时 persistence 的误差是均值预测的两倍，R=0.5 才与均值预测打平。原文“no better”可以包含更差，但不能读成两者相等。
+- **撤回“AR skill=0.367 直接证明较长历史含预测信息”的论证。** 同一理论口径下，预测总体均值的 skill=1-1/(2R)，R=1 时已有 0.5。正 skill 只证明优于 persistence，不自动证明优于均值或学到了时间结构。总体均值预测是理论参照，不代表在未知测试分布上可直接获得该均值。由于项目 R/skill 口径不同，不据此声称实际 AR 比均值差。
+- **撤回“两个传感器 skill 高低主要来自基线难度”的定量归因。** 已有数字说明存在基线强弱与评价口径差异，不能量化哪个因素主要解释模型间差距。R 不同会妨碍把 skill 差异直接解释成模型能力差异；R 相同也不足以保证可比。
+- 模型 skill 和 R² 可描述特定评估条件下的已达到性能，不是任务可预测性的理论上限；模型失败不证明任务不可预测。尤其 skill>0 不足以单独证明优于均值。
+
+### 统计解释检查与验证边界
+
+- Fallacy scan coverage: 11/11 checked for applicability：Simpson（汇总与逐录制方向无法凭当前 CSV 核查）、ecological（避免把录制均值约零归给所有录制）、Berkson（mask/录制选择不同是比较限制，未证明存在该偏差）、collider（无条件因果模型，不适用）、base rate（不适用）、regression to mean（无干预前后设计，不适用）、survivorship（代码跳过缺失/短/常量片段，选择影响未量化）、look-elsewhere（无显著性检验，不适用）、forking paths（本次解释既定公式，无新分析选择）、correlation/causation（不支持 skill 差异的主要原因归因）、reverse causality（无因果推断，不适用）。检查覆盖不代表原实验全面验证。
+- 本次核对已有代码、配置与存档数字，完成代数推导；未重新计算原始录制，未验证平稳性或相关的置信区间。除 SESSION_LOG.md 外没有修改任何文件；无需代码测试。
+
+## 2026-09-12 — probGRU 三输入补齐,12 臂全到;**修正 2026-09-10 "原始触觉图没用"的结论强度**
+
+补跑经过见上;`flatten_probgru` 因 `qsub -v` 的逗号解析被静默丢掉,修复后补齐。
+现有 12 臂 = {seq2seq, probgru} × {aggregate, cnn, flatten} × {1 s, 3 s},四个 (split, history)
+组合各 10 个模型(含 4 条参照臂)。
+
+### 一、解码器 vs 输入表征 —— 这正是当初砍掉两条臂所丢失的对照
+**test_seen 的 skill(Δ backbone = probgru − seq2seq)**
+| input | 1 s seq2seq → probgru | Δ | 3 s seq2seq → probgru | Δ |
+|---|---|---|---|---|
+| aggregate | +0.2148 → +0.2596 | **+0.0448** | +0.2464 → +0.2630 | **+0.0166** |
+| cnn | +0.1865 → +0.2560 | **+0.0695** | +0.1919 → +0.2503 | **+0.0584** |
+| flatten | +0.1267 → +0.2392 | **+0.1125** | +0.1097 → +0.2251 | **+0.1154** |
+| **输入表征跨度** | seq2seq **0.0881** / probgru **0.0204** | | seq2seq **0.1368** / probgru **0.0379** | |
+
+**两个因素不可加,而且相互作用**:probGRU 的增益**集中在 seq2seq 最弱的那个输入上**
+(flatten +0.115,aggregate 仅 +0.017)。换言之,**probGRU 把"选哪种输入"这件事的重要性压掉约 4 倍**
+(3 s:0.1368 → 0.0379)。
+
+### 二、【修正】2026-09-10 的"结论 2:表征序被反转,原始图没帮助"
+**方向仍然成立**(aggregate > cnn > flatten,在两种 backbone、四个组合下无一例外),
+**但幅度被我夸大了约 3.6 倍** —— 因为当时 map 臂**只有 seq2seq 一种解码器**,
+而那恰恰是对 map 输入最不利的解码器。3 s 下:
+- 旧证据(仅 seq2seq):aggregate − flatten = **0.137**,读起来像"地图严重有害";
+- 补齐后(probgru):同样的差距只有 **0.038**,cnn 落后 aggregate 仅 **0.013**。
+
+**可能的机制**(未验证,仅陈述):seq2seq 预测**残差**,等于白送一个 persistence 先验;
+probGRU 预测**绝对值**并自回归 rollout,没有这个先验。map 编码器在残差空间里似乎更难产出好增量,
+一旦换成绝对目标,它们就把大部分差距追了回来。
+⇒ **论文里不能只用 seq2seq 的 map 臂来论证"表征无用"**,那会把解码器的效应算到表征头上。
+
+### 三、probGRU 的优势**不迁移到 unseen**
+| Δ backbone | aggregate | cnn | flatten |
+|---|---|---|---|
+| unseen 1 s | +0.0075 | +0.0106 | +0.0162 |
+| unseen 3 s | **−0.0020** | **−0.0174** | +0.0547 |
+seen 上 +0.017…+0.115 的解码器增益,到 unseen 缩到 ±0.02(flatten 除外),
+3 s 下 aggregate 与 cnn 甚至**变负**。⇒ probGRU 的好处是**同分布现象**,面对全新任务不成立。
+这与它多吃一个动作嵌入是自洽的:unseen 有 35/85 条录制骑在几乎没训练过的 OTHER 上。
+
+### 四、【方法论】HD ratio **不能单独用来排名**
+8 条神经臂上 Spearman(skill, HD ratio) = **+0.26 / +0.49 / +0.49 / −0.26**(四个组合),
+**既不稳定,且多为正** —— 即 skill 越高,HD ratio 往往越**差**。最极端的一格:
+**test_seen 3 s 的最低 HD 是 `flatten_seq2seq`(1.072),而它的 skill 是全场最低(+0.1097)**。
+原因很直接:**一条几乎不偏离 persistence 的臂,会继承 persistence 的形状分数**
+(persistence 的 HD ratio 恒为 1.000)。
+⇒ **HD ratio ≈ 1.0 是歧义的**:既可能是"形状和 persistence 一样好",也可能是"它就是 persistence"。
+必须与 skill 并读。目前形状与精度权衡最好的是 **`cnn_probgru` @3 s**
+(skill +0.2503 接近最佳,HD 1.146 为神经臂次低)。
+
+### 待办
+- `docs/skill_comparison.md` 与 `docs/per_action_metrics.md` 已含新臂(由用户重跑生成)。
+- 本条目**未提交**:SESSION_LOG.md 当时另有并行会话未提交的条目(2026-09-12 horizon 问答),
+  不替其提交;同时未跟踪/修改的还有 `figures/`、`main.tex`、`scripts/shared/plot_study_logic.py`。
+
+---
+
+## 2026-09-12 — 【代码核查】OT/AS 的 1-R 是否逐 clip 计算后平均、是否覆盖所有 clip
+
+### 请求、计划、OPEN QUESTIONS
+
+- 用户要求检查代码：OT 是否所有 clip 的 1-R 平均为负，AS 是否也对所有 clip 计算，并给 reference code。
+- 计划：核对 manifest 入口、过滤条件、每通道计算及汇总；对照存档 CSV 和历史全量运行记录。仅阅读并记录，不改实现。
+- OPEN QUESTIONS：无。明确区分“指定 cache 的全部有效片段”和“原始数据集全部片段”，无需用户决策。
+
+### 核查结论与证据
+
+- 同一脚本处理两者。`scripts/shared/predictability_floor.py:58–65` 从配置 states_root 下的 manifest.jsonl 读取全部非空行；只有显式 --limit 才截断。`:71` 遍历这些行。整个计算未读取 train/val/test split，也未调用评价流程的低力 mask。
+- OT 配置入口 `configs/opentouch/eval_harness_d1.yaml:67` 为 `/users/jhao3/opentouch/cache_d1`；AS `configs/actionsense/eval_harness.yaml:47` 为 `data/actionsense_states`。“全部”限于这些 cache 的 manifest 与有效文件，并非保证原始数据集每条片段都进入。
+- `:72–80` 跳过不存在的 state/clip 文件，以及降采样后 T<=H+2 的片段；`:85–90` 按通道跳过 var<=1e-12。OT H=30，要求 T>32；AS H=10，要求降采样后 T>12。
+- `:91–92` 实际每 clip、每通道计算 R 与 rho1，没有显式计算 1-R。`:101–102` 和 `:117–119` 对有效 clip 的 R 等权取平均并输出/写 CSV。因此 mean_k(1-R_k)=1-mean_k(R_k) **作为代数恒等式精确成立**（存档数有舍入）。这与“1-R 是否等于真实自相关”是两回事，后者仍需统计假设与有限样本限定。
+- `docs/predictability_floor.csv:14–16`：OT F_R/CoPx_R/CoPy_R 的 mean R 为 1.045/1.060/1.017，对应 mean(1-R) 为 -0.045/-0.060/-0.017；三个通道的平均都负，不意味着每个 clip 都负，汇总 CSV 无法给出负值片段比例。
+- `docs/predictability_floor.csv:5–7`：AS 右手三个通道的 mean R 为 0.6551/0.7463/0.6584，对应 mean(1-R) 为 +0.3449/+0.2537/+0.3416；左手三通道也为正。
+- 存档 n_recordings：OT 2902、AS 299。`docs/d256/diagnostics/predictability_floor_all.txt:20–26` 有 OT 全量运行结果；该文件 AS 段仅记录 CRC 缺 cache，不能用作 AS 成功运行证据。AS 全量 299 的证据为 CSV 和本日志 2026-08-30续条目；该历史记录明确先前 60 段试跑 R=0.585 已由全量 R≈0.649 替代。
+- 计数细节：`:84` 的 used 在逐通道方差筛选前增加，`:119` 每通道 CSV 都写同一个 used，而实际每通道平均分母为 len(acc[c])。因此仅凭 n_recordings 不能断言各通道分别恰好纳入 2902/299 个有效数值。
+
+### 验证与修改范围
+
+- 本次是代码与存档核查，未重新运行原始数据计算。只追加 SESSION_LOG.md；无代码改动，无需测试。
+
+---
+
+## 2026-09-13 — 【九宫格】EgoTouch 填满九格,并让重画只动指定的图
+
+`24ebb3c`/`5f4314a` 跑出了 EgoTouch 的 `flatten_probgru` 与 `cnn_probgru`,
+两份 3s CSV 现在都带全 11 个臂(九宫格用其中 9 个)。相应改动:
+
+1. **`LAYOUTS["egotouch"]` 的 probGRU 行填满**,两个 `None` 换成
+   `flatten_probgru` / `cnn_probgru`。原注释"probGRU was only ever run on the aggregate
+   input"已失效,改为指向使其成立的两个 commit。
+   → **EgoTouch 现在与 OpenTouch 一样是 9/9**;ActionSense 仍是 5/9。
+
+2. **`make_grids.sh` 支持按名字重画**:`bash scripts/make_grids.sh ego_seen ego_unseen`
+   只重建这两张,其余不动。无参数时行为不变(全建)。
+
+3. **旧图清理**(这次不做会出错):图名含 clip 号(`ego_seen_clip1151_F_R.png`)。
+   臂从 7 个变成 9 个后,picker 的硬过滤(要求 layout 所有臂齐全)**真正开始起作用**,
+   极可能选中**另一条 clip** → 新图另起文件名,**旧图留在原地,两张都像是当前结果**。
+   现在在新图成功写出**之后**才删除同名不同 clip 的旧图,并打印 `[replaced] <旧文件名>`。
+   失败时不删,旧图保留。
+
+**验证(本地)**
+- 合成 9 臂 npz:九个臂全部解析,无 MISSING。
+- `make_grids.sh actionsense` + 预置的假旧图 `actionsense_clip999_F_R.png`:
+  仅 actionsense 重建、旧图被 `[replaced]`、**范围外的 `opentouch_clip172_F_R.png` 保留**。
+
+**未能在本地验证的**:EgoTouch 的 npz 是否真的合并了新臂。CSV 有,但 `runs/` 被 gitignore,
+本机无该数据。picker 缺臂时会明说,故在 CRC 上会立刻暴露,不会静默画成空格。

@@ -80,15 +80,16 @@ LAYOUTS = {
                        ("ar", "ar", "linear AR"),
                        ("seasonal", "seasonal", "seasonal-naive")]),
     ],
-    # probGRU was only ever run on the aggregate input here, so two panels are empty by fact of
-    # the sweep, not by a missing file. The baselines take the `_group` scope: fitted per
-    # recording group, the same per-recording basis the other two sensors' baselines use.
+    # Fills all nine since the probGRU map arms were run (24ebb3c, 5f4314a) -- they had been
+    # cut on a premise that turned out to be wrong. The baselines take the `_group` scope:
+    # fitted per recording group, the same per-recording basis the other two sensors use.
     "egotouch": [
         ("Seq2Seq", [("aggregate_seq2seq", "aggregate", "physical state"),
                      ("flatten_seq2seq", "flatten", "flatten"),
                      ("cnn_seq2seq", "cnn", "cnn")]),
         ("probGRU", [("aggregate_probgru", "aggregate", "physical state"),
-                     None, None]),
+                     ("flatten_probgru", "flatten", "flatten"),
+                     ("cnn_probgru", "cnn", "cnn")]),
         ("baselines", [("persistence", "persistence", "persistence"),
                        ("ar_group", "ar", "linear AR (per group)"),
                        ("seasonal_group", "seasonal", "seasonal-naive (per group)")]),
