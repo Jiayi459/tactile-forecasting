@@ -13363,7 +13363,7 @@ origin and weights recordings equally",指向 Tables~II–III。这是有意保�
 `fig:overview` 全文仍只有 `\label` 无 `\ref`,正文不受影响。**未编译验证**(本机无 pdflatex),
 工作区未提交。
 
-## 2026-09-13 — 模型选择回顾：为什么采用 ProbGRU 与 Seq2Seq（进行中）
+## 2026-09-13 — 模型选择回顾：为什么采用 ProbGRU 与 Seq2Seq
 
 ### 请求、计划与 OPEN QUESTIONS
 
@@ -13373,6 +13373,61 @@ origin and weights recordings equally",指向 Tables~II–III。这是有意保�
 - OPEN QUESTIONS：无必须由用户决定的实现问题；本轮是已授权的代码解释，无代码实施计划待批准。历史选型动机与当前可辩护的研究设计理由将分别标注，不把推断当历史事实。
 - 初始工作区已有修改：SESSION_LOG.md、figures/overview.pdf、figures/overview.png、main.tex、scripts/actionsense/plot_clip_model_grid.py、scripts/shared/plot_study_logic.py。本轮保留这些修改。
 - 初步发现：main.tex 已将两模型描述为 joint-horizon residual 与 action-conditioned autoregressive 两种机制，并承认不是单变量消融；docs/model_comparability.md 的“d256 无模型/AS harness 待建”等状态已落后于现有源码，不能直接沿用旧文档结论。
+
+### 1. 实际审计范围与历史动机
+
+- 梳理 README、docs/REPO_ORGANIZATION.md、研究计划、main.tex、模型对照文档及本日志相关历史；核验 src/actionsense（state_forecast、action_dynamics、tactile_map、eval_harness）、src/opentouch（prob_gru、tactile_map、gru_aggregate）、src/d256/prob_gru、src/tactile_pixel/models、src/touchanything/models，以及相应配置、EgoTouch 训练入口与既有测试。此为相关建模链路审计，不声称逐行审阅所有工具/绘图/数据处理文件。
+- 本日志 612–618：2026-07-03 用户选择显式物理状态向量，放弃当时的 VAE/空间 latent 路线；历史理由是 vector state 采用 vector GRU，而 ConvLSTM 用于保留空间网格的预测任务。这是目标表示发生变化后的选型，不是同任务实验证明 ConvLSTM 较差。
+- 本日志 666–675：随后用户要求 slow/fast 分解与 mean+band，ProbGRU 最初预测 FAST 分量。早期高 skill 后来受到弱 persistence-of-fast / zero-baseline 审计质疑（约 1017–1028），不能把早期数字作为当前 RAW 模型优越性的证据。
+- 本日志 1084–1086、1112–1119：用户曾提出直接一次预测整个 horizon，并要求与 autoregressive 比较；这项当时的 probGRU 改动在 1492–1495 记为未实施、被新协议替代，不能说当前 Seq2Seq 就是当时那个纯 decoder 消融。
+- 本日志 1499–1524：当前 Seq2Seq 来自 2026-07-21 的 map→F/CoP 实验，用同一 GRU+one-shot head 对比 flatten/CNN；1591–1597 记录次日按用户要求加 Gaussian 头和 NLL。src/opentouch/prob_gru.py:3–16 记录 2026-08-13 将 AS ProbGRU 架构和损失迁至 OT 的明确理由；src/opentouch/gru_aggregate.py:3–11 说明旧 deterministic arm 已被 probabilistic map-family aggregate 替代。
+
+### 2. 两个名字背后的真实模型
+
+| 维度 | 当前 Seq2Seq | 当前 ProbGRU |
+|---|---|---|
+| 历史编码 | frame encoder + GRU | frame encoder（部分 OT aggregate 直接输入）+ GRU |
+| 未来生成 | 最后 hidden 经两个 linear head 一次输出全部 H×C | decoder GRU 循环 H 次，时间共享参数，上一均值回馈下一步 |
+| 学习目标 | 相对 origin 最后状态的残差 | 标准化的绝对未来状态 |
+| 语义条件 | 无 | 8 维 recorded action-category embedding |
+| 输出与损失 | 每 step/channel 的 mu、logvar；Gaussian NLL | 同左 |
+
+- 核心代码：src/actionsense/tactile_map/models.py:62–82、85–124；OT 对应 src/opentouch/tactile_map.py:102–120 与 src/opentouch/prob_gru.py:250–286。两种模型都使用 GRU，也都是概率模型；“Seq2Seq”在这里是具体类名，从广义结构上 ProbGRU 同样是 encoder–decoder sequence-to-sequence。
+- src/actionsense/tactile_map/data.py:155–169 明确 residual/absolute target 切换；train.py:66–75 明确仅 ProbGRU 消费 aid/last，:120–135 采用同一 Gaussian NLL。ProbGRU forward 在训练和推理都反馈预测均值，没有 future-ground-truth teacher forcing 参数，不能将差异解释为这里并不存在的 teacher-forcing mismatch。
+- Seq2Seq 的零残差**可以**恢复 persistence，但模型也可学到较差残差；代码注释中的“At worst ... matches persistence”不构成性能下界保证。
+- Seq2Seq 免去了未来预测值逐步反馈的路径；ProbGRU 引入逐步状态递推。二者都是合理的机制对照，但“ProbGRU 必然收缩/必然平滑”“Seq2Seq 各步完全无关联”不是从实现可推出的定理。Seq2Seq 的所有输出共享同一历史 hidden；ProbGRU hidden 动力学可以产生变化。docs/_skill_comparison_notes.md:50–56 的绝对措辞不应沿用。
+- 概率头支持误差尺度、NLL 与 VAL sigma 校准；它不等于已经验证的任意场景校准，也不提供 diffusion 式多峰未来或采样传播的不确定性。评价主要使用预测均值（main.tex:215）。
+
+### 3. 当前能支持的选型理由，以及“其他模型”在哪
+
+- **任务匹配**：当前主任务是短历史→固定 1 s 的低维 F/CoP 序列；AS/Ego 配置通常为 10 Hz 的 H=10，OT 为 30 Hz 的 H=30。GRU 是已实现、容量紧凑的向量序列基线；AS/Ego d=64、hidden=64，OT 原 ProbGRU hidden=48。记录中确有过拟合诊断（本日志 1678–1688），支持谨慎控制容量，但不证明其他小型架构训练不了或一定较差；旧 pixel 子集 N=82 不能冒充当前所有语料样本数。
+- **研究对照**：persistence / seasonal / AR 分别检查保持当前值、重复结构、线性动态，再用 direct 与 autoregressive 两个神经模型包考察非线性预测及 skill/shape 差异。AR 不是被淘汰的模型，是核心参照。src/actionsense/eval_harness/baselines/{ar,persistence,seasonal}.py 与 main.tex:209–218 支持这些角色。
+- **表征与复用**：src/actionsense/tactile_map/models.py:127–143 支持 2 backbones × 3 encoders；scripts/egotouch/train_tactile_map.py:44–54、164–166 直接复用 AS 数据/训练/模型模块并包含全部六组合。OT 有对应 fork。这样可以在同一 backbone 下比较 aggregate、flatten、CNN，并检查表征排序是否依赖 backbone；不声称三个传感器的协议、输入特征或所有超参完全相同。
+- **其他已实现模型**：src/tactile_pixel/models/__init__.py:12–20 注册 ConvGRU、ConvLSTM、SimVP；conv_rnn.py:3 的输出仍为未来整张 map。src/touchanything/models/touch_anything.py:121–138、140–161 使用 video/views 和 pose，输出 pose/tactile，同当前 tactile-history→未来 F/CoP 信息预算/任务不同。它们不能直接作为当前任务中已经输给 ProbGRU/Seq2Seq 的证据；经适配可另作对照。
+- **尚未覆盖的同任务架构**：检查当前 AS/OT/d256 模型、Ego 入口及相关配置，未见接入同一 F/CoP sweep 的向量 LSTM、TCN、Transformer、DLinear、diffusion 实验。模型 factory 仅有两种 backbone，tests/test_tactile_map.py:148–149 甚至明确期望 transformer 被拒绝。故研究覆盖的是两种 GRU 模型包，不是全面架构选优。
+
+### 4. 重新直接读取 CSV 得到的实证约束
+
+以下为原 CSV 的 `(all actions)` 行，**skill 列**，与 skill_pooled 分开；不把不同数据集列当相同实验。
+
+| 3 s history / aggregate | Seq2Seq skill | ProbGRU skill | Seq2Seq HD ratio | ProbGRU HD ratio |
+|---|---:|---:|---:|---:|
+| AS corpus，290 scored recordings | +0.127618 | -0.722475 | 0.830211 | 0.901423 |
+| Ego seen，132 scored recordings | +0.246415 | +0.263041 | 1.184165 | 1.327813 |
+| Ego unseen，56 scored recordings | +0.226398 | +0.224359 | 1.189854 | 1.298211 |
+
+- 来源：docs/actionsense/results/corpus-aggregate/as_preds_seq2seq_corpus.csv:2、as_preds_probgru_corpus.csv:2；docs/egotouch/results/test_seen/egotouch_test_seen_3s.csv:2–3 与 test_unseen/egotouch_test_unseen_3s.csv:2–3。这是已有结果复核，无重新训练/原始预测评分。
+- Ego seen 同文件 ar_group 的 skill=+0.277057、ar_global=+0.228780；不能只保留较弱的 global 对照来称神经全面胜出，也不能忽略 group 的额外语义/参数专用化。
+- Ego seen 3 s 的 aggregate−flatten skill 差：Seq2Seq 约 0.136753，ProbGRU 约 0.037939，说明表征差距依赖模型包；这支持保留两套模型，却不能把交互归因于单一 decoder 因素。
+- main.tex:285–290 的 OT clip-balanced 表也未给出神经全面领先：F 上 Seq2Seq/AR/ProbGRU = .318/.302/.290，CoP 上 AR 均略高。该表仅作为文稿对照；本轮未从原始 OT NPZ 重算。
+
+### 5. 最终判断、需限制的表述与修改范围
+
+- 最可辩护的理由：这两套模型是适配显式物理状态、便于跨语料复用的紧凑神经基线，覆盖 direct residual prediction 与 autoregressive absolute rollout，并支撑 encoder×backbone 对照；其选择有明确历史延续与实验成本考虑。没有证据证明它们在所有候选架构中最优。
+- main.tex:215、255 已正确承认比较同时改变 rollout、persistence anchor、action conditioning；OT 还存在 hidden 48 vs 64 与 aggregate velocity-feature 差异。故不能把性能差异因果归到解码策略、概率性或 GRU cell 本身。动作 embedding 是录制的动作类别，不是未来机器人控制序列；不能笼统称所有模型均无语义条件。
+- docs/ICRA_PAPER_PLAN.md:424 的“capacity is not the binding constraint / ceiling 回答 transformer 会不会赢”过强。scripts/opentouch/opentouch_predictability_ceiling.py:9–20、30–33 使用 smooth signal + white noise 且 smooth lag-1 correlation≈1 的假设；若假设不成立，noise 可高估、估计 ceiling 可过低。它不能排除更强非线性模型的收益。低自相关也不等于所有形式的不可预测性。
+- 给用户的回答将明确区分**选两套作为研究探针的合理性**与**已排除其他架构的证据**；后一项目前不足。若论文需要跨架构普适结论，需要同目标、同信息、同划分和评价的非 GRU 对照；本轮未实施或启动此扩展。
+- 用户问题明确，无新增澄清问题/审批。仅追加本条 SESSION_LOG.md，未修改实现、配置、结果或文稿，未启动训练、未提交。验证为源码交叉核对、CSV 原值读取与日志 diff 检查；无需运行测试。
 
 ---
 
@@ -13437,3 +13492,469 @@ docstring 开头讲的同一个坑。
 **一处自查**:首次计算时解析器在最后一个小节(CoPy_R)越界,把后面 backbone 表的
 Hausdorff 值当成 $R^2$ 读进来,出现 "flatten $R^2$=2.511" 这种不可能值($R^2\le1$)。
 已加上界断言重算,上表为修正后的数字。
+
+### 8. 用户直接改稿 + 两项微调(2026-09-13 晚)
+
+**用户自己在脚本里改的(保留,不回退):**
+- `set_xlabel("time relative to the origin (s)")` → **`"Time(s)"`**
+- 曲线右端 `"persistence\n(copy-last)"` → **`"persistence"`**(单行)
+- `origin t` 位置 `(.012, .10)` → `(.025, .06)`
+
+**按指令做的两处:**
+1. 公式简化为 **`skill = 1 - e_model / e_pers`**(去掉 $\sum_h$ 与平方),字号先 14 后按追加
+   指令**缩小到 10**,位置 `(.015, .90)`。
+2. **`Time(s)` 居中**。原先它居中于整个 axes 盒,而 axes 右端 `1.016→1.36` 是放曲线名的空白
+   边距,所以视觉上偏右。现用
+   `ax.xaxis.set_label_coords((0 - xlim[0]) / (xlim[1] - xlim[0]), -.105)`
+   把它对齐到 **$t=0$**,即 $-1\!\to\!+1$ 这段的中点。从 `xlim` 现算,改动坐标轴范围时不会失效。
+
+**必须记下的一处语义降级(caption 已补救)。**
+图上的 `skill = 1 - e_model/e_pers` 与论文 eq.~\eqref{eq:skill} **不是同一个量**:
+后者是 $S_{\mathrm{pers}} = 1 - \mathrm{MSE_{model}}/\mathrm{MSE_{persistence}}$ ——
+两个误差**各自平方、在 horizon 上取均值**之后再相除,并且再按 clip 加权汇总。
+若把图上那条式子按字面理解(单步、带符号的误差之比),它既可能为负号翻转、也不等于报告值。
+
+作为示意图这样简化是可接受的,但**正文不能因此失准**,故 caption 增写:
+"The figure writes the ratio in its simplest form; the reported quantity squares and averages
+both errors over the horizon, $S_{\mathrm{pers}}=1-\mathrm{MSE_{model}}/\mathrm{MSE_{persistence}}$
+\eqref{eq:skill}."
+
+**顺带修掉的 LaTeX 错误:** 我上一稿写成 `(\eqref{eq:skill})`。`\eqref` 自带括号,
+会排成 `((5))`,已改为 `\eqref{eq:skill}`。`amsmath` 已在导言区加载,`\eqref` 可用。
+
+**状态:** 图与 `main.tex` 已更新;**仍未编译验证**(本机无 pdflatex);工作区未提交。
+
+**再一次微调(同日):** 公式先从左上移到右上,但右上落在了 `1.016→1.36` 那段**白色边距**里
+(那段是留给 `persistence / prediction / ground truth` 三个曲线名的)。按指令再左移,
+现改用 `ax.get_xaxis_transform()` —— **x 用数据坐标 0.99、y 用轴分数 0.88** ——
+使公式贴着 predict 色块的右内缘、落在 `predict` 标题下方、`persistence` 虚线上方。
+x 绑定数据坐标意味着色块边界若变,公式跟着走,不会漂到白边里。
+
+## 2026-09-13 — 【论文图·计划】合并 `model_diagram` 与 `gru_aggregate_diagram` 为一张 `figures/` 统一架构图
+
+### 0. 指令原文（用户 2026-09-13）
+
+> 把 docs/gru_aggregate_diagram 和 docs/model_diagram 两张图合并在一起，输出位置在 figures/ ，
+> 前两部分（加粗虚线的右边）和 probgru 保持一致，完全删掉 action label and embedding，
+> 删掉左上角标题；最右部分 decoder 再分别画出两种的区别，上面画 probgru 下面画 seq2seq，
+> 然后最后输出的图都是同样的 physical representation, F copx and copy，不需要画这个预测的曲线了；
+> probgru 的部分完全去掉 action embedding
+
+### 1. 现状盘点（读码所得，非印象）
+
+两张源图由两个脚本生成，`gru_aggregate` 复用 `model_diagram` 的画图原语：
+
+- `scripts/actionsense/plot_model_diagram.py`（→ `docs/model_diagram.{png,pdf}`）= 论文里的 **ProbGRU**
+- `scripts/actionsense/plot_gru_aggregate_diagram.py`（→ `docs/gru_aggregate_diagram.{png,pdf}`）
+  = 论文里的 **Seq2Seq**（`main.tex:243` 写作 "GRU-aggregate / Seq2Seq"，`main.tex:213` 定义）
+
+两图共用画布 `W=130, H=56, Y0=3`，两条竖虚线的语义不同：
+- **细灰虚线** `DIV=36.5`（`plot_model_diagram.py:250`）：分隔 panel (a) 与 panel (b)；
+- **加粗黑虚线** `NOW=61.5`（`plot_model_diagram.py:137`，lw=1.6）：forecast origin $t$。
+
+所以按画布从左到右自然分成三段：
+1. **第一段**（`DIV` 左）：特征构造 panel (a)；
+2. **第二段**（`DIV`–`NOW`）：history 条 + Encoder GRU（+ 观测曲线 inset）；
+3. **第三段**（`NOW` 右）：decoder / 输出。
+
+ProbGRU 与 Seq2Seq 的真实差异（已核对源码注释，非臆测）：
+
+| | ProbGRU (`action_dynamics.py`) | Seq2Seq (`tactile_map/`, `encoder='aggregate'`) |
+|---|---|---|
+| 目标 | **绝对值**、fast component（causal LP 0.4 Hz 高通残差） | **residual over persistence** $z_{t+1:t+H}-z_t$ |
+| 归一化 | 无 z-score（走高通） | TRAIN-only z-score |
+| 输入维 | $x\in\mathbb{R}^5$ $[F,x,y,v_x,v_y]$ | $z\in\mathbb{R}^6$（$[F,CoP_x,CoP_y]\times\{L,R\}$） |
+| 解码 | decoder GRU 逐步 rollout，$\hat\mu$ 回灌 | 无 decoder，两个 Linear 一次吐出 $H\cdot C$ |
+| 条件 | action embedding $e_a\in\mathbb{R}^8$ | 无 |
+
+**这张表是下面 OPEN QUESTION Q2 的全部来源**：指令说"前两部分和 probGRU 保持一致"，
+但前两部分一旦按 ProbGRU 画（高通 fast component、$\mathbb{R}^5$），对 Seq2Seq 分支就是**事实错误**，
+因为 Seq2Seq 既不做高通也不喂 $v$。合并图若共用前端，必须选一个处理方式。
+
+### 2. 拟定的合并方案（待 Q1–Q4 确认后实施）
+
+新脚本 `scripts/shared/plot_model_architectures.py`，输出 `figures/model_architectures.{png,pdf}`。
+（不改两个旧脚本，`docs/` 两张旧图原样保留 —— 它们是各自模型的"全真"图，合并图是论文用的简化图。）
+
+- **删掉左上角标题**：`plot_model_diagram.py:255` 那行 `note(ax, 1.0, 54.6, "probGRU forecasting model — …")` 不画。
+- **删掉 action label + Emb 盒**：`plot_model_diagram.py:113-118` 整块不画。
+- **删掉 decoder 头部的 $e_a$ 小竖条与其箭头**：`plot_model_diagram.py:182-186` 中的
+  `Rectangle(... C_ENC ...)` / `note("$\\mathbf{e}_a$")` / 那支短箭头，全部不画。
+- **第一、二段**沿用 ProbGRU 版（见 Q1/Q2）。
+- **第三段**在 `NOW` 右侧上下分成两行：
+  - 上行 = ProbGRU：3 个 Decoder GRU cell + Linear heads $(\mu,\log\sigma^2)$ + 橙色 $\hat\mu$ 回灌虚线；
+  - 下行 = Seq2Seq：两个 `Linear(64→H·C)` 头 + reshape 成 $(H,C)$ 的两块网格；
+  - 两行各自的 "autoregressive / one-shot" 橙色注解保留，这是全图唯一要读者带走的对比。
+- **输出**：**不画预测曲线 inset**（`plot_model_diagram.py:212-236`、
+  `plot_gru_aggregate_diagram.py:214-238` 两段 inset 全删），改为一块**共同的 physical
+  representation 输出**：$H$ 步 × 3 通道 $[F,\ CoP_x,\ CoP_y]$ 的小网格/盒子，两行都指向它（见 Q3）。
+- **画布**：右侧要上下两行，竖向需要增高；拟把 `H` 从 56 提到约 76（`W` 不变 130），
+  第一、二段的内容整体竖向居中，保持左右留白比例。
+
+### 3. OPEN QUESTIONS（必须先回答，不擅自决定）
+
+- **Q1（读法确认）** 指令写"前两部分（**加粗虚线的右边**）"。但加粗虚线 = forecast origin `NOW=61.5`，
+  它的**右边**恰恰是 decoder（即指令后半句要改的"最右部分"）。据上下文，"前两部分"应指
+  **加粗虚线左边**（特征构造 + Encoder GRU）。请确认是否如此；若真指右边，则我理解反了，需要重说。
+- **Q2（事实性）** 前两段若逐字沿用 ProbGRU 版，图上会写 "target is the FAST component: causal
+  low-pass 0.4 Hz" 与 $x\in\mathbb{R}^5$ —— 对下行的 Seq2Seq **不成立**。二选一：
+  (a) 就按指令原样画 ProbGRU 版（图与 Seq2Seq 实现不符，需在 caption 声明只画 ProbGRU 前端）；
+  (b) 共享段去掉高通/$v$ 那几行，画成中性的 $[F,\ CoP_x,\ CoP_y]$ 物理状态历史，
+  把 "绝对 vs residual-over-persistence"、"高通 vs z-score" 这两处差异挪到右侧两行分支上各写一行。
+  我倾向 (b)：合并图的全部价值就是"共享前端 + 解码器不同"，而 (a) 会把一个分支画错。
+- **Q3（输出块）** "最后输出的图都是同样的 physical representation" —— 是画**一块**共同输出、
+  上下两行都用箭头指向它；还是上下两行**各画一块**内容相同的输出块？前者更能表达"同一个输出空间"。
+- **Q4（论文接线）** `main.tex:230-257` 目前是 `figure*` 里并排两个 minipage，分别插
+  `figures/seq2seq_model.pdf` 与 `figures/probgru_model.pdf`（都还不存在，现在显示 placeholder）。
+  合并后是否要我一并把这段改成插**单张** `figures/model_architectures.pdf`、
+  并重写 caption？还是这次只出图、`main.tex` 之后再说？
+
+**状态：等待 Q1–Q4 回答，未动任何代码。**
+
+### 4. Q1–Q4 的回答（用户 2026-09-13）与实施
+
+| | 回答 |
+|---|---|
+| **Q1** | **左边**：特征构造 + Encoder GRU 两段沿用 probGRU 版式。（"右边"确为口误。） |
+| **Q2** | **中性化共享前端**：共享段只画两者真正共有的东西；高通/z-score、绝对/residual 的差异写到右侧两行上。 |
+| **Q3** | **一块共同输出**，上下两行都用箭头指向它。 |
+| **Q4** | **只出图**，`main.tex` 这次不动。 |
+
+**新增文件：`scripts/shared/plot_model_architectures.py`** → `figures/model_architectures.{png,pdf}`
+（pdf 为纯矢量，已验证不含 `/Subtype /Image`）。两个旧脚本与 `docs/` 两张旧图**未改动**——
+它们仍是各自模型的"全真"图，新图是论文用的简化合并图。`main.tex` 未改动（Q4）。
+
+**画布**：`W=140, H=78, Y0=2`（源图为 `130×56`；右侧要上下两行，竖向加高）。
+三段由两条竖虚线分开，语义与源图一致：细灰 `DIV=38`、加粗黑 `NOW=64`(forecast origin)；
+`(c)` 内部再加一条**横向**细灰虚线 `SPLIT=40.5` 分开上下两行，它在 `x=112.5` 处止住，
+不切进共享输出块——因为那一块是两行共用的，不属于任何一行。
+
+**按指令删掉的东西（逐条对应源码位置）：**
+- 左上角标题：`plot_model_diagram.py:255` 那行 note，不画；
+- action label 盒 + `Emb e_a` 盒：`plot_model_diagram.py:113-118`，整块不画；
+- decoder 头部的 $e_a$ 小竖条、其标签与短箭头：`plot_model_diagram.py:182-186`，不画；
+- 两张图输出端的预测曲线 inset：`plot_model_diagram.py:212-236` 与
+  `plot_gru_aggregate_diagram.py:214-238`，全删，换成共享输出网格。
+
+**共享输出块**：一个 $(H\times C)$ 网格，行标 $F$ / $CoP_x$ / $CoP_y$，列为 $h=1\ldots H$，
+上下两行各一支箭头汇入。旁注写明"each cell is a Gaussian $(\mu,\sigma)$ per channel per step"
+——因为两臂都出 $(\mu,\log\sigma^2)$，只画 $\mu$ 的格子会漏掉方差头。
+
+**两行分支上各写两行差异（这是 Q2 的落点）：**
+- ProbGRU：`autoregressive: μ̂ fed back as the next decoder input` /
+  `absolute prediction — nothing anchors it to s_t`
+- Seq2Seq：`one-shot: the entire horizon in one forward pass — no decoder, no feedback` /
+  `residual over persistence: ŷ = s_t + r̂, so r̂ = 0 reproduces copy-last`
+
+**共享段保留的一处不对称说明**：Seq2Seq 在 GRU 前多一层 per-frame `Linear+ReLU`
+（`models.py:44-53`），ProbGRU 直接喂状态。这不算"解码器差异"，放在 (b) 的脚注里一行带过，
+否则共享段会对 Seq2Seq 少画一层。
+
+**排版迭代（三轮，均为碰撞修复，记录以免以后重踩）：**
+1. 行标题 `ProbGRU — autoregressive rollout` 与 $\mu_{t+1},\sigma_{t+1}$ 重叠 → 先试竖排(rotation=90)，
+   但竖排文字压在加粗虚线上、且被 $h$ 箭头穿过；最终把画布从 `H=76` 提到 `78`、顶部标尺上移到
+   `y=73.2`，腾出一条带子放横排行标题（`y=71.6`），并把 $\mu,\sigma$ 标签下压到 `y=69.2`。
+2. **一处语义错误**：初稿把 Seq2Seq 的两个头画成 $\mu \rightarrow \log\sigma^2$ 的竖直箭头，
+   等于说方差头接在均值头后面。实际是 $h$ **并联**喂两个 `Linear`（`models.py:66-76`）。
+   已改为 `h` → 分叉点 → 两支水平箭头。
+3. 输出箭头原本从两块网格之间的空白起笔；已改为两块网格右侧先并到一个竖直汇流线，再一支箭头出图。
+
+**状态：** 图已生成并目视校对（三轮）。`main.tex` 按 Q4 未动，
+故 `figures/seq2seq_model.pdf` / `figures/probgru_model.pdf` 仍不存在，编译仍出 placeholder ——
+**要接到论文里必须再改 `main.tex:230-257`**。工作区未提交。
+
+### 5. 第二轮修改（用户 2026-09-13，同日追加指令）
+
+**指令原文：** 左上角 physical_state 后面括号里的东西去掉，@30hz 去掉 downsample 之后的全部去掉，
+蓝色的格子删掉换成 physical state 直接连中间 perframe physical 然后连 object encoder（查code），
+下面五行小字全部删掉，下面 observed history 删掉，图最上面的 forecast origin t 和两个分段箭头都删掉；
+下面 (a) 写 physical state construction (b) 写 Embedding (c) 写 Forecast；
+probgru autoregressive 那里只保留这一个单词别的全都删掉；seq2seq one shot 那里也只保留 one shot；
+最右侧 forecast 那里不要画格子画曲线，文字全部去掉，和之前的那两幅图保持一致就行。
+
+**"查code"的结果——并且它推翻了我上一轮写在图上的一句话。**
+读 `src/actionsense/tactile_map/models.py`：
+
+- `build_model` 把**同一个** per-frame encoder 模块交给两个 backbone（`models.py:133-142`）；
+- `ProbGRU.forward` 第一行就是 `self.enc(self.frame_encoder(x))`（`models.py:114`），
+  与 `Seq2Seq.forward` 的 `self.gru(self.encoder(x))`（`models.py:76-77`）同构；
+- physical-state 臂用的是 `AggEncoder` = `Linear(C→d) + ReLU`（`models.py:49-58`），`d=hidden=64`（`models.py:126`）。
+
+**所以 per-frame embedding 是两臂真正共用的**，用户要的 "(b) Embedding" 这一段在代码上完全成立，
+中间那个盒子按代码命名为 `AggEncoder`。
+
+**更正：** 我上一轮在 (b) 底下写的脚注 "Seq2Seq adds a per-frame Linear+ReLU first;
+ProbGRU feeds the state in raw" **是错的**。那句话只对独立实现
+`src/actionsense/action_dynamics.py` 成立，而论文 ActionSense 的数字出自 `tactile_map/`。
+该脚注已随本轮删除，脚本 docstring 里写明了这次更正，以免以后又照抄回来。
+
+**本轮逐条落实：**
+
+| 指令 | 处理 |
+|---|---|
+| physical_state 括号 | `(offline moments, not learned)` 删除，只剩 `physical_state` |
+| `@ 30 Hz` | 从 $s_t$ 盒中删除 |
+| downsample 之后全部 | 蓝色 input/target 盒 + 其下 5 行小字，全删 |
+| 蓝格子 → 直连 | $s_t$ 盒经一支跨分界线的箭头直连 (b) 的 per-frame 条 |
+| 连 encoder（查code） | per-frame → **AggEncoder** `Linear(C→d)+ReLU` → **Encoder GRU**，按代码 |
+| observed history | (b) 下方那段观测曲线 inset 与其说明，全删 |
+| 顶部 forecast origin t + 两个分段箭头 | 全删 |
+| 三个小标题 | (a) Physical-state construction / (b) Embedding / (c) Forecast |
+| probGRU 那里只留一个词 | 行标题与那两行橙色/黑色注解全删，只剩橙色 **autoregressive** |
+| seq2seq 那里只留 one shot | 同上，只剩橙色 **one-shot**；两块网格的 `reshaped (H,C)` 说明也删 |
+| 最右侧画曲线、去文字 | 共享输出块从 $(H\times C)$ 网格改回**曲线 inset**（±2σ 带、$\mu$、ground truth、persistence 虚线），无图例、无标题、无轴标 |
+
+**三处我自己判断、需要你过目的地方：**
+
+1. **`downsample ×3 → 10 Hz` 保留了。** 指令断句可作两读；我按"*之后*的全部去掉"理解，
+   即 downsample 这一步本身留下，只删它下游的东西。它现在是跨 (a)|(b) 分界线那支箭头的标签
+   （文字加了白底以免灰虚线穿过字）。**如果你的意思是连 downsample 一起删，说一声，一行就改掉。**
+2. **加粗黑虚线本身保留了**，只删掉了它的文字标签 `forecast origin t` 和两支分段箭头
+   ——它是 (b)|(c) 的结构分界，删了三段就散了。
+3. **行标题不再出现 ProbGRU / Seq2Seq 字样。** 因为 "seq2seq one shot 那里也只保留 one shot"
+   明确只留机制词，我对上一行做了对称处理。**后果：模型名只能由 caption 承担**，
+   接进 `main.tex` 时必须在 caption 里点名"上行 = ProbGRU，下行 = Seq2Seq"，否则读者无从对应表格。
+
+**另需记住：** 输出块的曲线是**合成示意**（`demo_signal`，固定随机种子），与两张源图同源，
+**不是实测结果**；`docs/` 两张源图的 caption 义务同样适用于这张图。
+
+**状态：** `figures/model_architectures.{png,pdf}` 已重画并目视校对；`main.tex` 仍按 Q4 未动；
+`docs/` 两张源图与两个旧脚本未动；工作区未提交。
+
+### 6. 第三轮修改（用户 2026-09-13）+ 一处必须先说清的事实分歧
+
+**指令原文：** 最左边的灰色格子在 y 方向上居中，箭头旁边 physical state 这两个词删掉，
+右边指向 per frame physical state 那里伸长箭头，整个图更加紧凑一些，格子都变小贴近字的周围，
+aggencoder 删掉，最右边 prediction 的图删掉直接写 s_t+n；**probgru 和 seq2seq 的标题不要删掉啊！！！
+完全保留**，然后也保留 autoregressive 和 one-shot；我没懂 seq2seq 的架构是什么为什么还有格子，
+在 seq2seq 里也加入 decoder（reference code）他也是有 decoder 的；
+然后 seq2seq 两个灰色格子左边有两个奇怪的箭头删掉。
+
+**先认错：上一轮我把行标题删过头了。** 上一轮指令"seq2seq one shot 那里也只保留 one shot"
+我读成"只留机制词、删掉模型名"，并对 ProbGRU 行做了对称处理。当时我在 §5 的第 3 条里
+明确标注了这个后果并请你过目——但正确的做法是**当场问**，而不是先删再报备。本轮已恢复为
+`ProbGRU — autoregressive` / `Seq2Seq — one-shot`，两部分都在。
+
+**本轮已落实：**
+
+| 指令 | 处理 |
+|---|---|
+| 最左灰盒 y 居中 | $s_t$ 盒中心钉在画布竖直中点 `MID=(Y0+H)/2`，是一个算出来的量，改画布高度不会失准 |
+| 删 physical_state 字样 | 已删，箭头无标签 |
+| 伸长指向 per-frame 的箭头 | $s_t$ 盒下移后该箭头自然变长，起点改到新盒右缘 |
+| 整体更紧凑 | 画布 `140×64` → **`98×50`**；figsize `15in` → `12in` |
+| 格子变小贴近字 | 逐个收窄：$s_t$ 盒 20→13，Encoder GRU 18→11，Decoder cell 9→7.4，Linear 头 19→11，输出盒 14→9 |
+| 删 AggEncoder | 已删，per-frame 条直连 Encoder GRU |
+| 删最右预测图，写 $s_{t+n}$ | 曲线 inset 删除，换成一个小盒写 $\hat{s}_{t+n}$，两行三支箭头汇入 |
+| 恢复两个标题 + 保留机制词 | `ProbGRU — autoregressive` / `Seq2Seq — one-shot`，合成一行，兼顾"完全保留"与紧凑 |
+| 删 seq2seq 左边两个怪箭头 | 原先是"汇流竖线 + 两支 0.5 单位短箭头"，短箭头确实难看；改为从 Encoder GRU 直接各拉一支曲线箭头到两个头，无残桩 |
+| 删网格 | $\mu$ / $\log\sigma^2$ 的 $(H,C)$ 网格已删 |
+
+**唯一没做的一条，以及为什么——"seq2seq 也有 decoder"与代码不符。**
+
+按你的要求 reference code，我查了**全部三个**喂给论文 Seq2Seq 行的实现：
+
+| 文件 | 类 | 结构 |
+|---|---|---|
+| `src/actionsense/tactile_map/models.py:62-80` | `Seq2Seq` | `self.encoder` → `self.gru = nn.GRU(...)` → `self.mu = nn.Linear(hidden, H*C)`、`self.lv = nn.Linear(...)` |
+| `src/opentouch/tactile_map.py:102-120` | `Seq2Seq` | 同上，逐行一致 |
+| `src/opentouch/gru_aggregate.py:128-142` | `Seq2SeqPoint` | 同上，只是单个 `self.head` |
+
+`forward` 是 `_, h = self.gru(self.encoder(x))` → `h[-1]` → 两个 `Linear` → `reshape(B,H,C)`
+（`models.py:76-80`）。**三个类里各只有一个 `nn.GRU`，没有任何 decoder。**
+全仓库 forecasting 代码里唯一的 `self.dec` 是 ProbGRU 的 `nn.GRU(n_out, hidden)`（`models.py:108`）。
+
+而且**论文正文已经这么写了**：`main.tex:213` —— "Seq2Seq encodes each history frame,
+summarizes the sequence with a GRU, and **uses two linear heads to emit the means and log
+variances of all H steps jointly**"。正文与代码一致，都说没有 decoder。
+
+结论：**"Seq2Seq" 这个名字对这个类来说是个 misnomer**——它是 encoder + 一次性线性头，
+不是经典的 encoder-decoder。在图上画一个 decoder 盒，等于宣称一个不存在的模块，
+而且会和 `main.tex:213` 自相矛盾。所以这一条我**没有照做**，先把证据摆出来问你。
+（那两个网格你说"没懂为什么还有格子"——它们原是 $(H,C)$ 的输出张量，已按你的意思删掉。）
+
+**状态：** 其余 12 条已全部落实并出图；decoder 一条**待你裁决**（见下一条记录）。
+
+### 7. 追问"那它是怎么 decode 的呢？"——答案与图上的落点（2026-09-13）
+
+**答：它不按时间解码。** `models.py:75-80` 逐行：
+
+```python
+e = self.encoder(x)                                  # (B, t_in, d)  每帧嵌入
+_, h = self.gru(e)                                   # 只取最后一个隐状态
+last = h[-1]                                         # (B, 64)       整段历史压成一个向量
+mu = self.mu(last).reshape(-1, self.H, self.n_out)   # Linear(64→60) 然后 reshape(10, 6)
+lv = self.lv(last).clamp(-6, 4).reshape(-1, self.H, self.n_out)
+```
+
+"解码" = **一次 `Linear(64 → H·C)` 矩阵乘法 + 一次 `.reshape`**。
+64 维向量 → 60 个数 → 折成 10×6 的 (步 × 通道)。
+**输出的时间轴不是算出来的，只是这 60 个输出单元的排布方式。** 无循环、无逐步生成、无反馈。
+
+| | 第 $h$ 步怎么来 |
+|---|---|
+| ProbGRU | 真递推：decoder GRU 跑 H 次，第 $h$ 步输入是第 $h-1$ 步的 $\hat\mu$（`models.py:117-123`） |
+| Seq2Seq | 不"来"——一次乘法同时吐出全部 $H\times C$ 个数，`reshape` 后第 $h$ 行才叫第 $h$ 步 |
+
+**由此回看上一轮删掉的两个网格：它们画的恰恰就是这个 reshape**（60 个数折成 $(H,C)$），
+只是当时没有标注，所以看不出含义——"为什么还有格子"这个疑问本身是标注缺失造成的。
+
+**图上的处理：** 不恢复网格（你已要求删），改为在两个 Linear 头的输出侧加**一行字**
+`reshape H·C → (H, C)`。这一行就是 Seq2Seq 的 decode 步骤，既回答了问题，
+又没有宣称一个代码里不存在的 decoder 模块。
+
+**仍然开着的选项**（等你一句话）：
+1. 把两个 Linear 盒改标为 **"one-shot decoder"** —— 在 seq2seq 术语里输出头确实就是 decoder，
+   盒内仍写 `Linear(d_h→H·C)`，不与 `main.tex:213` 冲突；
+2. 维持现状（只有 `reshape` 那一行）；
+3. 恢复 $(H,C)$ 小网格，并给它加上 "reshape" 标注。
+
+**状态：** `figures/model_architectures.{png,pdf}` 已重画；`main.tex` 仍未动；工作区未提交。
+
+### 8. 核对 Seq2Seq decoder 实现与术语纠正（2026-09-13）
+
+**用户请求：**「你看code 里面seq2seq的decoder是怎么实现的」。IDE 当前打开
+`src/actionsense/tactile_map/models.py`，因此以该实现为主要解释对象，同时检查仓库内
+其他同名实现，避免把一个类的结论推广到整个仓库。
+
+**计划与范围：** 只读定位类、追踪训练/预测调用和残差还原，提供带行号的解释；按工作约定
+追加本日志。本轮不修改模型、图或论文，不训练模型。
+**OPEN QUESTIONS：** 本轮代码解释无阻塞问题；此前图示标注选项仍未获用户裁决，本轮不代为选择。
+**问题与回答：** 本轮未另行提问；下列为对用户代码问题的核查结论。
+
+**主要实现与证据：**
+
+1. `src/actionsense/tactile_map/models.py:68-82`：每帧 encoder 生成 `(B,T,d)`，
+   单层 GRU 编码历史，`h[-1]` 为 `(B,hidden)`；`self.mu` 与 `self.lv` 是两个独立的
+   `Linear(hidden,H*n_out)`。均值直接 reshape 为 `(B,H,n_out)`；log-variance
+   先 clamp 到 `[-6,4]` 再 reshape。它们承担 **one-shot linear decoder / output heads**
+   的功能，未定义独立的循环 decoder，也没有未来时间步循环或预测反馈。
+2. `configs/actionsense/tactile_map.yaml:9-11`、
+   `configs/actionsense/eval_harness.yaml:13-16` 与模型默认六通道对应示例：
+   `hidden=64,H=10,C=6`，每个头完成 `(B,64) -> (B,60) -> (B,10,6)`。
+   每个未来步/通道由线性层不同的输出权重与偏置预测，并通过对应未来目标接受监督；
+   reshape 只组织张量，不承担学习。此前“时间轴只是排布”的说法需要这个补充，不能
+   理解为模型没有学到预测步的区别。
+3. `src/actionsense/tactile_map/data.py:155-169,194-203`：训练目标为标准化空间的
+   `future - last`，全部预测步都以同一个最后观测值为基准。
+   `train.py:66-75,120-135,189-193,210-216`：训练与推理调用同一 `model(x)`，
+   无 teacher forcing；损失为逐元素 Gaussian NLL（省略常数项）。
+   `train.py:289-297`：导出时加回 origin 的标准化观测值，再 `tnorm.unz` 还原单位；
+   不是逐步累加残差。
+4. `models.py:105-123` 的 ProbGRU 才在此文件内定义 `self.dec = nn.GRU(...)`，
+   以最后观测值起步，再把自己的预测均值反馈给下一步；这是循环 decoder 的具体对照。
+
+**同名实现与对既有记录的纠正：**
+
+- `scripts/egotouch/train_tactile_map.py:41-45` 使用 ActionSense 的数据/训练模块，
+  其 Seq2Seq 复用上述模型；OpenTouch `src/opentouch/tactile_map.py:102-120`
+  同样使用两个 one-shot 线性头，`src/opentouch/gru_aggregate.py:128-142`
+  则是一个点预测线性头。
+- **此前 §6 的“全仓库 forecasting 代码里唯一的 self.dec 是 ProbGRU”错误。**
+  `src/actionsense/state_forecast.py:121-141` 的另一个 `GRUSeq2Seq` 明确包含
+  `self.enc`、`self.dec` 两个 GRU；最后观测帧作为第一步输入，每步
+  `o,h = self.dec(inp,h)`，`delta = self.head(o)`，`inp = inp + delta`，
+  再把更新的预测状态反馈并保存。这是自回归残差 decoder，与 tactile_map 类不同。
+  `src/tactile_pixel/models/conv_rnn.py:73-92` 也有未来帧递推和可选 teacher forcing，
+  但复用 recurrent cells，不能仅搜索成员名 `self.dec` 判断有无解码。
+- **此前“没有任何 decoder”“Seq2Seq 一定是 misnomer”的断言过强。**
+  精确结论应是当前 tactile_map Seq2Seq 使用线性输出头实现一次性解码，
+  没有独立的 recurrent decoder；架构图可以将这两个头统称为
+  “one-shot linear decoder”，但不应画成代码中不存在的 decoder GRU。
+  本轮仅澄清术语，不修改先前图示。
+
+**验证与修改：** 直接阅读上述源码与配置完成静态核查，未执行模型或测试；唯一修改为
+本日志追加。工作区此前已有日志、图、绘图脚本与 `main.tex` 等未提交变动，均保留。
+
+### 9. 解释线性输出头、decoder 概念及分类（2026-09-13）
+
+**用户请求：**「explain线性输出头，overall解释一下decoder和不同种类的decoder」。
+**计划：** 从当前 Seq2Seq 的线性头出发，解释运算、张量维度和监督，再解释 decoder 的
+功能以及网络结构/生成方式/输出形式三个不同分类维度，最后对应 Seq2Seq 与 ProbGRU。
+本轮为概念解释，除追加日志外不修改项目。
+**OPEN QUESTIONS：** 无；用户未请求实现或更改图示。未另行提问。
+
+**核查与解释要点：**
+
+- 复核 `src/actionsense/tactile_map/models.py:62-124` 与上一轮证据。
+  线性输出头将特征向量映射为任务输出，`o = W h + b`；含偏置时严格说是仿射映射。
+  对六通道、十步预测，`Linear(64,60)` 使用 `W` 的 60 行及对应偏置，分别预测
+  各个步/通道。`reshape(10,6)` 只组织输出；标签对齐和损失赋予各位置预测意义。
+  线性头不意味着整个模型线性，前面的 encoder/GRU 包含非线性。
+- 当前两个头分别输出残差均值及 log-variance；后者 clamp `[-6,4]`，
+  `variance = exp(lv)`，`std = exp(lv/2)`。所谓“两个头”是两套从同一特征读出
+  不同任务量的参数。它们不显式预测跨步/跨通道协方差。
+- decoder 是把内部表示或条件转换为目标输出的功能角色，不要求是 encoder 的数学逆，
+  也不要求存在名为 `decoder` 的类；预测任务输出未来序列，重建任务输出输入重建。
+  output head 是末端任务映射，可组成简单 decoder，也可位于复杂 decoder 末端。
+- 按计算结构，常见 decoder 包括 Linear、MLP、RNN/GRU/LSTM、Transformer attention、
+  卷积/上采样。它们的用途和计算结构可比较，但复杂 decoder 往往仍包含线性输出头。
+- 按生成方式，自回归逐步使用先前输出，一次性/并行解码同时产生多个输出位置；
+  另有反复细化的生成方式（例如扩散去噪）。这些不是与 Linear/Transformer 并列的
+  互斥架构类别：Transformer 可按不同设计采用自回归或并行解码。
+- 按输出形式，可预测点值，或分布参数/样本；概率预测不必然自回归。
+  当前 Seq2Seq 是线性、一次性、Gaussian 残差分布输出；ProbGRU 是循环 GRU + 线性头、
+  自回归、Gaussian 绝对状态分布输出（代码将均值反馈，不采样）。
+- 当前 Seq2Seq 所有步共享历史表示，但没有未来步之间的反馈，不能把“一次性输出”
+  误解为每个步完全没有关联；它也不保证时间平滑性。其线性头尺寸固定预测 horizon。
+  自回归支持逐步延展计算，但延展不等于训练范围外预测可靠，并可能传播早期预测误差。
+- 不再重复“Seq2Seq 没有任何 decoder”的过强表述；将线性头称为 one-shot linear
+  decoder，同时明确它没有循环解码模块。
+
+**修改与验证：** 只追加此日志；依据本地源码解释当前实现，一般概念为稳定知识，未进行
+网络检索或执行测试。此前图示选择仍未在本轮作出决定。
+
+---
+
+## 2026-09-13 — 【核对】EgoTouch 的 R 出来了(我预测错了);两张论文图各有一处缺陷,已修
+
+### 一、EgoTouch 的 R = 0.80–0.86,**我的预测是错的**
+
+我此前预测"EgoTouch 的 R 会落在 ActionSense 的 0.58–0.75 附近或更低"。实测 F_R:
+
+| 传感器 | R | $\rho_{1s}=1-R$ | n |
+|---|---|---|---|
+| ActionSense | 0.655 | +0.345 | 299 |
+| d256 | 0.750 | +0.250 | 166 |
+| **EgoTouch** | **0.861** | **+0.139** | 1896 |
+| OpenTouch | 1.045 | −0.045 | 2902 |
+
+EgoTouch 比 ActionSense **高**一截,位于 d256 与 OpenTouch 之间,比我猜的更靠近去相关端。
+
+**这改变了"EgoTouch 更准"的解读,而且结论比我预期的更有利于 EgoTouch。** F_R 上:
+
+| 列 | R | pers $R^2$ | 最佳 $R^2$ | 学到的增量 | skill |
+|---|---|---|---|---|---|
+| AS corpus | 0.655 | 0.769 | 0.803 | **+0.034** | 0.163 |
+| ego seen | 0.861 | 0.349 | 0.581 | **+0.232** | 0.265 |
+| ego unseen | 0.861 | 0.635 | 0.679 | +0.044 | 0.228 |
+| OpenTouch | 1.045 | 0.503 | 0.661 | +0.158 | 0.386 |
+
+`ego seen` 的学到的增量 **+0.232 是全表最大**。所以 EgoTouch 的高 skill **不能**简单归因为
+基线弱——它确实学到了最多。ActionSense 才是"看起来准、实则几乎全是基线"的那个(+0.034)。
+
+### ⚠️ 二、EgoTouch 的 R 行有一处结构性缺陷(新发现,未修)
+
+`predictability_floor.py` 按 **config 的整个 manifest** 算 R,得到 1896 条录制的语料级数字。
+但 `skill_comparison.md` 的 `ego seen`(132 条)与 `ego unseen`(56 条)是**故意不同的两个
+population**(unseen 是 10 个完全没出现过的任务)。现在**两列都显示同一个 0.861**。
+
+它们的基线强度实际差近一倍:**persistence $R^2$ 在 seen 上 0.349、unseen 上 0.635**。
+所以这一个数字同时挂在两列下面是会误导的——而 R 行存在的全部理由就是防止误读。
+其余传感器较轻(各列是同一语料的不同折)。
+**修法**:给 `predictability_floor.py` 加 split 感知(`load_splits`),分别输出 seen/unseen 的 R。
+本轮未做。
+
+### 三、两张论文图的缺陷与修复
+
+**(1) OpenTouch 图 85% 是空轴。** clip 172 只有约 4 s,而我建议了 `--seconds 30`,
+`tmax` 未与数据长度取小。现改为 `min(a.seconds, tt[-1])` 并打印提示。**这是我给错参数。**
+
+**(2) EgoTouch 图没有 persistence 曲线。** 共享 scorer 在**评分时合成** persistence
+(`skill_comparison.md` 原话:"synthesises persistence from the saved truth and origins rather
+than requiring the run to have trained it"),故 CSV 有、npz 无。于是这张图恰好缺了
+"有没有赢过 copy-last"这条唯一的参照线。现在 `load_clip` 在缺失时按定义重建
+(origin 处取值,保持 H 步),仅填空,不覆盖已有的。
+
+**验证**:用 ActionSense(npz 里有真 persistence)对拍,合成结果与真实值
+**逐元素完全相同**(最大差 0.0)。未加 `--paper` 时 3×3 输出仍与改动前**字节一致**。

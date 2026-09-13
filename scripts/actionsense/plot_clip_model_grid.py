@@ -184,6 +184,20 @@ def load_clip(dirs: list[str], clip: int) -> dict:
                 out[m] = (z[k], z.get(f"sigma_{m}"), z["origins"])
     if ref is None:
         raise SystemExit(f"clip_{clip}.npz not found in any of: {', '.join(dirs)}")
+    if "persistence" not in out and out:
+        # The shared scorer synthesises persistence at scoring time from the truth and the
+        # origins rather than requiring the run to have trained it, so EgoTouch's npz carry
+        # every model arm but no persistence -- and a grid without it loses the one reference
+        # the whole figure is read against. Rebuild it here by its definition: hold the value
+        # at the origin for all H steps. Only ever fills a gap; a run that wrote its own
+        # persistence keeps it.
+        _, _, ors = next(iter(out.values()))
+        H = next(iter(out.values()))[0].shape[1]
+        y = ref["y"]
+        mu = np.stack([np.repeat(y[o:o + 1], H, axis=0) for o in ors])
+        out["persistence"] = (mu, None, ors)
+        print(f"  persistence not in the npz; synthesised from truth+origins "
+              f"({len(ors)} origins, H={H})")
     ref["arms"] = out
     return ref
 
@@ -320,7 +334,11 @@ def main():
     k = chans.index(a.channel)
     H = next(iter(data["arms"].values()))[0].shape[1]
     tt = np.arange(len(y)) / fps
-    tmax = a.seconds if a.seconds else tt[-1]
+    tmax = min(a.seconds, tt[-1]) if a.seconds else tt[-1]
+    if a.seconds and a.seconds > tt[-1]:
+        # Asking for more seconds than the recording has used to draw them as empty axis --
+        # a 4 s OpenTouch clip under --seconds 30 left 85% of every panel blank.
+        print(f"  --seconds {a.seconds:g} exceeds the clip's {tt[-1]:.1f} s; showing all of it")
 
     have = sorted(data["arms"])
     print(f"  clip {a.clip}  action={data['action']!r}  {len(y)} frames @ {fps:g} Hz  "
