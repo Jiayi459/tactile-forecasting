@@ -13256,3 +13256,184 @@ seen 上 +0.017…+0.115 的解码器增益,到 unseen 缩到 ±0.02(flatten 除
 
 **未能在本地验证的**:EgoTouch 的 npz 是否真的合并了新臂。CSV 有,但 `runs/` 被 gitignore,
 本机无该数据。picker 缺臂时会明说,故在 CRC 上会立刻暴露,不会静默画成空格。
+
+---
+
+## 2026-09-13 — Fig. 1 重画:只讲"预测什么"和"skill 怎么算"
+
+### 1. 用户指令(逐条)
+
+1. 只需要两件事:(1) 从 time-series 角度说清楚**用什么预测什么**;
+   (2) **skill 是怎么算出来的** —— 它是哪两部分的比值,**分子和分母都要可视化**,
+   让读者能直观地"读"出这个数。
+2. 只保留旧图最右边那一栏的内容。
+3. **只画 Force**(CoP 不画)。
+4. 追加指令:**history 取 1 s**。
+
+### 2. 因此删掉的东西(记录在案,便于回滚)
+
+旧图的 ① 时间结构 + $\Rdiff$ 散点带(含 OpenTouch 跨语料标记)、② map→physical state +
+rolling-origin、底部 $\Rdiff\to\Rtwo\to S\to D_{\mathrm{H}}$ ladder,以及 $D_{\mathrm{H}}$
+的最坏点连线,**全部移除**。上一版在 commit 55fec37 与其后的工作区改动里,可回溯。
+
+**这意味着 Fig. 1 不再是"nested evaluation logic"图**,而是"任务定义 + skill 定义"图。
+已核对:`fig:overview` 在正文里**只有 `\label`,没有任何 `\ref`**(`grep -n fig:overview
+main.tex` 只有 85 行一处),所以没有正文段落因此失效;需要改的只有 caption,已改。
+
+### 3. 数据源改了:换成 1 s history 的那次运行
+
+`runs/as_preds_seq2seq_corpus` 是 3 s history 的 arm。用户要 1 s,故改用
+**`runs/as_preds_seq2seq_corpus_h1`**(Table~II 里 "Seq2Seq / 1 s" 那一行的产物)。
+这一点是必须的:图上画出来的 1 s 历史,必须**就是**产生那条预测的输入,否则图在撒谎。
+
+> 该目录只有 **250** 个 clip(3 s 目录有 290),但 clip 115 在内。图只用一个 origin,
+> 不受覆盖差异影响;若日后要在此目录上做总体统计,需先查清这 40 条的去向。
+
+**画的这一个 origin(clip 115 `peel`, t=103,现算)**:
+
+| 量 | 值 |
+|---|---|
+| history(输入,10 帧) | 3631 → 6769,单调上升 |
+| truth(未来 10 帧) | 6803 → 3145 → 4323(冲高后回落再反弹) |
+| persistence | 恒为 6769 |
+| forecast | 6631 → 5441(缓降) |
+| $\mathrm{MSE_{persistence}}$ | 6,115,883 |
+| $\mathrm{MSE_{model}}$ | 2,303,375 |
+| ratio | 0.377 |
+| **$S$** | **+0.623** |
+
+选它的理由:分母大、分子约为分母的 0.38,条形图里"模型条只覆盖基线条的 38%"一眼可读;
+且历史是一段干净的上升沿,正好说明"看这一段、预测下一段"不是平凡任务。
+
+### 4. 三栏各自负责什么
+
+- **(a) One second in, one second out** — 输入区(蓝底)与预测区(橙底)左右等宽各 1 s,
+  origin 竖线在中间;真实力曲线贯穿两区;**灰虚线 = copy-last**,在这里就把基线定义好,
+  (b) 才能一眼看懂。
+- **(b) Score it twice** — 上下两格,**同一条 truth、同一 y 轴刻度**,只换对手:
+  上格 persistence(分母),下格 forecast(分子),每格 10 根竖线 = 逐步误差。
+  两格共用刻度是刻意的,否则"谁的误差大"就被坐标轴伪造了。
+- **(c) Read off the skill** — 公式 + 两条同尺度横条(persistence 归一为 1.00,
+  model 0.38),**模型条没盖住的那段用橙色虚框标出,就是 $S=+0.62$**。
+  这就是"直观读出比值"的那一下。
+
+### 5. 一处必须说明的诚实性问题(已写在图上和 caption 里)
+
+单个 origin 的 $S=+0.62$ **不是本文报告的 skill**。Table~II 的 "Seq2Seq / 1 s" 是
+**+0.1243**(clip-balanced,pooled over 所有 origin)。两者差一个数量级的观感,若不标注
+极易被误读成"我们的模型 skill 有 0.62"。因此:
+- 图上 (c) 角落固定一行小字:*one origin shown; the reported S pools every origin*;
+- caption 明确写 "A single origin makes the arithmetic visible and is **not** the reported
+  quantity",并指向 Tables~\ref{tab:opentouch_results}--\ref{tab:actionsense_results}。
+
+### 6. 状态
+
+`figures/overview.{pdf,png}` 重新生成(PDF 35 KB,矢量,无栅格对象——map 已移除)。
+`main.tex` 只改了 `figure*` 块内的注释与 caption。**仍未编译验证**(本机无 pdflatex)。
+工作区改动未提交。
+
+### 7. 同日再改:合成一整张图,去掉 (a)(b)(c) 分栏
+
+**用户指令。** 不要分 section,整张图是一个整体:一条 force 曲线,横轴 time、纵轴 force (a.u.),
+标好 input / predict,中间是 origin $t$;在 prediction 段**同时**画 prediction 与 ground truth;
+**标出 skill 是哪一段比上哪一段**;把公式写出来;物理量在曲线旁标好即可;
+**不要任何具体数值**;**不要 denominator / numerator 那两行注释**。
+
+**实现。** 单个 axes,`figsize=(7.16, 3.05)`:
+
+- 输入区(淡蓝)与预测区(淡橙)左右各 1 s,origin 竖线居中,`origin t` 标在线右。
+- 三条线同图:ground truth(黑,带采样点)、prediction(蓝)、persistence(灰虚线),
+  **各自在曲线右端直接标名**,不用 legend。
+- **10 个 horizon step 上各画一对竖线**:左侧灰 = truth→persistence,右侧蓝 = truth→forecast。
+  淡色表示"每一步都有";在 persistence 误差最大的那一步(h=6,真值谷底)把这一对
+  **加粗、加端帽、并标上 $e_{\mathrm{pers}}$ 与 $e_{\mathrm{model}}$** —— 这就是"哪一段比上哪一段"。
+- 公式画在左上空白处,**用曲线上标的同一批符号**:
+  $S = 1 - \sum_h e_{\mathrm{model},h}^{2} \big/ \sum_h e_{\mathrm{pers},h}^{2}$。
+
+**按指令删除的东西:** 三个圆圈小标题 a/b/c、两栏误差子图、条形比值图、
+`denominator —` / `numerator —` 两行注释、以及**所有数值**(1.00 / 0.38 / S=+0.62 / MSE)。
+force 轴无刻度值(a.u.);时间轴保留刻度,因为横轴就是要读时间。
+
+**一个被数值删除带走的保护。** 上一版靠图上那行小字提示"单 origin 的 S 不是报告值"。
+现在图上无数值,这个误读风险也随之消失(读者读不到 0.62),但 **caption 仍保留**
+"the origin shown is an illustration of the definition; the reported $S$ averages over every
+origin and weights recordings equally",指向 Tables~II–III。这是有意保留的,不是遗漏。
+
+**状态。** `figures/overview.{pdf,png}` 重生成;`main.tex` 只动 caption 与块内注释;
+`fig:overview` 全文仍只有 `\label` 无 `\ref`,正文不受影响。**未编译验证**(本机无 pdflatex),
+工作区未提交。
+
+## 2026-09-13 — 模型选择回顾：为什么采用 ProbGRU 与 Seq2Seq（进行中）
+
+### 请求、计划与 OPEN QUESTIONS
+
+- 用户请求：回顾整个仓库代码，解释为何采用 ProbGRU、Seq2Seq 作为预测模型而非其他模型。
+- 范围：只读审计当前模型、训练/评价协议、历史设计记录及已有结果；本轮不修改模型或启动训练。按工作协议追加本日志。
+- 计划：① 区分当前 physical-state forecasting 与仓库中的历史视觉/像素预测分支；② 核验两种模型的真实输入、输出、损失及训练方式；③ 核对与 persistence、seasonal、AR、其他神经架构的实际比较范围；④ 给出能由代码/结果支持的选择理由，并明确未经实验证实的解释及局限。
+- OPEN QUESTIONS：无必须由用户决定的实现问题；本轮是已授权的代码解释，无代码实施计划待批准。历史选型动机与当前可辩护的研究设计理由将分别标注，不把推断当历史事实。
+- 初始工作区已有修改：SESSION_LOG.md、figures/overview.pdf、figures/overview.png、main.tex、scripts/actionsense/plot_clip_model_grid.py、scripts/shared/plot_study_logic.py。本轮保留这些修改。
+- 初步发现：main.tex 已将两模型描述为 joint-horizon residual 与 action-conditioned autoregressive 两种机制，并承认不是单变量消融；docs/model_comparability.md 的“d256 无模型/AS harness 待建”等状态已落后于现有源码，不能直接沿用旧文档结论。
+
+---
+
+## 2026-09-13 — 【论文图】九宫格 paper 模式;以及"ActionSense/EgoTouch 预测更准"的核实
+
+### 一、原图为什么在论文里不可读(不只是"大")
+
+论文类是 `ieeeconf, letterpaper, 10pt`,`figure*` 全宽 = **7.16 in**
+(`plot_study_logic.py:80` 的 Figure 1 就用这个宽度)。九宫格却生成在 **15.0 in**。
+以 `width=\textwidth` 插入 = **缩小 2.10 倍**:标题 9.5→**4.5 pt**、刻度 8→**3.8 pt**、
+轴标签 8.5→**4.1 pt**。Figure 1 的最小字号是 5.7 pt,即本仓库的可读下限。
+**所以问题不是占版面,是文字已低于可读线**;正确做法是按 7.16 in 重新生成,而非缩放。
+
+### 二、裁定(用户答复)
+
+1. 主文放 **OpenTouch + EgoTouch** 两张(均 9/9);ActionSense 5/9 不做门面。
+2. 布局 **2×3 + 基线内嵌**:两行骨干 × 三列输入,三条基线画进每个面板。
+3. **替换** `main.tex:344` 的 `fig:pointwise_trajectory`(它现在上下堆了两张全宽图,
+   且只覆盖 ActionSense 的 aggregate 一个输入;九宫格是它的超集)。
+
+### 三、实现:`--paper`
+
+`PAPER_W, PAPER_H = 7.16, 3.45`;字号 title 7.0 / tick 5.6 / label 6.2 / legend 6.4。
+基线移进面板是**论证需要**而不只是省地方:论文要问的是"两个骨干值不值得要",
+而答案(最强基线赢 17/18 格)只有在基线与被它击败的臂**同轴**时才看得出来。
+顺带省掉 1/3 高度。共享轴只在外圈标注(原来九格各画各的,那是检视图的需求)。
+`--baselines` 可选子集(默认三条;`ar` 是真正赢的那条)。
+
+**回归**:未加 `--paper` 时,3×3 输出与改动前**字节一致**。
+
+### 四、核实"ActionSense 和 EgoTouch 反而预测得更准"——**成立,但不是模型的功劳**
+
+按 $R^2$(绝对准确度)排,用户的观察正确,**ActionSense 三个通道全部第一**:
+
+| 通道 | AS corpus | ego unseen | ego seen | OpenTouch |
+|---|---|---|---|---|
+| F_R | **0.803** | 0.679 | 0.581 | 0.653–0.661 |
+| CoPx_R | **0.560** | 0.478 | 0.401 | 0.265 |
+| CoPy_R | **0.710** | 0.555 | 0.439 | 0.115 |
+
+**但 persistence 的 $R^2$ 同样是 ActionSense 最高**(F_R 0.769、CoPy_R 0.645;
+OpenTouch 对应 0.503 与 **−0.711**——后者意味着 copy-last 比直接预测均值还差)。
+减掉基线后的**学到的增量**($R^2_{\text{最佳}}-R^2_{\text{persistence}}$)排名**完全反转**:
+
+| 通道 | AS corpus | ego seen | ego unseen | OpenTouch |
+|---|---|---|---|---|
+| F_R | **+0.034**(末) | +0.232 | +0.044 | +0.150 |
+| CoPx_R | +0.148 | +0.186 | +0.147 | **+0.611** |
+| CoPy_R | **+0.065**(末) | +0.184 | +0.121 | **+0.826** |
+
+**ActionSense 在 $R^2$ 上第一、在"学到的增量"上垫底(F_R 与 CoPy_R 均为末位)。**
+它看起来准,是因为 1 s 内信号几乎不动($R=0.655$),copy-last 已经拿到 0.769。
+这正是 Figure 1 caption 已经写下的那句话——"baseline difficulty is not misread as
+learned forecasting ability"——在数据上的具体形态,也是 `predictability_floor.py`
+docstring 开头讲的同一个坑。
+
+**读数注意**:$R^2$ 的分母是"被评分子集自身的均值",各传感器的录制population不同
+(动作、时长都不同),故跨传感器读 $R^2$ 与读 skill 有同样的告诫;
+文档原话是 "read this section beside the skill tables, never instead of them"。
+另外 EgoTouch 的 F 是归一化压力 $P_\Sigma$ 而非牛顿。
+
+**一处自查**:首次计算时解析器在最后一个小节(CoPy_R)越界,把后面 backbone 表的
+Hausdorff 值当成 $R^2$ 读进来,出现 "flatten $R^2$=2.511" 这种不可能值($R^2\le1$)。
+已加上界断言重算,上表为修正后的数字。

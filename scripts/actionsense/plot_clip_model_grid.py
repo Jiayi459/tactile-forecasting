@@ -120,6 +120,23 @@ def unit_label(ch: str) -> tuple[str, str]:
     return f"{ch} — {text}\n({unit})", unit
 
 
+# \textwidth of this paper's class (ieeeconf, letterpaper, 10pt) -- the same figure width
+# scripts/shared/plot_study_logic.py builds Figure 1 at. Generating AT the final width is the
+# whole point: the inspection figure is 15 in wide, and putting that in the paper at
+# width=\textwidth shrinks every glyph by 2.10x, taking 9.5 pt titles to 4.5 pt. Nothing is
+# gained by drawing large and scaling down, and legibility is lost.
+PAPER_W, PAPER_H = 7.16, 3.45
+# Sized for that width, not scaled to it. The floor used elsewhere in the paper is 5.7 pt.
+PT_TITLE, PT_TICK, PT_LABEL, PT_LEGEND = 7.0, 5.6, 6.2, 6.4
+
+# How each baseline is drawn when it shares a panel with a model rather than owning one.
+# Thin, unfilled and behind the arm: they are the reference the arm is read against, so they
+# have to be visible and must not compete with it.
+BASE_STYLE = {"persistence": dict(ls=(0, (4, 2)), lw=0.7, color="#eda100"),
+              "ar": dict(ls="-", lw=0.8, color="#e87ba4"),
+              "seasonal": dict(ls=(0, (1, 1.6)), lw=0.7, color="#4a3aa7")}
+
+
 def color_of(key: str) -> str:
     """Colour from the layout's explicit key -- see LAYOUTS on why it is not parsed from the
     arm name."""
@@ -203,6 +220,74 @@ def report_heldout(arms: dict, clip: int, layout: list, dataset: str) -> None:
         print(f"  no baseline arms for clip {clip}; the bottom row will be empty.")
 
 
+def draw_paper(data, layout, k, a, tt, y, H, fps, tmax, plt):
+    """Two backbones x three inputs at the paper's own width, baselines inside each panel.
+
+    The 3x3 inspection figure gives the baselines a row of their own, which is right when the
+    question is "what does each arm look like". In the paper the question is whether either
+    backbone is worth having, and the answer (skill_comparison.md: the best baseline wins 17 of
+    18 arm-by-channel cells on OpenTouch) is only legible if the baseline sits in the SAME axes
+    as the arm it beats. Moving it there also removes a third of the height.
+    """
+    keep = {x.strip() for x in a.baselines.split(",") if x.strip()}
+    bl = [(c[0], c[1]) for c in layout[-1][1]
+          if c and c[0] in data["arms"] and c[1] in keep]
+    rows = layout[:2]
+    fig, axes = plt.subplots(2, 3, figsize=(PAPER_W, PAPER_H), sharex=True, sharey=True)
+    ylab, _ = unit_label(a.channel)
+    drew_base = False
+    for r, (rowname, models) in enumerate(rows):
+        for c, cell in enumerate(models):
+            ax = axes[r, c]
+            ax.plot(tt, y[:, k], "-", color=TRUTH, lw=0.9, zorder=5,
+                    label="ground truth" if (r, c) == (0, 0) else None)
+            for name, key in bl:
+                mu, sg, ors = data["arms"][name]
+                idx, val, _ = rolling(mu, sg, ors, H)
+                ax.plot(idx / fps, val[:, k], zorder=2, **BASE_STYLE.get(key, {}),
+                        label=(key if (r, c) == (0, 0) else None))
+            drew_base = drew_base or bool(bl)
+            if cell is None or cell[0] not in data["arms"]:
+                ax.text(0.5, 0.5, "not in this sweep" if cell is None else "not available",
+                        transform=ax.transAxes, ha="center", va="center",
+                        fontsize=PT_LABEL, color=MUTED)
+            else:
+                m, ckey, _ = cell
+                mu, sg, ors = data["arms"][m]
+                idx, val, sig = rolling(mu, sg, ors, H)
+                t, col = idx / fps, color_of(ckey)
+                if sig is not None:
+                    ax.fill_between(t, val[:, k] - 2 * sig[:, k], val[:, k] + 2 * sig[:, k],
+                                    color=col, alpha=0.18, lw=0, zorder=3,
+                                    label="±2σ" if (r, c) == (0, 0) else None)
+                ax.plot(t, val[:, k], "-", color=col, lw=1.0, zorder=6,
+                        label="forecast" if (r, c) == (0, 0) else None)
+            ax.set_title(f"{rowname} · {cell[2] if cell else '—'}", fontsize=PT_TITLE,
+                         color=INK, loc="left", pad=2.5)
+            # Shared axes, so only the outer edge is labelled. Every panel carrying both
+            # labels is right for an inspection figure and is pure overhead here.
+            if r == 1:
+                ax.set_xlabel("time  (s)", fontsize=PT_LABEL, color=MUTED, labelpad=1.5)
+            if c == 0:
+                ax.set_ylabel(ylab, fontsize=PT_LABEL, color=MUTED, linespacing=1.25,
+                              labelpad=1.5)
+            ax.tick_params(colors=MUTED, labelsize=PT_TICK, length=0, pad=1.5)
+            ax.grid(color=GRID, lw=0.4, zorder=0)
+            ax.set_axisbelow(True)
+            for sp in ("top", "right"):
+                ax.spines[sp].set_visible(False)
+            for sp in ("bottom", "left"):
+                ax.spines[sp].set_color(GRID)
+            ax.set_xlim(0, tmax)
+    h, lab = axes[0, 0].get_legend_handles_labels()
+    fig.tight_layout(rect=(0, 0, 1, 0.935), h_pad=0.7, w_pad=0.8)
+    fig.legend(h, lab, frameon=False, fontsize=PT_LEGEND, labelcolor=INK,
+               ncols=len(lab), loc="upper center", bbox_to_anchor=(0.5, 1.003))
+    if not drew_base:
+        print("  NOTE: no baseline arm in this clip -- panels show the model alone")
+    return fig
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--preds", action="append", required=True,
@@ -212,6 +297,13 @@ def main():
     ap.add_argument("--clip", type=int, required=True)
     ap.add_argument("--channel", default="F_R")
     ap.add_argument("--out", default="docs/actionsense/clip_model_grid.png")
+    ap.add_argument("--paper", action="store_true",
+                    help=f"2x3 at {PAPER_W}x{PAPER_H} in with the baselines drawn inside each "
+                         f"panel -- generated AT the paper's width, not scaled to it")
+    ap.add_argument("--baselines", default="ar,persistence,seasonal",
+                    help="which baselines to draw inside each --paper panel, by their colour "
+                         "key. Three curves plus the arm plus truth can be a lot of ink on a "
+                         "3.4 in figure; `ar` alone is the one that actually wins.")
     ap.add_argument("--seconds", type=float, default=None,
                     help="plot only the first N seconds, so the traces stay legible")
     a = ap.parse_args()
@@ -250,6 +342,13 @@ def main():
     pers, seas = bl.get("persistence"), bl.get("seasonal")
     dup = (pers in data["arms"] and seas in data["arms"]
            and np.allclose(data["arms"][seas][0], data["arms"][pers][0]))
+
+    if a.paper:
+        fig = draw_paper(data, layout, k, a, tt, y, H, fps, tmax, plt)
+        os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
+        fig.savefig(a.out, dpi=400, facecolor="white", bbox_inches="tight", pad_inches=0.01)
+        print(f"[done] {a.out}  ({PAPER_W}x{PAPER_H} in, insert at width=\\textwidth)")
+        return
 
     ylab, ynote = unit_label(a.channel)
     fig, axes = plt.subplots(3, 3, figsize=(15.0, 9.6), sharex=True, sharey=True)
