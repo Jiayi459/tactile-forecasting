@@ -16132,3 +16132,211 @@ qsub -v BACKBONE=probgru,SCOPE=corpus,ENCODERS=aggregate,HISTORIES=3,EPOCHS=60,F
 `calibration=train_only  N manifest rows validated  resampling=['previous_sample_hold_v1']`；训练脚本行 `scope=corpus  N recordings`。
 任何一行缺失或 resampling 不是该值 → 不是新协议，结果作废。
 **未核实：** data.csail.mit.edu 下载源当前是否可用；`score_and_plot_runs.sh` 对带 provenance 的新 npz 是否无需改动（作业完成后再验）。
+
+## Session (2026-09-15) — PLAN：EgoTouch forecast horizon sweep {0.5, 1, 2, 3} s [AWAITING RESOLUTION]
+
+**用户请求：** "现在先用这一个版本的 egotouch calibration 跑 horizon sweep，0.5 1 2 3s horizon"。
+
+**对"这一个版本"的解读（写明以便纠正）：** EgoTouch 官方发布网格原样使用——下游 extractor 不做 p5
+（`extract_egotouch_states.py:165` baseline_pct=None，map `baseline_frames: 0`），但官方发布前的整 episode
+归一化本身依赖未来（`docs/egotouch/calibration_audit.md`，两条样本 raw↔npz 逐格核对）。结果继承此前提，
+不能称为严格因果。**不是** ActionSense/OpenTouch 的 TRAIN-only v1（EgoTouch 不在其修复范围）。
+
+### 事实核查（读码/读记录）
+1. **EgoTouch 复用 ActionSense harness 代码**：`scripts/egotouch/train_tactile_map.py:41-45` 与
+   `run_baselines.py:34-39` 导入 `src.actionsense.eval_harness.{config,dataset,splits,baselines.base}` 与
+   `tactile_map.{data,train}` → 已提交的 `origin_horizon` 开关（`1f69f55`）直接生效。
+2. **工作树状态**：calibration v1（`d80245a`）、AS horizon ablation（`1f69f55`）、CRC job（`a4935da`）、图
+   （`3289dbd`）、日志（`a8c6b65`）均已提交并推送，工作区干净。另一 session 已交接 ActionSense TRAIN-only
+   probgru×aggregate×3 s 重跑（SESSION_LOG 本日 §6），本计划不碰它。
+3. **步数**（10 Hz）：0.5/1/2/3 s = 5/10/20/30 步。AR 阶上限 30、seasonal 周期 0.3–3.0 s 均无冲突。
+4. **起点与总体**（`eval.min_history=30`）：现行 1 s 需 T'≥40 帧（4 s）→ train 1135 / test_seen 132 / unseen 56
+   （SESSION_LOG:10915-10920 profiler 实测，与正式结果 n=132/56 吻合）。**共享 3 s 起点需 T'≥60 帧（6 s）**，
+   未实测；由 profiler 已有点插值（T'≥50：test_seen 118 / unseen 51；T'≥90 只有组数）估计 test_seen ≈105–115、
+   unseen ≈45–50。**精确值**：CRC 上 `profile_egotouch_states.py --histories 50`（脚本 HORIZON=10 写死，
+   mh=50 ⇒ 门槛 60 = 30+30）。另每条录制在 1 s horizon 下少掉最后 2 s 的起点 → 1 s 臂数字将**不等于**论文现表。
+5. **输出隔离**：trainer 写 `{out_root}/test_{seen,unseen}_{h}s/`，且 `selection_report.json` 遇不同 config_hash
+   会拒绝合并（`train_tactile_map.py` 约 118-128 行）→ 每个 horizon 必须独立 `--out-root`。`run_baselines.py`
+   有 `--config/--out-root`。
+6. **CRC job 缺透传**：`scripts/crc/train_egotouch_gpu.job` 固定调用 `run_baselines.py`（默认配置、默认输出）
+   与 `train_tactile_map.py`（仅 EPOCHS/PAIRS）→ 需加 HARNESS_CONFIG / OUT_ROOT / HISTORIES / baselines 输出
+   透传，以及与 AS job 同式的 `EXPECT_HORIZON_S` 预检（规则 6）。mask 阈值为 TRAIN 力百分位，与 horizon 无关（待实施时读码确认）。
+7. 已知 EgoTouch map 臂约 49.4 万训练窗口 × 60 epoch，×4 个 horizon 代价高；ProbGRU 自回归步数随 H 线性增加。
+
+### 事先登记的判读
+同 ActionSense 计划：排名/主结论在四个 horizon 下不变 → "1 s 是约定选择、结论不敏感"；若某 horizon 翻转必须报告；
+不得据此宣称 1 s 最优。EgoTouch 特有：`ar_group` 与 `ar_global` 必须并列（seen/unseen 结论相反，SESSION_LOG:11905-11915）。
+
+### OPEN QUESTIONS（本轮向用户提问）
+- **Q1 起点**：共享 3 s 起点（唯一变量是 H；总体缩小约 15–20%，1 s 数字≠论文表）vs 各自自然起点（总体随 H 变）。
+- **Q2 臂**：aggregate × {seq2seq, probgru} + AR/seasonal（group/global）vs 全 6 臂。
+- **Q3 history**：3 s vs {1, 3} s。
+- **Q4 ActionSense**：保持已提交的 {0.2, 0.5, 0.8, 1.0} s，还是改为与 EgoTouch 一致的 {0.5, 1, 2, 3} s
+  （AS min_history 40 + 30 = 70 帧 = 7 s；AS 录制中位 22 s，但会丢更多短录制；需重生成 AS 配置与测试）。
+
+**状态：** 未写代码、未提交作业。
+
+
+## Session (2026-09-15) — 再次审查 ActionSense / OpenTouch preprocessing leakage
+
+**用户要求：** “你现在再review codebase，检查actionsense和opentouch的preprocessing leakage问题”。
+**范围与计划：** 以当前工作区代码为准重新审计，不沿用上一轮“已修复”的结论。跟踪原始提取→
+calibration→state/map→归一化→window/anchor→训练/评估的实际调用链；核查默认配置、其他配置、
+CRC作业与绘图/诊断入口的旁路；区分合法的完整TRAIN离线拟合、真正的held-out future依赖、
+历史显式legacy行为和未能证明的上游风险。针对可达问题做最小复现，运行与结论相关的回归检查，
+按严重性记录代码位置、触发条件、影响和修复建议。本轮是review，除审计文档/日志外不修改实现。
+**OPEN QUESTIONS：** 当前review范围明确，无需用户裁决即可开展。真实完整重提取/重训不属于
+本轮动作；如需协议变化，另行记录方案和需要裁决的事项。
+**起始状态：** git status --short 只有 SESSION_LOG.md 已修改；之前的实现和其他工作已被纳入
+当前HEAD。本轮保留已有日志内容，采用追加记录。
+
+## Session (2026-09-15，续) — 核对："现在是先 data split，再在 train set 里算 baseline"，在代码中指出
+
+**用户问题：** “所以现在是先data split再在train set里面算baseline，在code里指出”。本轮只读代码 + 追加日志，未改代码。
+
+**结论：对。** 这里的 baseline 指传感器 calibration 模板（AS：per-taxel p5；OT：median + one-sided MAD + quantum floor），
+不是 persistence/AR 预测基线。顺序（行号为 HEAD `a8c6b65` 之后的工作树）：
+
+1. **先切分**
+   - AS corpus CV：`src/actionsense/tactile_map/train.py:373` 按 recording 分 fold；`:383-384` TEST/TR；`:388-389` 再从 TR 切出 VAL，余下为 `trn`。
+   - OT：`scripts/opentouch/run_opentouch_exploratory.py:217` `SP.folds` 按 location 分折，`:227` 逐 fold 调 `run_split`。
+2. **切完才绑定 calibration**：AS `train.py:392` `prepare_fold(source_cfg, {"train": trn, "val": val, "test": te})`；OT `run_opentouch_exploratory.py:273`。
+   `src/calibration.py:203` `validate_splits`，`:57` 三集合重叠即报错。
+3. **只用 TRAIN 拟合**：`calibration.py:231` `fit_calibration(root, sp["train"], …)`；`:125` 只取 train_ids，`:142` 只打开这些 clip 的文件；
+   `:158` AS p5，`:164` OT estimate。注意 AS 的 TRAIN 是 `trn`，**VAL 不参与模板**。
+4. **冻结后原样作用于 TRAIN/VAL/TEST**：`calibration.py:236-240` 对全部 ids `cal.apply` → 存校正 map 与由它逐帧重算的 state；
+   `:108` apply 只是 `max(raw − (base + k·sigma), 0)`，不从被校正 clip 估计任何量。`:253` 之后下游 `states_root` 指向该缓存。
+5. **然后才拟合 Norm / 训练**：AS `train.py:412-413` MapNorm/Norm 只用 `trn`。
+6. **旧的非因果 baseline 在严格模式下被绕过**：
+   - 提取不再做整段 p5：`scripts/actionsense/probe_actionsense.py:245` `baseline_pct=None`。
+   - AS map first-N：`src/actionsense/tactile_map/data.py:89-92` 已校正则直接返回。
+   - OT shard baseline：`src/opentouch/tactile_map.py:201-202` scope 强制为 calibration 的 TRAIN；`:262-268` 直接读校正缓存，不调 `taxel_baselines`。
+   - 未准备的 config 直接拒绝：`src/actionsense/eval_harness/dataset.py:45-46`、`src/opentouch/dataset.py:36-37`。
+
+**需要说清的边界（非泄漏，但应知道）：** TRAIN clip 自己的全部帧（含其"未来"）参与了模板，因此 TRAIN 输入对自身未来并非严格因果；
+这与用 TRAIN 拟合 Norm 相同，属已批准协议（`docs/train_only_calibration.md` “Model fitting may use all of TRAIN”），VAL/TEST 的压力不进入模板。
+模板是一份全局固定量（AS 每手每 taxel、OT 全 shard 共用），不再按 clip/shard 调整，因此地点/录制间的偏移会留在 TEST 误差中。
+
+### 用户裁决（2026-09-15）
+- **Q1 起点 = 共享 3 s 起点**（EgoTouch 四个 horizon 同一录制集合与起点；需 T'≥60 帧 = 6 s）。
+- **Q2 模型 = "seq2seq probgru in aggregate total 2"**：只跑 `seq2seq/aggregate` 与 `probgru/aggregate` 两个。
+  **解读（写明以便纠正）：** "total 2" 按字面理解为不跑 AR/seasonal 基线；persistence 由 scorer 合成，不需要跑。
+  因 AR 是论文主结论之一，job 里加开关 `RUN_BASELINES`（本 sweep 默认不传 = 不跑），需要时只花 CPU。
+- **Q3 history = 3 s。**
+- **Q4 ActionSense = 两组都要** → 按选项原文，ActionSense 合并为**一个** 6-horizon sweep：0.2/0.5/0.8/1/2/3 s。
+  **由 Q1+Q4 推出（写明以便纠正）：** 共享起点取该 sweep 的最长 horizon = **3 s**；已提交的 4 个 AS 配置
+  （origin_horizon_s 1.0，`1f69f55`）作废重生成，新增 h2p0/h3p0。AS 需 T'≥40+30=70 帧 = 7 s。
+  2026-09-14 的截断预览是在 1 s 起点上算的，**与新 sweep 不在同一组起点上**，不能直接并表。
+  AS 模型同样只跑 seq2seq/probgru × aggregate（与 EgoTouch 一致）；AS 仍用 TRAIN-only v1，受另一 session
+  的因果重提取（`stream_actionsense.sh`）进度约束。
+
+### 实施（2026-09-15，本地，未提交）
+
+**更正上条裁决记录：** 我写的"`RUN_BASELINES` 本 sweep 默认不传 = 不跑"不对。EgoTouch job 现有行为是**总是跑基线**；
+为不改变他人正在使用的默认行为，job 默认 `RUN_BASELINES=1`（照旧跑），本 sweep 在交接命令里**显式传 `RUN_BASELINES=0`**。
+
+**改动：**
+1. `configs/egotouch/horizon_ablation/eval_harness_{h0p5,h1p0,h2p0,h3p0}.yaml`（新）：由 `configs/egotouch/eval_harness.yaml`
+   文本替换生成，只改 `rate.horizon_s`、新增 `eval.origin_horizon_s: 3.0`、`paths.out_csv → docs/egotouch/horizon_ablation/<tag>/`。
+   hash：h2p0 a5c3e61c6294eff1、h3p0 0730fe665b269526（主配置 66b1902da6dd70bf）。
+2. `configs/actionsense/horizon_ablation/`：已提交的 h0p2/h0p5/h0p8/h1p0 **重生成**为 `origin_horizon_s: 3.0`，新增 h2p0/h3p0。
+3. `tests/test_horizon_ablation.py`：扩展为两个 corpus（AS 6 个、EgoTouch 4 个 horizon）；共享起点测试改为 3 s，覆盖 0.2–3 s；
+   0.2 s 自然起点比 3 s 多 28 个；`origin_horizon < horizon` 被拒；各 corpus 配置与其主配置除三键外必须一致、out_csv 互不相同、
+   目录里不得有多余/缺失配置。共 11 项。
+4. `scripts/crc/train_egotouch_gpu.job`：
+   - `HARNESS_CONFIG` 透传（默认主配置）到 `train_tactile_map.py --harness-config` 与 `run_baselines.py --config`；
+     新增 `OUT_ROOT`、`HISTORIES`、`BASELINE_OUT_ROOT` 透传；`RUN_BASELINES`（默认 1）。
+   - split 检查之后新增预检：打印 config/hash/horizon/origin_horizon/min_history；`EXPECT_HORIZON_S` 不符 → FATAL；
+     **逐 split 打印"≥1 起点的录制数 / 起点总数"**（用 `load_target` 实际加载长度与 `origins()`，不用 manifest T 估算）→ 共享 3 s
+     起点下的确切总体在作业第一屏可见。
+   - mask 阈值仍用主配置（TRAIN 力百分位，与 horizon 无关；`export_mask_thresholds.py:49` 默认写 `<states_root>/mask_thresholds.json`）。
+   - pytest 子集加入 `tests/test_horizon_ablation.py`。
+
+**验证：**
+- `pytest tests/test_horizon_ablation.py`：**11 passed**；全仓 `pytest tests/ -q`：**222 passed**，9 个既有 warning。
+- `bash -n scripts/crc/train_egotouch_gpu.job` 通过。
+- 预检段单独运行：h3p0 配 EXPECT 1.0 → 打印 horizon 行后 **FATAL，未读数据**；h2p0 配 2.0 与主配置 → 打印 horizon 行后因本机
+  无 `data/egotouch_states` 报 FileNotFoundError（预期；CRC 上会继续打印总体）。
+- git：待提交仅上述文件 + SESSION_LOG；无未推送提交；HEAD `a8c6b65`。
+
+### 交接草稿（推送后生效，补 commit 号）
+**EgoTouch（数据已在 CRC，可立即跑）**——每个 horizon 1 个 GPU 作业，内含 2 个臂，共 4 个：
+```
+qsub -v HARNESS_CONFIG=configs/egotouch/horizon_ablation/eval_harness_h0p5.yaml,EXPECT_HORIZON_S=0.5,PAIRS=seq2seq/aggregate+probgru/aggregate,HISTORIES=3,RUN_BASELINES=0,OUT_ROOT=runs/egotouch_horizon/h0p5 scripts/crc/train_egotouch_gpu.job
+```
+（h1p0/1.0、h2p0/2.0、h3p0/3.0 同式。PAIRS 用 `+`，`-v` 值内无逗号。）
+**ActionSense（等另一 session 的因果重提取完成后）**——6 horizon × 2 backbone = 12 个 GPU 作业：
+```
+qsub -v CONFIG=configs/actionsense/horizon_ablation/eval_harness_h0p2.yaml,EXPECT_HORIZON_S=0.2,BACKBONE=seq2seq,SCOPE=corpus,ENCODERS=aggregate,HISTORIES=3,EPOCHS=60,FOLDS=5,SAVE_PREDS=runs/as_horizon/h0p2_seq2seq,CSV=docs/actionsense/train_only_v1/horizon_ablation/h0p2/seq2seq_cv.csv scripts/crc/train_tactile_map_gpu.job
+```
+**失败即响的自检（EgoTouch 第一屏）：** `harness config: configs/egotouch/horizon_ablation/eval_harness_<tag>.yaml ... horizon=<5|10|20|30> steps ... origin_horizon=30 steps`；
+`population [test]: N/179 ...`（四个 horizon 的 N 必须完全相同）；`RUN_BASELINES=0 -> reference ladder skipped`。
+
+**待用户：** 是否提交并推送（规则 6）。
+
+
+### 复审完成（2026-09-15，接本日“再次审查 ActionSense / OpenTouch preprocessing leakage”）
+
+**交付：** `docs/preprocessing_leakage_review_2026-09-15.md`，记录代码位置、触发条件、复现、影响边界、修复方向和验证限制。
+本轮只新建该审计文档并追加本日志；没有修改生产实现、测试、训练参数，没有启动真实重训。
+
+**发现一 [P1]：ActionSense 重复提取可造成真实 TRAIN/TEST 内容重叠。**
+`stream_actionsense.sh:93-97` 的 KEEP=1 保留 HDF5，但 probe 每次扫描整个目录；
+`probe_actionsense.py:140-145,189,244-262` 不按来源区间去重，只分配新的数字 ID。
+`calibration.validate_splits:50-60` 仅拒绝相同数字 ID，不能识别相同片段的不同 ID。
+实际合成 HDF5 复现：A 文件提取一次（1 行），保留 A 并加入 B 后再提取（3 行）；ID 0/1 来源文件及时间区间相同，
+压力数组逐元素相同。strict prepare_fold(train=[0], val=[2], test=[1]) 成功，模板的 TRAIN 元数据仅记 ID 0。
+所以 TEST 的实际信号和未来目标可通过重复 ID 进入模板与训练。正常单次 KEEP=0 路径未复现此问题；
+不能据此断言已运行 CRC 数据受影响。建议稳定来源键去重、stream 只处理当前文件、跨 split 检测重复来源并补回归。
+
+**发现二 [P2]：两 corpus 的已准备配置可静默指向另一折缓存。**
+`calibration.py:178-180,205-208` 只验配置里的 artifact 存在 / split 相符，没有验证 states_root 实际目录的 calibration.json。
+两个 dataset 的 load_target 都在此弱校验后直接读 state。合成两折：A 的 TRAIN=0..3、VAL=4,5、TEST=6,7；
+B 的 TRAIN=2,3,6,7、VAL=4,5、TEST=0,1。将 A resolved config 的 states_root 指向 B 后，
+prepare_fold 与 validate_training 均通过，load_target(6) 等于 B 数据且不同于正确 A 数据。
+由此 A 声明 held-out 的 6,7 实际已参与读取缓存的模板拟合。AS/OT 均复现。
+这是人工路径/缓存错配才触发的验证漏洞，不是默认从原始 config 自动 prepare_fold 自行串折的证据。
+建议所有已准备配置读取统一验证 cache ID / split / artifact / manifest 来源，增加错折路径必须拒绝的回归。
+
+**其他迁移遗漏（非静默泄漏）：** `plot_tactile_map_loss_curve.py:103,119-137` 加载默认 strict config 后自建 split，
+未先 prepare_fold；其 datasets_for aggregate 分支实际复现 ValueError “TRAIN-only data must be prepared for its split with prepare_fold first”。
+应接入准备流程，不应关闭 guard。本轮只记录，没有修复。
+
+**主路径结论：** 默认及读取到的 AS horizon config 使用 TRAIN-only；OT D1 config 显式 legacy。
+AS previous-sample hold 和固定时间网格不读后续传感器帧，原始 state 提取 baseline_pct=None；OT 原始 moments 逐帧计算。
+两者 split 后只从 TRAIN 拟合模板，再冻结应用到所有 split 的 raw maps 并重算同一物理定义的 state。
+map / aggregate / ProbGRU / baseline 的正常入口未发现旧整 clip p5、整 shard 统计继续流入 held-out 输入；
+Norm/阈值等沿主链只读 TRAIN，历史窗和后向差分相关回归通过。physical input 预计算本身不是泄漏，参数来源及 split 的物理独立性才是判断点。
+用户已批准完整 TRAIN 离线拟合模板 / Norm；不能把 TRAIN 自身含后续帧的统计拟合误报为违反该协议。
+
+**验证：** Python 3.12 pytest 执行 test_train_only_calibration、test_horizon_ablation、test_harness、
+test_harness_opentouch、test_tactile_map、test_opentouch_prob_gru、test_opentouch_tactile_map、
+test_opentouch_splits，共 109 passed / 6 seasonal fallback warnings（36.08 秒）。
+HDF5 复现首次在此 Python 缺 h5py，改用已安装 h5py 3.9.0 的 /opt/anaconda3/bin/python 完成；未安装任何依赖。
+独立复现数据位于 /private/tmp/touch-leakage-review-46atu079，另用临时目录完成 loss-curve guard 复现。
+本机实际 AS cache：299 manifest 行、100 clip、0 source_file、0 causal resampling 标记；validate_raw 实测拒绝；OT raw cache 不存在。
+因此测试只证明所执行代码和合成数据行为，不认证 CRC 实际数据、训练或历史结果。
+
+**并行工作保护：** 审查中观察到其他会话修改 AS horizon configs、test_horizon_ablation.py、train_egotouch_gpu.job 并新增 AS/EgoTouch horizon configs。
+全部保留；本轮 109 项测试对应执行当时文件版本，不冒称验证了其他会话随后变更。
+**OPEN QUESTIONS / 决策：** 本轮 review 已完成，无未回答问题；实现修复和真实数据重复来源审计未获本轮新增任务，不擅自执行。
+
+### 提交、推送与 CRC 交接（2026-09-15）
+
+用户同意"提交并推送"。代码 commit **`f10bc12`**（配置、EgoTouch job、测试），日志另起一个 commit。推送前 `git fetch`，
+确认 origin/main 没有新提交。
+
+**EgoTouch 交接（需要 commit ≥ `f10bc12`）：**
+```bash
+cd ~/TouchAnything && git pull --ff-only
+git merge-base --is-ancestor f10bc12 HEAD && echo CODE-OK        # 不打印 CODE-OK = 旧代码，停止
+grep -c EXPECT_HORIZON_S scripts/crc/train_egotouch_gpu.job   # 必须 ≥ 1
+mkdir -p logs
+for t in h0p5:0.5 h1p0:1.0 h2p0:2.0 h3p0:3.0; do tag=${t%%:*}; h=${t##*:}
+  qsub -v HARNESS_CONFIG=configs/egotouch/horizon_ablation/eval_harness_$tag.yaml,EXPECT_HORIZON_S=$h,PAIRS=seq2seq/aggregate+probgru/aggregate,HISTORIES=3,RUN_BASELINES=0,OUT_ROOT=runs/egotouch_horizon/$tag scripts/crc/train_egotouch_gpu.job
+done
+```
+**第一屏自检：** `commit: f10bc12` 或更新；`harness config: .../eval_harness_<tag>.yaml ... origin_horizon=30 steps`；
+四个作业的 `population [test]: N/179` 与 `population [test_unseen]: M/85` 必须完全相同；`RUN_BASELINES=0 -> reference ladder skipped`；
+`matrix: [('seq2seq', 'aggregate'), ('probgru', 'aggregate')] x histories [3.0] s = 2 models`。任一不符 → 结果作废。
+**ActionSense：** 等另一 session 的因果重提取（`stream_actionsense.sh`）完成后再交接 12 个作业（命令草稿见上节）。
