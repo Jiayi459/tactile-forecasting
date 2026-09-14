@@ -47,23 +47,59 @@ assert sp.get("dropped_unassigned") == 37, f"expected 37 dropped orphans, got {s
 print("split check OK:", got, "| dropped_unassigned=37")
 PY
 
+# Which harness config this run uses; HARNESS_CONFIG is optional (default = the frozen 1 s harness).
+# EXPECT_HORIZON_S makes a wrong or ignored config fail HERE, in seconds, rather than training a
+# silently different horizon for hours (the 2026-09-05 SCOPE failure class, CLAUDE.md rule 6).
+# It also prints how many recordings per split yield >= 1 origin under THIS config -- the horizon
+# sweep's shared 3 s origins shrink the population, and that number must be on the first screen.
+CFG="${HARNESS_CONFIG:-configs/egotouch/eval_harness.yaml}"
+python - "$CFG" "${EXPECT_HORIZON_S:-}" <<'PY'
+import sys
+sys.path.insert(0, ".")
+from src.actionsense.eval_harness.config import load_config
+from src.actionsense.eval_harness.dataset import load_target
+from src.actionsense.eval_harness.splits import load_splits
+from src.actionsense.eval_harness.baselines.base import origins
+c = load_config(sys.argv[1])
+h = float(c.raw["rate"]["horizon_s"])
+print(f"harness config: {sys.argv[1]}  hash={c.config_hash}  horizon={c.horizon} steps ({h} s)  "
+      f"origin_horizon={c.origin_horizon} steps  min_history={c.raw['eval']['min_history']}")
+if sys.argv[2] and abs(float(sys.argv[2]) - h) > 1e-9:
+    raise SystemExit(f"FATAL: EXPECT_HORIZON_S={sys.argv[2]} but {sys.argv[1]} has horizon_s={h}")
+sp = load_splits(c)
+for name in ("train", "val", "test", "test_unseen"):
+    n = [len(origins(len(load_target(c, i)), c)) for i in sp.get(name, [])]
+    print(f"  population [{name}]: {sum(1 for k in n if k)}/{len(n)} recordings yield >=1 origin, "
+          f"{sum(n)} origins")
+PY
+
 # The tests that gate this pipeline and can only truly run where torch works.
 python -m pytest tests/test_grid_parameterization.py tests/test_val_selection_and_baseline.py \
                  tests/test_egotouch_baseline_pipeline.py tests/test_egotouch_trainer_pipeline.py \
                  tests/test_weighting.py tests/test_balanced_baselines.py \
-                 tests/test_scorer_thresholds.py tests/test_egotouch_extract.py -q
+                 tests/test_scorer_thresholds.py tests/test_egotouch_extract.py \
+                 tests/test_horizon_ablation.py -q
 
-# TRAIN-fitted mask thresholds -- the single mask every arm is scored with (W7).
+# TRAIN-fitted mask thresholds -- the single mask every arm is scored with (W7). Always from the
+# frozen harness: the threshold is a TRAIN force percentile and does not depend on the horizon.
 python scripts/shared/export_mask_thresholds.py --config configs/egotouch/eval_harness.yaml
 
 # Reference ladder: seasonal + AR, group + global scopes, exported for the shared scorer (W6).
-python scripts/egotouch/run_baselines.py
+# RUN_BASELINES=0 skips it (the 2026-09-15 horizon sweep runs the two aggregate arms only).
+if [ "${RUN_BASELINES:-1}" = "1" ]; then
+    python scripts/egotouch/run_baselines.py --config "$CFG" \
+        ${BASELINE_OUT_ROOT:+--out-root "$BASELINE_OUT_ROOT"}
+else
+    echo "RUN_BASELINES=${RUN_BASELINES} -> reference ladder skipped"
+fi
 
 # The 8-model sweep (Q-F(b)): seq2seq x {aggregate,flatten,cnn} + probgru x aggregate, x {1,3} s.
 PAIRS_ARG="${PAIRS//+/,}"
 echo "resolved PAIRS='${PAIRS:-<default: the full 6-arm matrix>}' -> --pairs '${PAIRS_ARG}'"
-python scripts/egotouch/train_tactile_map.py ${EPOCHS:+--epochs $EPOCHS} ${PAIRS_ARG:+--pairs $PAIRS_ARG}
+python scripts/egotouch/train_tactile_map.py --harness-config "$CFG" \
+    ${EPOCHS:+--epochs $EPOCHS} ${PAIRS_ARG:+--pairs $PAIRS_ARG} \
+    ${HISTORIES:+--histories "$HISTORIES"} ${OUT_ROOT:+--out-root "$OUT_ROOT"}
 
 echo "score next (CPU, can be local):"
-echo "  python scripts/shared/score_preds_per_action.py --preds runs/egotouch_tactile_map/test_seen_1s \\"
+echo "  python scripts/shared/score_preds_per_action.py --preds ${OUT_ROOT:-runs/egotouch_tactile_map}/test_seen_<h>s \\"
 echo "      --thresholds data/egotouch_states/mask_thresholds.json --out docs/egotouch/results"

@@ -18,7 +18,7 @@ target:
 rate:
   fps_raw: 30.0            # manifest-stamped raw rate
   downsample: 3            # -> 10 Hz effective (matches the probGRU pipeline)
-  horizon_s: 1.0           # ABLATION. At 10 Hz => 10 steps of 100 ms.
+  horizon_s: 3.0           # ABLATION. At 10 Hz => 30 steps of 100 ms.
 
 mask:
   # CoP is undefined at low contact force. A CoP TARGET frame is excluded from CoP
@@ -52,7 +52,7 @@ eval:
 paths:
   states_root: data/actionsense_states
   split_file: data/actionsense_states/splits.json
-  out_csv: docs/actionsense/train_only_v1/horizon_ablation/h1p0/harness_baselines.csv      # tidy long table; a .parquet twin is written alongside
+  out_csv: docs/actionsense/train_only_v1/horizon_ablation/h3p0/harness_baselines.csv      # tidy long table; a .parquet twin is written alongside
 
 actions: [slice, peel]
 

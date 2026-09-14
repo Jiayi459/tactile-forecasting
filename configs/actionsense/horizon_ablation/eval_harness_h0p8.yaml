@@ -1,7 +1,7 @@
-# HORIZON ABLATION (SESSION_LOG 2026-09-14). Identical to configs/actionsense/eval_harness.yaml
+# HORIZON ABLATION (SESSION_LOG 2026-09-14/15). Identical to configs/actionsense/eval_harness.yaml
 # except rate.horizon_s, eval.origin_horizon_s and paths.out_csv; tests/test_horizon_ablation.py
-# fails if anything else drifts. origin_horizon_s = 1.0 keeps every horizon on the 1 s origin
-# set, so the forecast length is the only variable.
+# fails if anything else drifts. origin_horizon_s = 3.0 keeps all six horizons on the 3 s origin
+# set (a recording needs >= 70 frames @10 Hz = 7 s), so the forecast length is the only variable.
 #
 # Frozen evaluation harness for tactile forecasting (aggregate force + CoP).
 # This file is the SINGLE source of truth for horizon / masking / splits / baseline
@@ -46,7 +46,7 @@ split:
 eval:
   stride: 1                # rolling-origin stride (frames) within each recording
   min_history: 40          # frames of past required before the first forecast origin
-  origin_horizon_s: 1.0    # ABLATION: every horizon needs a full 1 s future (shared origins)
+  origin_horizon_s: 3.0    # ABLATION: every horizon needs a full 3 s future (shared origins)
   seed: 0
 
 paths:
