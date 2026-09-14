@@ -32,7 +32,7 @@ baselines:
   fit_scope: object_category
   # object_category has 110 distinct values, badly long-tailed (measured 2026-08-10:
   # 81/110 have n<30, 39 have n<10, several are n=1). Any category with fewer than this
-  # many clips CORPUS-WIDE is merged into a single "other" group rather than fit alone
+  # many clips in TRAIN is merged into a single "other" group rather than fit alone
   # (OQ-I). At 30: 29 categories kept individually (68% of the corpus), other=32%.
   # Configurable -- not a structural constant. See src/opentouch/dataset.py::group_keys.
   min_group_size: 30
@@ -44,11 +44,8 @@ baselines:
   seasonal_min_autocorr: 0.1
 
 split:
-  # PLACEHOLDER -- NOT YET FUNCTIONAL. Blocked: whether the "_p1"/"_p2" shard suffix
-  # denotes participant or recording session is unresolved (paper and repo silent;
-  # indirect evidence from object-name overlap and cross-environment leakage within a
-  # shard is consistent with both readings). src/opentouch/splits.py does not exist yet.
-  # DO NOT wire this into evaluate.py until that question is resolved.
+  # Hold out whole locations via src/opentouch/splits.py. This does not establish
+  # participant independence across locations; participant IDs remain unavailable.
   train: 0.6
   val: 0.2
   test: 0.2
@@ -61,10 +58,17 @@ eval:
 
 paths:
   states_root: data/opentouch_states
-  split_file: data/opentouch_states/splits.json     # inert until splits.py exists
-  out_csv: docs/harness_baselines_opentouch.csv
+  split_file: data/opentouch_states/splits.json
+  out_csv: docs/opentouch/train_only_v1/harness_baselines.csv
 
 # Empty = no filter. Train on the full corpus (all ~2,958 clips), not just the n>=30 actions --
 # rare actions still contribute valid training signal even though they can't be evaluated
 # individually (SESSION_LOG 2026-08-07/09).
 actions: []
+
+# Calibration v1: every fold fits a fixed template on TRAIN raw maps only.
+calibration:
+  mode: train_only
+  corpus: opentouch
+  max_frames: 20000
+  k: 1.0

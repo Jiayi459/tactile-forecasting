@@ -69,27 +69,38 @@ def load_tactile(h5, key):
 
 
 def resample(X, t, target_t):
-    """Linear-interpolate frames X:(n,H,W) at times t to target_t:(T,)."""
-    n = X.shape[0]
-    idx = np.clip(np.searchsorted(t, target_t), 1, n - 1)
-    t0, t1 = t[idx - 1], t[idx]
-    w = ((target_t - t0) / (t1 - t0 + 1e-12))[:, None, None]
-    return X[idx - 1] * (1 - w) + X[idx] * w
+    """Previous-sample hold. A query never consumes a later sensor reading."""
+    t = np.asarray(t, dtype=np.float64)
+    q = np.asarray(target_t, dtype=np.float64)
+    if not len(t) or len(t) != len(X) or not np.isfinite(t).all() \
+            or not np.isfinite(q).all() or np.any(np.diff(t) < 0):
+        raise ValueError("invalid sensor timestamps")
+    idx = np.searchsorted(t, q, side="right") - 1
+    if np.any(idx < 0):
+        raise ValueError("query precedes the first available sensor sample")
+    return np.asarray(X)[idx].copy()
+
+
+def query_times(start, end, fps):
+    """A fixed-rate grid; extending a clip cannot move its earlier timestamps."""
+    if not np.isfinite([start, end, fps]).all() or fps <= 0 or end <= start:
+        raise ValueError("invalid sampling interval/rate")
+    t = start + np.arange(int(np.ceil((end - start) * fps))) / fps
+    return t[t < end]
 
 
 def clip_for_interval(gloves, start, end, fps):
     """Stack both gloves' resampled frames for [start,end] -> (T,2,H,W) or None."""
-    T = int(round((end - start) * fps))
+    target_t = query_times(start, end, fps)
+    T = len(target_t)
     if T < 2:
         return None
-    target_t = np.linspace(start, end, T)
     chans = []
     for gd in gloves:
         if gd is None:
             return None
         d, t = gd
-        m = (t >= t[0]) & (t <= t[-1])  # guard
-        if t.min() > start or t.max() < end or d.shape[0] < 2:
+        if t.min() > start or d.shape[0] < 2:
             return None
         chans.append(resample(d, t, target_t))
     return np.stack(chans, axis=1)  # (T, 2, H, W)
@@ -106,19 +117,12 @@ def main():
     ap.add_argument("--report-only", action="store_true",
                     help="skip HDF5; aggregate an existing --jsonl and print/write CSV")
     ap.add_argument("--extract-states", default=None,
-                    help="also save analytic physical-state trajectory per clip to this dir "
-                         "(state_N.npy + manifest.jsonl) for the v1 forecaster")
+                    help="save all float32 raw maps, uncalibrated states, timestamps and "
+                         "manifest to a new directory for TRAIN-only calibration")
     ap.add_argument("--save-clips-for", default=None,
-                    help="comma-separated label substrings; save the raw resampled (T,C,H,W) "
-                         "clip (float16) as clip_N.npy for matching activities (cache for local "
-                         "re-processing). Requires --extract-states.")
+                    help="deprecated compatibility flag; --extract-states now saves all maps")
     ap.add_argument("--save-all-clips", action="store_true",
-                    help="save EVERY activity's raw clip, not just the ones --save-clips-for "
-                         "matches. Omitting --save-clips-for saves nothing rather than "
-                         "everything, which is how the corpus ended up with F/CoP for all 299 "
-                         "recordings but maps for only the 100 matching Pour/Slice/Peel -- the "
-                         "map arms could then never run at corpus scope. ~4 KB per frame "
-                         "(2 hands x 32 x 32 x float16), so the full corpus is ~1.3 GB.")
+                    help="compatibility flag; --extract-states always saves all float32 maps")
     ap.add_argument("--out", default=os.path.join("docs", "predictability_actionsense.csv"))
     args = ap.parse_args()
     import csv
@@ -126,14 +130,17 @@ def main():
 
     # physical-state extraction (append across streamed files)
     sdir = args.extract_states
-    clip_filters = [s.strip() for s in args.save_clips_for.split(",")] if args.save_clips_for else []
-    if args.save_all_clips and clip_filters:
-        ap.error("--save-all-clips and --save-clips-for are mutually exclusive")
+    if args.save_clips_for:
+        print("--save-clips-for is deprecated: saving every extracted map for fold calibration")
     s_manifest = None
     s_n = 0
     if sdir:
         os.makedirs(sdir, exist_ok=True)
         mpath = os.path.join(sdir, "manifest.jsonl")
+        if os.path.exists(mpath):
+            old_rows = [json.loads(l) for l in open(mpath) if l.strip()]
+            if any(r.get("resampling") != "previous_sample_hold_v1" for r in old_rows):
+                raise ValueError("use a new extraction directory; legacy and causal clips cannot mix")
         s_n = sum(1 for _ in open(mpath)) if os.path.exists(mpath) else 0
         s_manifest = open(mpath, "a")
 
@@ -234,17 +241,23 @@ def main():
                 if jf:
                     jf.write(json.dumps({"label": label, "cat": cat, "pat": pat, "m": m}) + "\n")
                 if s_manifest is not None:
-                    st = PS.clip_states(clip).astype("float32")  # (T, C, 6), baseline-corrected
+                    # Calibration is fitted later, within each TRAIN fold.
+                    st = PS.clip_states(clip, baseline_pct=None).astype("float32")
                     np.save(os.path.join(sdir, f"state_{s_n}.npy"), st)
-                    saved_clip = False
-                    if args.save_all_clips or (clip_filters
-                                               and any(sub in label for sub in clip_filters)):
-                        np.save(os.path.join(sdir, f"clip_{s_n}.npy"), clip.astype("float16"))
-                        saved_clip = True
+                    # Even the aggregate arm needs the raw maps to fit fold calibration.
+                    np.save(os.path.join(sdir, f"clip_{s_n}.npy"), clip.astype("float32"))
+                    qt = query_times(start, end, args.target_fps)
+                    source_t = np.stack([g[1][np.searchsorted(g[1], qt, side="right") - 1]
+                                         for g in gloves], axis=1)
+                    np.savez(os.path.join(sdir, f"time_{s_n}.npz"), query=qt, source=source_t)
+                    saved_clip = True
                     s_manifest.write(json.dumps({
                         "idx": s_n, "label": label, "cat": cat,
                         "fps": args.target_fps, "T": int(st.shape[0]),
-                        "features": list(PS.FEATURES), "has_clip": saved_clip}) + "\n")
+                        "features": list(PS.FEATURES), "has_clip": saved_clip,
+                        "pressure_calibration": "none", "resampling": "previous_sample_hold_v1",
+                        "source_file": os.path.abspath(fp), "start_s": float(start),
+                        "end_s": float(end), "raw_dtype": "float32"}) + "\n")
                     s_manifest.flush()
                     s_n += 1
                 n_ok += 1

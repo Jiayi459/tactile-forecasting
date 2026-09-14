@@ -6,7 +6,7 @@ pulls those out, joins the per-clip label row, and writes a cache that mirrors t
 ActionSense layout so the eval harness loads it via a config swap, not a rewrite:
 
     <out>/state_<N>.npy      (T, 1, 6)   physical moments [F, CoPx, CoPy, sxx, syy, sxy]
-    <out>/clip_<N>.npy       (T, 1, 16, 16) float16 raw pressure (for the map models)
+    <out>/clip_<N>.npy       (T, 1, 16, 16) float32 raw pressure (for fold calibration)
     <out>/pose_<N>.npy       (T, 21, 3)  float16 Rokoko hand landmarks (may be absent)
     <out>/manifest.jsonl     one record per clip (append-only across shards)
 
@@ -232,7 +232,7 @@ def main() -> int:
             np.save(os.path.join(args.out, f"state_{idx}.npy"), st.astype(np.float32))
             if not args.no_clips:
                 np.save(os.path.join(args.out, f"clip_{idx}.npy"),
-                        press[:, None, :, :].astype(np.float16))        # (T,1,16,16)
+                        press[:, None, :, :].astype(np.float32))        # preserve sensor precision
 
             pose = None
             for k in POSE_KEYS:
@@ -263,6 +263,9 @@ def main() -> int:
                 "post_idx": row.get("post_idx", ""),
                 "T": int(press.shape[0]), "fps_est": fps,
                 "has_clip": (not args.no_clips), "has_pose": pose is not None,
+                "pressure_calibration": "none", "resampling": "native",
+                "source_file": os.path.abspath(args.shard), "source_group": group,
+                "raw_dtype": "float32",
             }) + "\n")
 
             if args.taxel_stats:

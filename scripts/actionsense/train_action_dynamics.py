@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from src.actionsense import action_dynamics as AD  # noqa: E402
 
 
-def cross_validate(data, n_act, t_in, t_out, folds, hidden, epochs, seed):
+def cross_validate(data, n_act, t_in, t_out, folds, hidden, epochs, seed, prepare=None):
     """-> skt (folds,3), sks (folds,t_out,3), cov_raw, cov_cal. Fold by trajectory; sigma is
     calibrated on a VAL subset held out from TRAIN (never the test fold)."""
     rng = np.random.default_rng(seed)
@@ -35,6 +35,9 @@ def cross_validate(data, n_act, t_in, t_out, folds, hidden, epochs, seed):
         r2 = np.random.default_rng(seed * 100 + f)
         idx = r2.permutation(len(tr)); nv = max(2, len(tr) // 6)
         val = [tr[i] for i in idx[:nv]]; trn = [tr[i] for i in idx[nv:]]
+        if prepare is not None:
+            parts, _ = prepare({"train": sorted(trn), "val": sorted(val), "test": sorted(te)})
+            trn, val, te = (parts[p] for p in ("train", "val", "test"))
         m, norm = AD.train(trn, n_act, t_in, t_out, hidden=hidden, epochs=epochs, seed=seed,
                            val_clips=val)                       # early-stop on VAL (fixes overfitting)
         s = AD.calibrate_sigma(m, norm, val, t_in, t_out)          # fit on VAL
@@ -59,8 +62,8 @@ def main():
     ap.add_argument("--epochs", type=int, default=80)
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--outdir", default="runs")
-    ap.add_argument("--csv", default="docs/actionsense/action_dynamics_results.csv")
+    ap.add_argument("--outdir", default="runs/action_dynamics_train_only_v1")
+    ap.add_argument("--csv", default="docs/actionsense/train_only_v1/action_dynamics_results.csv")
     args = ap.parse_args()
 
     subs = [s.strip() for s in args.actions.split(",")]
@@ -81,9 +84,13 @@ def main():
 
     for mode in modes:
         for hand in hands:
-            data = AD.load_pooled(args.root, subs, args.downsample, args.cut,
-                                  input_mode=mode, hand=hand, warmup_sec=args.warmup_sec)
-            counts = {s: sum(1 for d in data if d[2] == i) for i, s in enumerate(subs)}
+            data = AD.pooled_ids(args.root, subs, args.downsample, args.warmup_sec)
+            from src.calibration import read_manifest, checkpoint_provenance
+            rows = read_manifest(args.root)
+            counts = {s: sum(rows[i]["label"].lower().startswith(s.lower()) for i in data) for s in subs}
+            def prepare(split):
+                return AD.fold_data(args.root, subs, split, args.downsample, args.cut,
+                                    mode, hand, args.warmup_sec)
             din = len(AD.feats_for(mode))
             print(f"===== input={mode}  hand={hand}  ({len(data)} clips {counts}, D={din}) =====")
             print(f"{'past':>5} {'t_in':>5} | {'F':>7} {'x':>7} {'y':>7} | {'MEAN':>7} "
@@ -93,7 +100,7 @@ def main():
             for p in pasts:
                 t_in = int(round(p * fps))
                 skt, sks, cov_raw, cov_cal = cross_validate(data, n_act, t_in, t_out, args.folds,
-                                                            args.hidden, args.epochs, args.seed)
+                                                            args.hidden, args.epochs, args.seed, prepare=prepare)
                 skt_m = skt.mean(0); sks_m = sks.mean(0)
                 cr = float(np.mean(cov_raw)); cc = float(np.mean(cov_cal))
                 print(f"{p:>4.0f}s {t_in:>5} | {skt_m[0]:>+7.3f} {skt_m[1]:>+7.3f} {skt_m[2]:>+7.3f}"
@@ -103,17 +110,23 @@ def main():
                     w.writerow([mode, hand, p, round((st + 1) / fps, 2),
                                 f"{sks_m[st,0]:.4f}", f"{sks_m[st,1]:.4f}", f"{sks_m[st,2]:.4f}",
                                 f"{sks_m[st].mean():.4f}", f"{cr:.3f}", f"{cc:.3f}"])
-                # final model: train on 85%, calibrate sigma on the held-out 15%, save with the scale
+                # The reusable checkpoint keeps an actual TEST partition, with stable IDs.
+                pool, test_pos = AD.split_train_test(len(data), seed=1)
                 r3 = np.random.default_rng(args.seed + 7)
-                idx = r3.permutation(len(data)); nv = max(2, len(data) // 6)
-                val = [data[i] for i in idx[:nv]]; trn = [data[i] for i in idx[nv:]]
+                order = r3.permutation(pool); nv = max(2, len(pool) // 6)
+                split = {"train": sorted(data[i] for i in order[nv:]),
+                         "val": sorted(data[i] for i in order[:nv]),
+                         "test": sorted(data[i] for i in test_pos)}
+                parts, fold_cfg = prepare(split)
+                trn, val = parts["train"], parts["val"]
                 model, norm = AD.train(trn, n_act, t_in, t_out, hidden=args.hidden,
                                        epochs=args.epochs, seed=args.seed, val_clips=val)
                 s = AD.calibrate_sigma(model, norm, val, t_in, t_out)
                 out = os.path.join(args.outdir, f"ad_{'-'.join(subs).lower()}_{mode}_{hand}_p{p:.0f}s.pt")
                 AD.save(out, model, norm, dict(subs=subs, n_act=n_act, t_in=t_in, t_out=t_out,
                         cut=args.cut, downsample=args.downsample, hidden=args.hidden,
-                        input_mode=mode, hand=hand, din=din, sigma_scale=s))
+                        input_mode=mode, hand=hand, din=din, sigma_scale=s, warmup_sec=args.warmup_sec,
+                        **checkpoint_provenance(fold_cfg)))
             # per-forecast-step table (mean channel skill; shows horizon decay within the 1s)
             steps = [f"+{(s+1)/fps:.1f}s" for s in range(t_out)]
             print(f"\n  per-step MEAN skill:  {'past':>5} | " + " ".join(f"{s:>6}" for s in steps))

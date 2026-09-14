@@ -46,6 +46,9 @@ def cfg(tmp_path):
     text = open("configs/opentouch/eval_harness.yaml").read().replace(
         "states_root: data/opentouch_states", f"states_root: {tmp_path}")
     p = tmp_path / "h.yaml"; p.write_text(text)
+    # These fixtures exercise the historical model/state contract; new RAW-to-model
+    # TRAIN-only coverage lives in test_train_only_calibration.py.
+    p.write_text(p.read_text().replace("mode: train_only", "mode: legacy"))
     return load_config(str(p))
 
 

@@ -57,15 +57,16 @@ def main():
     subs = [s.strip() for s in args.actions.split(",")]
     fps = 30.0 / args.downsample
     t_in, t_out = int(round(args.history * fps)), int(round(args.future_sec * fps))
-    data = AD.load_pooled(args.root, subs, args.downsample, args.cut,
-                          input_mode=args.input_mode, hand=args.hand)
-    # split CLIPS 70/15/15
+    recs = AD.pooled_ids(args.root, subs, args.downsample)
     rng = np.random.default_rng(args.seed)
-    order = rng.permutation(len(data)); n = len(data)
+    order = rng.permutation(len(recs)); n = len(recs)
     ntr, nva = int(0.70 * n), int(0.15 * n)
-    tr = [data[i] for i in order[:ntr]]
-    va = [data[i] for i in order[ntr:ntr + nva]]
-    te = [data[i] for i in order[ntr + nva:]]
+    split = {"train": sorted(recs[i] for i in order[:ntr]),
+             "val": sorted(recs[i] for i in order[ntr:ntr + nva]),
+             "test": sorted(recs[i] for i in order[ntr + nva:])}
+    parts, _ = AD.fold_data(args.root, subs, split, args.downsample, args.cut,
+                            args.input_mode, args.hand)
+    tr, va, te = (parts[p] for p in ("train", "val", "test"))
     norm = AD.Norm.from_clips(tr)                                   # TRAIN only
     W = lambda c: AD.windows(c, t_in, t_out, 2)                     # noqa: E731
     Xtr, Atr, Yintr, Ytr, _ = W(tr); Xva, Ava, Yinva, Yva, _ = W(va); Xte, Ate, Yinte, Yte, _ = W(te)

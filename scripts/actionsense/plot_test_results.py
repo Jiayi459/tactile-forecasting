@@ -26,7 +26,7 @@ def main():
     ap.add_argument("--downsample", type=int, default=3)
     ap.add_argument("--cut", type=float, default=0.4)
     ap.add_argument("--input-mode", default="highpass", help="raw | highpass")
-    ap.add_argument("--hand", default="active", help="left | right | active")
+    ap.add_argument("--hand", default="right", help="left | right | active")
     ap.add_argument("--t-in", type=int, default=30)         # 3 s past (best from the sweep)
     ap.add_argument("--t-out", type=int, default=10)        # 1 s future
     ap.add_argument("--hidden", type=int, default=48)
@@ -40,10 +40,13 @@ def main():
     import matplotlib.pyplot as plt
 
     subs = [s.strip() for s in args.actions.split(",")]
-    data = AD.load_pooled(args.root, subs, args.downsample, args.cut,
-                          input_mode=args.input_mode, hand=args.hand)
-    tr_ids, te_ids = AD.split_train_test(len(data), seed=args.seed)
-    train = [data[i] for i in tr_ids]; test = [data[i] for i in te_ids]
+    recs = AD.pooled_ids(args.root, subs, args.downsample)
+    tr_ids, te_ids = AD.split_train_test(len(recs), seed=args.seed)
+    parts, _ = AD.fold_data(args.root, subs,
+                            {"train": sorted(recs[i] for i in tr_ids), "val": [],
+                             "test": sorted(recs[i] for i in te_ids)},
+                            args.downsample, args.cut, args.input_mode, args.hand)
+    train, test = parts["train"], parts["test"]
     print(f"train {len(train)} / test {len(test)} clips; t_in={args.t_in} t_out={args.t_out}")
 
     model, norm = AD.train(train, len(subs), args.t_in, args.t_out,

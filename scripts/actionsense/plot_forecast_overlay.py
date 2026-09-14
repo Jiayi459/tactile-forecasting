@@ -64,15 +64,20 @@ def main():
     t_out = int(round(args.future_sec * fps))
     pasts = [float(p) for p in args.pasts.split(",")]
 
-    ref = AD.load_pooled(args.root, subs, args.downsample, args.cut, input_mode=args.input_mode, hand="left")
-    _, test_ids = AD.split_train_test(len(ref), seed=1)
+    recs = AD.pooled_ids(args.root, subs, args.downsample)
+    tr_pos, test_ids = AD.split_train_test(len(recs), seed=1)
+    split = {"train": sorted(recs[i] for i in tr_pos), "val": [],
+             "test": sorted(recs[i] for i in test_ids)}
+    _, cfg = AD.fold_data(args.root, subs, split, args.downsample, args.cut, args.input_mode, "left")
+    ref = AD.load_pooled(cfg.abspath("states_root"), subs, args.downsample, args.cut,
+                         input_mode=args.input_mode, hand="left")
     max_tin = int(round(max(pasts) * fps))
     viz_ids = [i for i in test_ids if ref[i][0].shape[0] >= max_tin + t_out][:args.n_clips]
     print(f"visualizing test clips {viz_ids} (both hands); training {len(pasts)} history models/hand")
 
     results = {}   # (hand, clip) -> (true (T,3), {past: (frame_idx, mu(len,3))})
     for hand in ["left", "right"]:
-        data = AD.load_pooled(args.root, subs, args.downsample, args.cut,
+        data = AD.load_pooled(cfg.abspath("states_root"), subs, args.downsample, args.cut,
                               input_mode=args.input_mode, hand=hand)
         train = [d for i, d in enumerate(data) if i not in test_ids]
         models = {p: AD.train(train, len(subs), int(round(p * fps)), t_out, epochs=args.epochs)

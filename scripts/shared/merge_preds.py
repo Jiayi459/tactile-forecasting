@@ -51,6 +51,8 @@ def main():
             z = np.load(path, allow_pickle=True)
             if i in meta:
                 m = meta[i]
+                if str(m.get("calibration_id", "legacy")) != str(z.get("calibration_id", "legacy")):
+                    raise SystemExit(f"clip {i}: calibration differs between sources")
                 if not np.array_equal(m["origins"], z["origins"]):
                     raise SystemExit(f"clip {i}: origins differ between sources -- the runs "
                                      f"scored different windows, so one figure over both "
@@ -62,7 +64,7 @@ def main():
             else:
                 meta[i] = {k: z[k] for k in ("y", "origins", "fps", "channels")
                            if k in z.files}
-                for k in ("action", "object_name", "tag"):
+                for k in ("action", "object_name", "tag", "calibration_id", "provenance", "split_ids"):
                     if k in z.files:
                         meta[i][k] = z[k]
             for k in z.files:

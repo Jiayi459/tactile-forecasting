@@ -1,3 +1,18 @@
+# Current calibration checks (2026-09-14)
+
+The default leakage checker now runs `tests/test_train_only_calibration.py`, which starts
+from raw pressure, freezes TRAIN-fitted artifacts, changes only future/held-out data, and
+checks input/anchor/prediction invariance and checkpoint split provenance. It also exercises
+the ActionSense CV arms and the OpenTouch map/aggregate input paths. Passing this suite
+validates the implementation; it does not certify the provenance of an external dataset.
+
+`--legacy-checks` explicitly selects the older cached-state-only diagnostics below. Their
+six passes did not detect complete-recording baseline subtraction or interpolation look-ahead.
+The default harness configs require TRAIN-only calibration; old caches/results remain a
+separate offline protocol. See [train_only_calibration.md](train_only_calibration.md).
+
+---
+
 # Leakage checklist
 
 Run **before every training experiment**:

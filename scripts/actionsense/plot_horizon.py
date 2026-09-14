@@ -65,12 +65,16 @@ def main():
     t_in = int(round(args.history * fps))
     t_out = int(round(args.future_sec * fps))
 
-    data = AD.load_pooled(args.root, subs, args.downsample, args.cut,
+    recs = AD.pooled_ids(args.root, subs, args.downsample)
+    tr_ids, te_ids = AD.split_train_test(len(recs), seed=1)
+    split = {"val": sorted(recs[i] for i in tr_ids[::5]),
+             "train": sorted(recs[i] for i in tr_ids if i not in set(tr_ids[::5])),
+             "test": sorted(recs[i] for i in te_ids)}
+    parts, cfg = AD.fold_data(args.root, subs, split, args.downsample, args.cut,
+                              args.input_mode, args.hand)
+    train, val = parts["train"], parts["val"]
+    data = AD.load_pooled(cfg.abspath("states_root"), subs, args.downsample, args.cut,
                           input_mode=args.input_mode, hand=args.hand)
-    tr_ids, te_ids = AD.split_train_test(len(data), seed=1)
-    # hold out a validation slice of TRAIN for sigma calibration (never touch test)
-    val = [data[i] for i in tr_ids[::5]]
-    train = [data[i] for i in tr_ids if i not in set(tr_ids[::5])]
 
     print(f"training {args.input_mode}/{args.hand}  hist={args.history}s (t_in={t_in}) "
           f"future={args.future_sec}s (t_out={t_out})  on {len(train)} clips")

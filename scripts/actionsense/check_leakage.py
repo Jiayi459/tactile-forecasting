@@ -33,7 +33,7 @@ def check_filter_causal():
 def check_norm_train_only():
     """Norm stats must come from TRAIN clips only. Verify train-only stats differ from train+test
     stats (so including test WOULD change them -> excluding test is meaningful and is what we do)."""
-    data = AD.load_pooled(ROOT, SUBS, 3, 0.4)
+    data = AD.load_pooled(ROOT, SUBS, 3, 0.4, allow_legacy=True)
     tr, te = AD.split_train_test(len(data))
     n_tr = AD.Norm.from_clips([data[i] for i in tr])
     n_all = AD.Norm.from_clips(data)
@@ -43,7 +43,7 @@ def check_norm_train_only():
 
 def check_split_by_trajectory():
     """Train/test split is by TRAJECTORY (clip), and no clip appears in both window sets."""
-    data = AD.load_pooled(ROOT, SUBS, 3, 0.4)
+    data = AD.load_pooled(ROOT, SUBS, 3, 0.4, allow_legacy=True)
     tr, te = AD.split_train_test(len(data))
     disjoint = set(tr).isdisjoint(set(te))
     _, _, _, _, g_tr = AD.windows([data[i] for i in tr], 10, 10, 2)
@@ -81,8 +81,8 @@ def check_pipeline_order():
     (z-score is applied later, from train stats). Confirm F_fast = raw - causal_lowpass and the
     output retains raw scale (std != 1)."""
     # load WITHOUT warmup trim so highpass-target and raw-input are frame-aligned
-    hp = AD.load_pooled(ROOT, SUBS, 3, 0.4, input_mode="highpass", hand="left", warmup_sec=0)
-    rw = AD.load_pooled(ROOT, SUBS, 3, 0.4, input_mode="raw", hand="left", warmup_sec=0)
+    hp = AD.load_pooled(ROOT, SUBS, 3, 0.4, input_mode="highpass", hand="left", warmup_sec=0, allow_legacy=True)
+    rw = AD.load_pooled(ROOT, SUBS, 3, 0.4, input_mode="raw", hand="left", warmup_sec=0, allow_legacy=True)
     raw_scale = hp[0][0][:, 0].std()                 # F_fast still in raw units if un-normalized
     not_zscored = not (0.8 < raw_scale < 1.25)
     F_raw = rw[0][0][:, 0]                            # raw total force
@@ -102,6 +102,19 @@ CHECKS = [
 
 
 def main():
+    import argparse
+    import subprocess
+    parser = argparse.ArgumentParser(description="Raw-pressure calibration causality regressions")
+    parser.add_argument("--legacy-checks", action="store_true",
+                        help="historical cached-state checks only; NOT a raw-data causality audit")
+    args = parser.parse_args()
+    if not args.legacy_checks:
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        print("Testing raw-pressure future invariance, TRAIN-only fitting and checkpoint splits; "
+              "this validates implementation, not an uninspected real dataset.", flush=True)
+        raise SystemExit(subprocess.call([sys.executable, "-m", "pytest", "-q",
+                                         "tests/test_train_only_calibration.py"], cwd=root))
+    print("LEGACY cached-state diagnostics: excludes raw interpolation and sensor calibration.")
     print("LEAKAGE CHECKLIST (docs/leakage_checklist.md)\n" + "=" * 60)
     all_ok = True
     for name, fn in CHECKS:

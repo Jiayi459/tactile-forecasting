@@ -177,6 +177,8 @@ def train(cfg: Config, train_ids: list[int], val_ids: list[int], t_in: int,
     baselines share one normalization); it is fitted from `train_ids` if not supplied.
     -> (model, norm, history) where history records per-epoch train/val MSE for the log.
     """
+    from src.calibration import validate_training
+    validate_training(cfg, train_ids, val_ids)
     hp = {**DEFAULT_HP, **(hp or {})}
     gen = configure_determinism(int(hp["seed"]))
     if norm is None:

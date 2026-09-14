@@ -27,6 +27,9 @@ def make_cfg(tmp_path, actions):
             .replace("min_group_size: 30", "min_group_size: 1")
             .replace("ar_orders: [6, 15, 30, 45, 60, 90]", "ar_orders: [4]"))
     p = tmp_path / "h.yaml"; p.write_text(text)
+    # These fixtures exercise the historical model/state contract; new RAW-to-model
+    # TRAIN-only coverage lives in test_train_only_calibration.py.
+    p.write_text(p.read_text().replace("mode: train_only", "mode: legacy"))
     return load_config(str(p))
 
 

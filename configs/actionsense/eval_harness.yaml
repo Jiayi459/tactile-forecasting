@@ -46,6 +46,13 @@ eval:
 paths:
   states_root: data/actionsense_states
   split_file: data/actionsense_states/splits.json
-  out_csv: docs/actionsense/harness_baselines.csv      # tidy long table; a .parquet twin is written alongside
+  out_csv: docs/actionsense/train_only_v1/harness_baselines.csv      # tidy long table; a .parquet twin is written alongside
 
 actions: [slice, peel]
+
+# Calibration v1: every fold fits a fixed template on TRAIN raw maps only.
+calibration:
+  mode: train_only
+  corpus: actionsense
+  max_frames: 20000
+  k: 1.0

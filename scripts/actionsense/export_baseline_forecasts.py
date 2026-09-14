@@ -88,7 +88,8 @@ def main():
         sp = load_splits(cfg)
         partitions = [(sp["train"], sp["val"], sp["test"])]
     else:
-        recs = corpus_recordings(cfg)
+        from src.calibration import enabled
+        recs = corpus_recordings(cfg, require_maps=not enabled(cfg))
         partitions = list(corpus_folds(recs, a.folds, a.seed))
         n_te = sum(len(p[2]) for p in partitions)
         print(f"corpus scope: {len(recs)} recordings, {len(partitions)} folds, "
@@ -102,9 +103,14 @@ def main():
                 r = json.loads(line)
                 verbs[r["idx"]] = parse_label(r["label"])[0]
 
+    from src.calibration import prepare_fold, checkpoint_provenance
+    source_cfg = cfg
+    provenance = {}
     per_clip: dict[int, dict] = {}
     truth: dict[int, np.ndarray] = {}
     for fi, (tr_idx, va_idx, te_idx) in enumerate(partitions):
+        cfg = prepare_fold(source_cfg, {"train": tr_idx, "val": va_idx, "test": te_idx})
+        provenance.update({i: checkpoint_provenance(cfg) for i in te_idx})
         train, val, test = (load_group(cfg, ids) for ids in (tr_idx, va_idx, te_idx))
         gtr, gva, gte = (group_keys(cfg, ids) for ids in (tr_idx, va_idx, te_idx))
         # The baselines take the TRAIN-fitted Norm, as evaluate.fit_and_forecast constructs
@@ -134,7 +140,9 @@ def main():
             y=np.asarray(Y, dtype=np.float64),
             origins=BL.origins(len(Y), cfg), fps=cfg.fps,
             action=verbs.get(i, ""), object_name="",
-            channels=np.array(cfg.channels), tag="actionsense-baselines", **arrays)
+            channels=np.array(cfg.channels), tag="actionsense-baselines",
+            provenance=json.dumps(provenance[i], sort_keys=True),
+            calibration_id=provenance[i].get("calibration", {}).get("id", "legacy"), **arrays)
     print(f"wrote {len(per_clip)} recordings x {len(EV.MODELS)} baselines -> {a.out}")
 
 

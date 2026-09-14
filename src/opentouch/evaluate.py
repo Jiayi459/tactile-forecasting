@@ -56,6 +56,8 @@ def _result(ytrue, yhat, mask) -> dict:
 def fit_and_forecast(cfg: Config, splits: dict):
     """Fit/select every baseline; return (results, mask, extras). results[name] has masked
     metric arrays; extras carries the seasonal periods."""
+    from src.calibration import prepare_fold
+    cfg = prepare_fold(cfg, splits)
     train, val, test = (load_group(cfg, splits[k]) for k in ("train", "val", "test"))
     # TRAIN-relative grouping (2026-08-15): with a location-level split a category can be
     # common corpus-wide yet absent from TRAIN, and AR would then be asked for a group it
@@ -117,6 +119,8 @@ def score_external(cfg: Config, splits: dict, name: str, preds: dict[int, np.nda
     """Score an external model's predictions against the frozen baselines. `preds[idx]` is
     (n_origins, H, C) aligned to baselines.origins(len(Y), cfg)."""
     C = len(cfg.channels)
+    from src.calibration import prepare_fold
+    cfg = prepare_fold(cfg, splits)
     test = load_group(cfg, splits["test"])
     thr = force_thresholds(cfg, load_group(cfg, splits["train"]))
     yts, yhs = [], []
@@ -143,6 +147,8 @@ def collect_clip_stats(cfg: Config, splits: dict, external: dict | None = None):
     prob_gru.predict returns. -> (ClipStats, norm); the row selection for a class comes from
     trait_rows() below, and aggregate.r2(..., rows=...) does the scoring.
     """
+    from src.calibration import prepare_fold
+    cfg = prepare_fold(cfg, splits)
     train, val, test = (load_group(cfg, splits[k]) for k in ("train", "val", "test"))
     tr_ids = splits["train"]
     gtr = group_keys(cfg, tr_ids, tr_ids)
@@ -242,6 +248,8 @@ def main():
         sp = SP.build(cfg, seed=a.seed)
         print(f"built split -> {SP.save(cfg, sp, path)}")
     print(SP.summarize(cfg, sp))
+    from src.calibration import prepare_fold
+    cfg = prepare_fold(cfg, sp)
 
     results, norm, extras = fit_and_forecast(cfg, sp)
     df = write_table(build_rows(cfg, results), a.out or cfg.abspath("out_csv"))

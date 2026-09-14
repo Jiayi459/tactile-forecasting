@@ -49,6 +49,8 @@ def _result(ytrue, yhat, mask) -> dict:
 def fit_and_forecast(cfg: Config, splits: dict):
     """Fit/select every baseline; return (results, mask, extras). results[name] has masked
     metric arrays; extras carries the seasonal periods."""
+    from src.calibration import prepare_fold
+    cfg = prepare_fold(cfg, splits)
     train, val, test = (load_group(cfg, splits[k]) for k in ("train", "val", "test"))
     gtr = group_keys(cfg, splits["train"]); gva = group_keys(cfg, splits["val"])
     gte = group_keys(cfg, splits["test"])
@@ -105,6 +107,8 @@ def score_external(cfg: Config, splits: dict, name: str, preds: dict[int, np.nda
     """Score an external model's predictions against the frozen baselines. `preds[idx]` is
     (n_origins, H, 6) aligned to baselines.origins(len(Y), cfg). Returns a results-style dict and
     appends rows via build_rows when merged into `ref_results`."""
+    from src.calibration import prepare_fold
+    cfg = prepare_fold(cfg, splits)
     test = load_group(cfg, splits["test"])
     thr = force_thresholds(cfg, load_group(cfg, splits["train"]))
     yts, yhs = [], []
@@ -142,6 +146,8 @@ def main():
     args = ap.parse_args()
     cfg = load_config(args.config) if args.config else load_config()
     splits = load_splits(cfg, rebuild=args.rebuild_splits)
+    from src.calibration import prepare_fold
+    cfg = prepare_fold(cfg, splits)
     print(f"config_hash={cfg.config_hash}  fps={cfg.fps:.0f}  horizon={cfg.horizon} steps  "
           f"fit_scope={cfg.fit_scope}  split(train {len(splits['train'])}/val {len(splits['val'])}"
           f"/test {len(splits['test'])})")
@@ -157,7 +163,8 @@ def main():
     print("AR order per group:", {g: p for g, p in sorted(extras["ar_orders"].items())})
 
     if args.model_preds:
-        preds = {int(k): v for k, v in np.load(args.model_preds).items()}
+        from src.calibration import load_external_predictions
+        preds = load_external_predictions(args.model_preds, cfg, splits)
         results[args.model_name] = score_external(cfg, splits, args.model_name, preds, results, norm)
         MODELS.append(args.model_name)
 

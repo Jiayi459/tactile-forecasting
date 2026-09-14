@@ -33,7 +33,16 @@ def main():
     args = ap.parse_args()
 
     cfg = load_config(args.config)
-    tr = load_splits(cfg)["train"]
+    if cfg.raw.get("calibration", {}).get("corpus") == "opentouch":
+        from src.opentouch.splits import load as load_splits
+        from src.opentouch.dataset import load_group
+    else:
+        from src.actionsense.eval_harness.splits import load_splits
+        from src.actionsense.eval_harness.dataset import load_group
+    from src.calibration import prepare_fold
+    split = load_splits(cfg)
+    cfg = prepare_fold(cfg, split)
+    tr = split["train"]
     train = load_group(cfg, tr)
     thr = force_thresholds(cfg, train)                     # cfg.force_idx order
     names = [str(cfg.channels[i]) for i in cfg.force_idx]
@@ -46,6 +55,7 @@ def main():
         "n_train_recordings": len(tr),
         "config": cfg.path,
         "config_hash": cfg.config_hash,
+        "calibration_id": cfg.raw.get("calibration", {}).get("id", "legacy"),
     }
     with open(out, "w") as fh:
         json.dump(payload, fh, indent=2)

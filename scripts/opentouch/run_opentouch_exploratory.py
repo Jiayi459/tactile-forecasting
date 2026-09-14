@@ -1,22 +1,18 @@
 """OpenTouch run: classical baselines + a GRU arm, over the whole corpus.
 
-STILL EXPLORATORY, THOUGH LESS SO THAN IT WAS. It now defaults to the real location-level
-split (src/opentouch/splits.py, 2026-08-15) rather than the ad-hoc one it was born with,
-and --folds runs the grouped cross-validation. What keeps it exploratory is D1: the raw
-pressure carries a large DC offset (F sits near 750k and moves by ~4%; CoP barely leaves
-the sensor centre), so a forecaster is mostly being asked to predict a constant.
-Persistence looks strong and skill reads high for reasons unrelated to dynamics. Every row
-is tagged exploratory=True until that is settled.
+The default location split and --folds use src/opentouch/splits.py. The default harness
+now fits a TRAIN-only pressure template separately in each fold. Historical D1 configs
+remain legacy. Every row retains exploratory=True; calibration changes require a fresh
+real-corpus evaluation before drawing conclusions about cross-location performance.
 
 WHAT IT DOES NOT DO, ON PURPOSE
   * No smooth/abrupt grouping. The user's ruling (2026-08-15) is to train on everything and
     separate only when scoring, and evaluate.trait_rows() does that -- but it refuses while
     any TEST action is unadjudicated, and 36 such actions remain. Per-class numbers must
     wait for those verdicts or they make the verdicts post-hoc.
-  * No edit to configs/opentouch/eval_harness.yaml. config_hash is the hash of that file;
-    editing it to repoint states_root would silently break comparability with every run
-    that came before. Point the path with a symlink instead:
-        ln -sfn ~/opentouch/cache data/opentouch_states
+  * A fold records its resolved config hash and raw-data/calibration provenance.
+    Pass a run-specific --config pointing to an uncorrected pressure cache.
+    See docs/train_only_calibration.md for extraction and rerun requirements.
 
     python scripts/opentouch/run_opentouch_exploratory.py --folds 4 --save-preds runs/preds
     python scripts/opentouch/run_opentouch_exploratory.py --model none          # baselines only, fast
@@ -27,6 +23,7 @@ from __future__ import annotations
 import argparse
 import collections
 import csv
+import json
 import os
 import random
 import sys
@@ -133,12 +130,10 @@ def main():
                     help="Adam weight decay for prob_gru (0 = ActionSense's setting)")
     ap.add_argument("--dropout", type=float, default=0.0,
                     help="dropout on the prob_gru heads (0 = the verbatim architecture)")
-    ap.add_argument("--baseline-scope", default="shard",
+    ap.add_argument("--baseline-scope", default="train",
                     choices=["shard", "trainval", "train"],
-                    help="clips the map arms' per-taxel baseline is estimated from. 'shard' "
-                         "uses that shard's own frames, which is the only scope that yields "
-                         "an estimate for a wholly held-out location; it is transductive in "
-                         "the inputs and never in the targets.")
+                    help="TRAIN-only mode requires 'train' and shares a frozen template "
+                         "with every held-out location. Other scopes are legacy diagnostics.")
     ap.add_argument("--select-on", default="nll", choices=["nll", "mse"],
                     help="VAL curve that picks the probGRU weights and input history. The "
                          "harness scores point error only, so 'mse' aligns selection with "
@@ -156,7 +151,7 @@ def main():
                     help="checkpoint the probGRU per split (weights, hyperparameters, "
                          "action vocabulary and both normalizers -- everything needed to "
                          "reproduce a forecast without retraining)")
-    ap.add_argument("--out", default="docs/exploratory_opentouch.csv")
+    ap.add_argument("--out", default="docs/opentouch/train_only_v1/cv_results.csv")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -272,6 +267,10 @@ def check_groups(cfg, splits):
 
 
 def run_split(cfg, splits, args, tag):
+    from src.calibration import prepare_fold, enabled, checkpoint_provenance
+    if enabled(cfg) and args.baseline_scope != "train":
+        raise ValueError("TRAIN-only calibration requires --baseline-scope train")
+    cfg = prepare_fold(cfg, splits)
     print("fitting baselines (persistence / seasonal / ar) ...")
     results, norm, extras = EV.fit_and_forecast(cfg, splits)
     rows = []
@@ -334,7 +333,8 @@ def run_split(cfg, splits, args, tag):
                 import torch
                 os.makedirs(args.save_model, exist_ok=True)
                 ck = os.path.join(args.save_model, f"{which}_{tag}.pt")
-                torch.save({"state_dict": model.state_dict(), "hp": hp, "t_in": t_in,
+                torch.save({**checkpoint_provenance(cfg),
+                        "state_dict": model.state_dict(), "hp": hp, "t_in": t_in,
                             "arm": which, "encoder": enc,
                             "norm": {"mean": norm.mean, "std": norm.std},
                             "mnorm": ({"mean": mnorm.mean, "std": mnorm.std,
@@ -395,7 +395,8 @@ def run_split(cfg, splits, args, tag):
             import torch
             os.makedirs(args.save_model, exist_ok=True)
             ck = os.path.join(args.save_model, f"{which}_{tag}.pt")
-            torch.save({"state_dict": model.state_dict(), "hp": hp, "t_in": t_in,
+            torch.save({**checkpoint_provenance(cfg),
+                        "state_dict": model.state_dict(), "hp": hp, "t_in": t_in,
                         "arm": which, "vocab": vocab, "by_idx": by_idx,
                         "norm": {"mean": norm.mean, "std": norm.std},
                         "fnorm": {"mean": fnorm.mean, "std": fnorm.std},
@@ -446,7 +447,9 @@ def save_history_preds(cfg, splits, norm, preds, out_dir, t_in):
             origins=np.asarray(origins(len(Y), cfg)), fps=cfg.fps, t_in=t_in,
             action=rows.get(i, {}).get("action", ""),
             object_name=rows.get(i, {}).get("object_name", ""),
-            channels=np.array(cfg.channels), mu_prob_gru=preds[i])
+            channels=np.array(cfg.channels), mu_prob_gru=preds[i],
+            calibration_id=cfg.raw.get("calibration", {}).get("id", "legacy"),
+            split_ids=json.dumps({p: splits[p] for p in ("train", "val", "test")}))
     print(f"  saved history t_in={t_in} forecasts -> {out_dir}")
 
 
@@ -492,6 +495,8 @@ def save_predictions(cfg, splits, norm, ext, sig, out_dir, tag):
             fps=cfg.fps, action=rows.get(i, {}).get("action", ""),
             object_name=rows.get(i, {}).get("object_name", ""),
             channels=np.array(cfg.channels), tag=tag,
+            calibration_id=cfg.raw.get("calibration", {}).get("id", "legacy"),
+            split_ids=json.dumps({p: splits[p] for p in ("train", "val", "test")}),
             **{f"mu_{k}": v for k, v in models.items()},
             **{f"sigma_{k}": v[i] for k, v in sig.items() if i in v})
     print(f"  saved {len(per_clip)} clips of forecasts -> {out_dir}")

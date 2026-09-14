@@ -72,3 +72,7 @@ paths:
 # rare actions still contribute valid training signal even though they can't be evaluated
 # individually (SESSION_LOG 2026-08-07/09).
 actions: []
+
+# Historical offline protocol. For causal reruns use eval_harness.yaml on RAW maps.
+calibration:
+  mode: legacy

@@ -301,11 +301,12 @@ def _per_recording(model, ds, tnorm, H):
 def corpus_tag(cfg: Config) -> str:
     """'data/egotouch_states' -> 'egotouch'. The npz's `tag` drives the figure caption, so
     hardcoding it made every corpus that reused this writer claim to be ActionSense."""
-    return os.path.basename(cfg.abspath("states_root").rstrip("/")).split("_")[0]
+    return cfg.raw.get("calibration", {}).get("corpus") or \
+        os.path.basename(cfg.abspath("states_root").rstrip("/")).split("_")[0]
 
 
 def save_predictions(store: dict, cfg: Config, out_dir: str, verbs: dict,
-                     objects: dict | None = None):
+                     objects: dict | None = None, provenance: dict | None = None):
     """Write one clip_<idx>.npz per recording, in the OpenTouch overlay format.
 
     MERGES into an existing clip_<idx>.npz rather than replacing it. The sweep calls this once
@@ -326,10 +327,15 @@ def save_predictions(store: dict, cfg: Config, out_dir: str, verbs: dict,
     for i in idxs:
         first = next(d[i] for d in store.values() if i in d)
         y, origins = first[0], first[1]
+        meta = (provenance or {}).get(i, {})
+        cal_id = meta.get("calibration", {}).get("id", "legacy")
         keep = {}
         path = os.path.join(out_dir, f"clip_{i}.npz")
         if os.path.exists(path):
             with np.load(path, allow_pickle=False) as z:
+                old_id = str(z["calibration_id"]) if "calibration_id" in z else "legacy"
+                if old_id != cal_id:
+                    raise ValueError(f"{path} uses another calibration; use a fresh output directory")
                 if z["y"].shape != y.shape or not np.allclose(z["y"], y, equal_nan=True) \
                         or z["origins"].shape != origins.shape \
                         or not np.array_equal(z["origins"], origins):
@@ -349,6 +355,7 @@ def save_predictions(store: dict, cfg: Config, out_dir: str, verbs: dict,
             y=y, origins=origins, fps=cfg.fps,
             action=verbs.get(i, ""), object_name=(objects or {}).get(i, ""),
             channels=np.array(cfg.channels), tag=corpus_tag(cfg),
+            calibration_id=cal_id, provenance=json.dumps(meta, sort_keys=True),
             **{**keep, **arms})            # a re-run of the same arm replaces its own keys
     have = sorted({k[3:] for k in np.load(os.path.join(out_dir, f"clip_{idxs[0]}.npz")).files
                    if k.startswith("mu_")}) if idxs else []
@@ -366,6 +373,8 @@ def cross_validate(cfg: Config, tm: dict, encoder: str, t_in: int, recs: list[in
     fold_of = rng.integers(0, folds, size=len(recs))
     skc, sks, cr, cc, hdc, hdr = [], [], [], [], [], []
     preds = {}                       # recording idx -> forecasts, filled only if requested
+    provenance = {}
+    source_cfg = cfg
     # Per-fold progress, flushed. Without it the log says nothing between the header and the
     # summary line of a whole encoder x history combination, so a slow run and a hung one
     # look identical -- the reason src/opentouch/prob_gru.py prints per epoch.
@@ -378,6 +387,11 @@ def cross_validate(cfg: Config, tm: dict, encoder: str, t_in: int, recs: list[in
         r2 = np.random.default_rng(seed * 100 + f)
         idx = r2.permutation(len(tr)); nv = max(2, len(tr) // 6)
         val, trn = [tr[i] for i in idx[:nv]], [tr[i] for i in idx[nv:]]
+
+        from src.calibration import prepare_fold, checkpoint_provenance
+        cfg = prepare_fold(source_cfg, {"train": trn, "val": val, "test": te})
+        fold_meta = checkpoint_provenance(cfg)
+        provenance.update({i: fold_meta for i in te})
 
         # The probGRU backbone predicts the ABSOLUTE target and carries an action embedding
         # whose vocabulary is built from THIS FOLD's TRAIN only. Seq2Seq keeps the residual
@@ -422,4 +436,4 @@ def cross_validate(cfg: Config, tm: dict, encoder: str, t_in: int, recs: list[in
     return {"skill_ch": np.array(skc), "skill_step": np.array(sks),
             "coverage_raw": float(np.mean(cr)), "coverage_cal": float(np.mean(cc)),
             "hausdorff_ch": np.array(hdc), "hausdorff_ratio_ch": np.array(hdr),
-            "preds": preds}
+            "preds": preds, "provenance": provenance}

@@ -24,6 +24,7 @@ from src.actionsense.tactile_map import train as T                    # noqa: E4
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--config", default="configs/actionsense/eval_harness.yaml")
     ap.add_argument("--tm-config", default="configs/actionsense/tactile_map.yaml")
     ap.add_argument("--encoders", default=None)
     ap.add_argument("--histories", default=None)
@@ -42,10 +43,10 @@ def main():
                          "to every existing result); corpus = all 299 manifest recordings "
                          "across 14 action groups (EXPLORATORY -- different population, "
                          "different Norm, not comparable to harness numbers)")
-    ap.add_argument("--csv", default="docs/actionsense/tactile_map_cv_results.csv")
+    ap.add_argument("--csv", default="docs/actionsense/train_only_v1/tactile_map_cv_results.csv")
     args = ap.parse_args()
 
-    cfg = load_config()
+    cfg = load_config(args.config)
     tmc = yaml.safe_load(open(args.tm_config))
     tm = {**tmc["preprocess"], **tmc["model"], **tmc["optim"]}
     if args.epochs:
@@ -54,11 +55,14 @@ def main():
     histories = [float(h) for h in args.histories.split(",")] if args.histories \
         else tmc["sweep"]["histories_s"]
     fps = cfg.fps
-    # the aggregate arm reads state_*.npy only, so it does not need a map to exist
+    # Only legacy aggregate runs can operate without raw pressure maps.
     need_maps = any(e != "aggregate" for e in (args.encoders.split(",") if args.encoders
                                                else tmc["sweep"]["encoders"]))
-    recs = (T.corpus_recordings(cfg, require_maps=need_maps) if args.scope == "corpus"
-            else T.recordings(cfg, require_maps=True))
+    from src.calibration import enabled
+    # A missing raw map must fail preparation, never silently shrink a requested corpus.
+    strict = enabled(cfg)
+    recs = (T.corpus_recordings(cfg, require_maps=need_maps and not strict) if args.scope == "corpus"
+            else T.recordings(cfg, require_maps=not strict))
     ch = cfg.channels
     print(f"harness fps={fps:.0f} horizon={cfg.horizon}  scope={args.scope}  "
           f"{len(recs)} recordings  "
@@ -88,7 +92,7 @@ def main():
             if want and cv.get("preds"):
                 from src.actionsense.tactile_map import data as D
                 T.save_predictions({f"{args.backbone}_{enc}": cv["preds"]}, cfg, want,
-                                   D.verbs_of(cfg, recs))
+                                   D.verbs_of(cfg, recs), provenance=cv["provenance"])
             skc, sks = cv["skill_ch"], cv["skill_step"]
             cr, cc = cv["coverage_raw"], cv["coverage_cal"]
             hd_m = np.nanmean(cv["hausdorff_ch"], axis=0)          # (6,)

@@ -36,7 +36,7 @@ def main():
     ap.add_argument("--downsample", type=int, default=3)
     ap.add_argument("--cut", type=float, default=0.4)
     ap.add_argument("--input-mode", default="highpass", help="raw | highpass (sweep mode)")
-    ap.add_argument("--hand", default="active", help="left | right | active (sweep mode)")
+    ap.add_argument("--hand", default="right", help="left | right | active (sweep mode)")
     ap.add_argument("--pasts", default="1,2,3,5,10", help="past-context lengths (s) to sweep")
     ap.add_argument("--future-sec", type=float, default=1.0)
     ap.add_argument("--hidden", type=int, default=48)
@@ -55,10 +55,14 @@ def main():
     if args.ckpt:        # ---- MODE 1: load one checkpoint and plot it ----
         model, norm, meta = AD.load(args.ckpt)
         subs = meta["subs"]
-        data = AD.load_pooled(args.root, subs, meta["downsample"], meta["cut"],
-                              input_mode=meta.get("input_mode", "highpass"), hand=meta.get("hand", "active"))
+        from src.calibration import held_out_ids, verify_checkpoint_cache
+        recording_ids = held_out_ids(meta)
+        verify_checkpoint_cache(meta)
+        data = AD.load_pooled(meta["states_root"], subs, meta["downsample"], meta["cut"],
+                              input_mode=meta.get("input_mode", "highpass"), hand=meta["hand"],
+                              warmup_sec=meta.get("warmup_sec", 5.0), idxs=recording_ids)
         viz_i = pick_viz(data, subs, args.viz_action)
-        _, test_ids = AD.split_train_test(len(data), force_test=[viz_i])
+        test_ids = list(range(len(data)))
         vtarg = data[viz_i][1]
         fc = AD.forecast_clip(model, norm, data[viz_i], meta["t_in"], meta["t_out"], k,
                               sigma_scale=meta.get("sigma_scale", 1.0))
@@ -67,13 +71,21 @@ def main():
         panels.append((f"checkpoint {os.path.basename(args.ckpt)}", meta["t_in"], fc, mean_sk))
     else:                # ---- MODE 2: sweep past-context, training via the library ----
         subs = [s.strip() for s in args.actions.split(",")]
-        data = AD.load_pooled(args.root, subs, args.downsample, args.cut,
-                              input_mode=args.input_mode, hand=args.hand)
+        recs = AD.pooled_ids(args.root, subs, args.downsample)
+        from src.calibration import read_manifest
+        rows = read_manifest(args.root)
+        viz_pos = next(j for j, i in enumerate(recs)
+                       if rows[i]["label"].lower().startswith(args.viz_action.lower()))
+        tr_pos, te_pos = AD.split_train_test(len(recs), force_test=[viz_pos])
+        split = {"train": sorted(recs[j] for j in tr_pos), "val": [],
+                 "test": sorted(recs[j] for j in te_pos)}
+        parts, _ = AD.fold_data(args.root, subs, split, args.downsample, args.cut,
+                                args.input_mode, args.hand)
+        train, test = parts["train"], parts["test"]
+        data = test
         fps = 30.0 / args.downsample
         t_out = int(round(args.future_sec * fps))
         viz_i = pick_viz(data, subs, args.viz_action)
-        tr_ids, te_ids = AD.split_train_test(len(data), force_test=[viz_i])
-        train = [data[i] for i in tr_ids]; test = [data[i] for i in te_ids]
         vtarg = data[viz_i][1]
         print(f"train {len(train)} / test {len(test)} clips; viz clip #{viz_i}; future={t_out} frames")
         for p in [float(x) for x in args.pasts.split(",")]:

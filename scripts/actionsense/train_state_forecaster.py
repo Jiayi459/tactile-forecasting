@@ -37,15 +37,25 @@ def main():
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    trajs = SF.load_trajectories(args.root, args.action)
-    if args.downsample > 1:
-        trajs = [t[:: args.downsample] for t in trajs]
-    if len(trajs) < 3:
-        raise SystemExit(f"only {len(trajs)} trajectories for {args.action!r}")
+    from src.actionsense import action_dynamics as AD
+    from src.calibration import prepare_fold
+    from src.actionsense.eval_harness.config import load_config, Config
+    recs = AD.pooled_ids(args.root, [args.action], args.downsample, warmup_sec=0, min_len=1)
+    if len(recs) < 3:
+        raise SystemExit(f"only {len(recs)} trajectories for {args.action!r}")
+    tr_ids, va_ids = SF.split_trajectories(recs, val_frac=0.25, seed=args.seed)
+    source = load_config()
+    raw = {**source.raw, "paths": {**source.raw["paths"], "states_root": os.path.abspath(args.root)}}
+    cfg = prepare_fold(Config(raw, source.path, source.config_hash),
+                       {"train": sorted(tr_ids), "val": sorted(va_ids), "test": []})
+    def read(ids):
+        return [np.load(os.path.join(cfg.abspath("states_root"), f"state_{i}.npy"))
+                [::args.downsample].reshape(-1, 12) for i in sorted(ids)]
+    tr_tj, va_tj = read(tr_ids), read(va_ids)
+    trajs = tr_tj + va_tj
     D = trajs[0].shape[1]
     n_hands = D // len(SF.FEATS)
     names = SF.feature_names(n_hands)
-    tr_tj, va_tj = SF.split_trajectories(trajs, val_frac=0.25, seed=args.seed)
     print(f"[{args.action}] {len(trajs)} trajectories (train {len(tr_tj)} / val {len(va_tj)}), "
           f"D={D} ({n_hands} hands), t_in={args.t_in} t_out={args.t_out}")
 

@@ -42,6 +42,8 @@ def group_keys(cfg: Config, idxs: list[int]) -> dict[int, str]:
 
 def load_target(cfg: Config, idx: int) -> np.ndarray:
     """One recording -> (T', 6) raw target at the effective rate."""
+    from src.calibration import require_prepared
+    require_prepared(cfg)
     root = cfg.abspath("states_root")
     st = np.load(os.path.join(root, f"state_{idx}.npy"))     # (T, 2, 6)
     st = st[:: cfg.downsample]                                # -> effective rate

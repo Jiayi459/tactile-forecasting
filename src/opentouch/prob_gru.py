@@ -320,6 +320,8 @@ def train(cfg: Config, train_ids: list[int], val_ids: list[int], t_in: int,
     slow enough that a silent loop is indistinguishable from a hung one.
 
     -> (model, norm, fnorm, vocab, by_idx, history)"""
+    from src.calibration import validate_training
+    validate_training(cfg, train_ids, val_ids)
     hp = {**DEFAULT_HP, **(hp or {})}
     gen = configure_determinism(int(hp["seed"]))
     if norm is None:
@@ -420,7 +422,7 @@ def train(cfg: Config, train_ids: list[int], val_ids: list[int], t_in: int,
     history["features"] = str(hp.get("features", "raw"))
     history["n_features"] = int(Xtr.shape[-1])
     history["input"] = str(hp.get("input", "raw"))
-    history["baseline_scope"] = base_scope
+    history["baseline_scope"] = "train" if cfg.raw.get("calibration", {}).get("artifact") else base_scope
     history["weight_decay"] = float(hp["weight_decay"])
     history["dropout"] = float(hp["dropout"])
     return m, norm, fnorm, vocab, by_idx, history

@@ -1,5 +1,8 @@
 """Tactile-MAP input pipeline for F/CoP forecasting.
 
+TRAIN-only configs consume fold-calibrated maps verbatim, sharing their correction
+with F/CoP. The first-N steps below describe legacy configs only.
+
 Per recording, the raw pressure map clip_<idx>.npy (T, 2, 32, 32) is turned into model input:
   1. downsample [::ds]                      (10 Hz; matches the harness target)
   2. causal per-taxel baseline (first N)    base = clip[:N].mean(0); x = clip - base; clip>=0
@@ -82,7 +85,11 @@ def load_map(cfg: Config, idx: int, baseline_frames: int) -> np.ndarray:
     The clamp at 0 stays on both paths: it is a no-op for the non-negative grids every corpus
     ships, and it keeps `compress`'s log1p inside its domain if a sensor ever emits negatives.
     """
+    from src.calibration import prepared
+    already_corrected = prepared(cfg)
     clip = np.load(clip_path(cfg, idx)).astype(np.float32)[:: cfg.downsample]   # (T',2,G,G)
+    if already_corrected:
+        return clip                     # same frozen correction as the F/CoP target
     if baseline_frames <= 0:
         return np.clip(clip, 0.0, None)
     n = min(baseline_frames, len(clip))

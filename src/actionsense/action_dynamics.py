@@ -79,10 +79,19 @@ def build_features(state, fps_raw, cut, ds, input_mode="highpass", hand="active"
 
 
 def load_pooled(root, action_subs, ds, cut, input_mode="highpass", hand="active",
-                warmup_sec=5.0, fps_default=30.0, min_len=20):
+                warmup_sec=5.0, fps_default=30.0, min_len=20, idxs=None, allow_legacy=False):
     """Read the state dataset -> list of (feat, target, action_id) for one hand + input_mode.
     Matches a clip to an action if its label STARTS WITH the action string."""
+    if not allow_legacy:
+        if not os.path.exists(os.path.join(root, "calibration.json")):
+            raise ValueError("action_dynamics requires a TRAIN-only calibrated fold cache; "
+                             "use fold_data with the actual split IDs")
+        if hand == "active":
+            raise ValueError("whole-recording active-hand selection is non-causal; specify left/right")
     rows = [json.loads(l) for l in open(os.path.join(root, "manifest.jsonl"))]
+    if idxs is not None:
+        wanted = set(idxs)
+        rows = [r for r in rows if r["idx"] in wanted]
     data = []
     for r in rows:
         aid = next((i for i, s in enumerate(action_subs)
@@ -95,6 +104,30 @@ def load_pooled(root, action_subs, ds, cut, input_mode="highpass", hand="active"
         if feat.shape[0] >= min_len:
             data.append((feat, targ, aid))
     return data
+
+
+def pooled_ids(root, action_subs, ds=3, warmup_sec=5.0, min_len=20):
+    """Choose eligible recordings using metadata, before fitting any calibration."""
+    from src.calibration import read_manifest
+    out = []
+    for i, r in sorted(read_manifest(root).items()):
+        if any(r["label"].lower().startswith(s.lower()) for s in action_subs):
+            n = (r["T"] + ds - 1) // ds - int(round(warmup_sec * r.get("fps", 30) / ds))
+            if n >= min_len:
+                out.append(i)
+    return out
+
+
+def fold_data(root, subs, splits, ds=3, cut=.4, input_mode="raw", hand="right", warmup_sec=5.0):
+    """Fit the actual TRAIN split's template and return identically corrected partitions."""
+    from src.calibration import prepare_fold
+    from src.actionsense.eval_harness.config import load_config, Config
+    source = load_config()
+    raw = {**source.raw, "paths": {**source.raw["paths"], "states_root": os.path.abspath(root)}}
+    cfg = prepare_fold(Config(raw, source.path, source.config_hash), splits)
+    data = {p: load_pooled(cfg.abspath("states_root"), subs, ds, cut, input_mode, hand,
+                           warmup_sec, idxs=splits[p]) for p in ("train", "val", "test")}
+    return data, cfg
 
 
 def windows(clips, t_in, t_out, stride):

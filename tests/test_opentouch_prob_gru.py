@@ -50,6 +50,9 @@ def cfg(tmp_path):
                                     f"states_root: {tmp_path}")
     p = tmp_path / "harness.yaml"
     p.write_text(text)
+    # These fixtures exercise the historical model/state contract; new RAW-to-model
+    # TRAIN-only coverage lives in test_train_only_calibration.py.
+    p.write_text(p.read_text().replace("mode: train_only", "mode: legacy"))
     return load_config(str(p))
 
 

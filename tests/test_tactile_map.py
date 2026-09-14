@@ -168,8 +168,8 @@ def test_real_map_loads_if_available():
     cfg = make_cfg()  # downsample from harness is 3; here just check load works with real ds
     from src.actionsense.eval_harness.config import load_config
     hcfg = load_config()
-    m = D.load_map(hcfg, idx, baseline_frames=10)
-    assert m.ndim == 4 and m.shape[1:] == (2, 32, 32) and np.all(m >= 0)
+    with pytest.raises(ValueError, match="prepare_fold"):
+        D.load_map(hcfg, idx, baseline_frames=10)
 
 
 # --- (x) --scope corpus: the FULL corpus, and provably not the frozen slice+peel split ---

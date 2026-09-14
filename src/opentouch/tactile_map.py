@@ -1,5 +1,8 @@
 """Tactile-map -> F/CoP forecasters for OpenTouch: flatten vs CNN vs aggregate.
 
+Current default: TRAIN-only fixed calibration via src.calibration.prepare_fold.
+The shard-estimation description below documents the explicitly legacy path only.
+
 Mirrors src/actionsense/tactile_map/ (models.py + data.py + train.py, compacted into one
 module). Copied verbatim: the three per-frame encoders, an IDENTICAL GRU and one-shot
 PROBABILISTIC head behind all of them so the encoder is the only variable, the
@@ -195,6 +198,9 @@ def scope_ids(cfg: Config, train_ids: list[int], val_ids: list[int], scope: str)
     the 2026-08-22 map run reported a full metric table for flatten and cnn whose predictions
     were arrays of zeros, because every test clip had been dropped this way and filled in.
     """
+    from src.calibration import prepared
+    if prepared(cfg):
+        return list(cfg.raw["calibration"]["split"]["train"])
     if scope == "train":
         return sorted(set(train_ids))
     if scope == "trainval":
@@ -252,12 +258,19 @@ def build_inputs(cfg: Config, encoder: str, ids: list[int], base_ids: list[int],
                  norm: Norm, alpha: float, mnorm: "MapNorm | None" = None):
     """-> (inputs per clip, MapNorm or None). `base_ids` is what the baseline and the map
     scale may be estimated from (TRAIN, or every clip of the shard -- see the module docstring)."""
+    from src.calibration import prepared
+    fixed = prepared(cfg)
     if encoder == "aggregate":
         return {i: norm.z(np.asarray(load_target(cfg, i), dtype=np.float64)).astype(np.float32)
                 for i in ids}, None
-    bases = taxel_baselines(cfg, base_ids)
-    sh = shard_of(cfg)
-    raw = {i: load_map(cfg, i, bases[sh[i]]) for i in ids if sh[i] in bases}
+    if fixed:
+        # Cache pressure already has exactly the same TRAIN-fitted correction as state.
+        raw = {i: np.load(os.path.join(cfg.abspath("states_root"), f"clip_{i}.npy"))
+                  [::cfg.downsample].astype(np.float32) for i in ids}
+    else:
+        bases = taxel_baselines(cfg, base_ids)
+        sh = shard_of(cfg)
+        raw = {i: load_map(cfg, i, bases[sh[i]]) for i in ids if sh[i] in bases}
     if not raw:
         # RuntimeError, not FileNotFoundError: the maps are on disk, the SCOPE excluded every
         # shard they belong to. Keeping the two apart matters because the fixes differ --
@@ -293,6 +306,8 @@ def train(cfg: Config, encoder: str, train_ids: list[int], val_ids: list[int], t
           hp: dict | None = None, norm: Norm | None = None, device: str | None = None,
           base_scope: str = "shard", verbose: bool = True):
     """Fit on TRAIN, keep the lowest-VAL-NLL weights. -> (model, norm, mnorm, history)."""
+    from src.calibration import validate_training
+    validate_training(cfg, train_ids, val_ids)
     hp = {**DEFAULT_HP, **(hp or {})}
     gen = configure_determinism(int(hp["seed"]))
     if norm is None:
@@ -341,7 +356,7 @@ def train(cfg: Config, encoder: str, train_ids: list[int], val_ids: list[int], t
         m.load_state_dict(best_state)
     m.eval()
     hist.update(best_val_nll=float(best), encoder=encoder, t_in=int(t_in),
-                device=str(dev), base_scope=base_scope)
+                device=str(dev), base_scope=("train" if cfg.raw.get("calibration", {}).get("artifact") else base_scope))
     return m, norm, mnorm, hist
 
 
