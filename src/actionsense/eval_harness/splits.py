@@ -36,7 +36,7 @@ def eligible_recordings(cfg: Config) -> list[dict]:
     forecast origin at the configured rate/history/horizon."""
     actions = tuple(a.lower() for a in cfg.raw["actions"])
     ds = cfg.downsample
-    need = cfg.raw["eval"]["min_history"] + cfg.horizon
+    need = cfg.raw["eval"]["min_history"] + cfg.origin_horizon   # == horizon unless ablating
     out = []
     for r in _manifest(cfg):
         if not r["label"].lower().startswith(actions):

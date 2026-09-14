@@ -1,0 +1,64 @@
+# HORIZON ABLATION (SESSION_LOG 2026-09-14). Identical to configs/actionsense/eval_harness.yaml
+# except rate.horizon_s, eval.origin_horizon_s and paths.out_csv; tests/test_horizon_ablation.py
+# fails if anything else drifts. origin_horizon_s = 1.0 keeps every horizon on the 1 s origin
+# set, so the forecast length is the only variable.
+#
+# Frozen evaluation harness for tactile forecasting (aggregate force + CoP).
+# This file is the SINGLE source of truth for horizon / masking / splits / baseline
+# hyperparameter search. evaluate.py records sha256(this file) in the results table.
+# See src/actionsense/eval_harness/ (metrics, masking, splits, baselines, evaluate).
+
+target:
+  # 6-dim RAW target, both hands: [F_L, CoPx_L, CoPy_L, F_R, CoPx_R, CoPy_R].
+  # RAW = the physical moments straight from state_N.npy (NO high-pass; NO warmup cut).
+  channels: [F_L, CoPx_L, CoPy_L, F_R, CoPx_R, CoPy_R]
+  force_idx: [0, 3]        # total-force channels (never masked)
+  cop_idx:   [1, 2, 4, 5]  # CoP channels (masked at low force)
+
+rate:
+  fps_raw: 30.0            # manifest-stamped raw rate
+  downsample: 3            # -> 10 Hz effective (matches the probGRU pipeline)
+  horizon_s: 0.8           # ABLATION. At 10 Hz => 8 steps of 100 ms.
+
+mask:
+  # CoP is undefined at low contact force. A CoP TARGET frame is excluded from CoP
+  # metrics iff that hand's RAW total force < the TRAIN per-hand `percentile`th pct.
+  # Force channels are NEVER masked. Thresholds are fit on TRAIN only.
+  percentile: 5
+
+baselines:
+  # Fit scope for seasonal-period estimation and AR fitting: "group" (per activity x object,
+  # the default) or "global" (one fit over all TRAIN). Subject-level is unavailable (the manifest
+  # has no subject field); see SESSION_LOG Step 0.
+  fit_scope: group
+  ar_orders: [2, 5, 10, 15, 20, 30]   # AR order candidates; order selected on VAL
+  seasonal_period_min_s: 0.3          # plausible motion-cycle range (seconds); period estimated
+  seasonal_period_max_s: 3.0          # from the TRAIN autocorrelation dominant peak in this range
+  seasonal_min_autocorr: 0.1          # peak below this -> no clear cycle -> fall back to persistence
+
+split:
+  # Fresh 3-way, by RECORDING, stratified by (action, object). Frozen to split_file.
+  train: 0.6
+  val: 0.2
+  test: 0.2
+  seed: 0
+
+eval:
+  stride: 1                # rolling-origin stride (frames) within each recording
+  min_history: 40          # frames of past required before the first forecast origin
+  origin_horizon_s: 1.0    # ABLATION: every horizon needs a full 1 s future (shared origins)
+  seed: 0
+
+paths:
+  states_root: data/actionsense_states
+  split_file: data/actionsense_states/splits.json
+  out_csv: docs/actionsense/train_only_v1/horizon_ablation/h0p8/harness_baselines.csv      # tidy long table; a .parquet twin is written alongside
+
+actions: [slice, peel]
+
+# Calibration v1: every fold fits a fixed template on TRAIN raw maps only.
+calibration:
+  mode: train_only
+  corpus: actionsense
+  max_frames: 20000
+  k: 1.0

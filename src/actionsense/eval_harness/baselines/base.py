@@ -42,10 +42,13 @@ def by_group(data: dict[int, np.ndarray], groups: dict[int, str]) -> dict[str, d
 
 
 def origins(T: int, cfg: Config) -> np.ndarray:
-    """Valid forecast origins t: enough history behind, full horizon ahead."""
+    """Valid forecast origins t: enough history behind, full horizon ahead.
+
+    The future required is `cfg.origin_horizon`, which equals `cfg.horizon` unless a horizon
+    ablation pins it to its longest horizon so every horizon is scored on the same origins."""
     lo = cfg.raw["eval"]["min_history"]
     stride = cfg.raw["eval"]["stride"]
-    hi = T - cfg.horizon                       # need t+H <= T-1
+    hi = T - cfg.origin_horizon                # need t+H_origin <= T-1 (H_origin >= H)
     return np.arange(lo, hi, stride)
 
 

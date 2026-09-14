@@ -38,6 +38,21 @@ class Config:
         return int(round(self.raw["rate"]["horizon_s"] * self.fps))
 
     @property
+    def origin_horizon(self) -> int:
+        """Steps of future an origin must have -- ORIGIN ELIGIBILITY only, never the forecast
+        length. Defaults to `horizon`, so every existing config is unchanged. A horizon ablation
+        sets `eval.origin_horizon_s` to its longest horizon, which keeps every horizon on the
+        same origin set: the forecast length is then the only variable (SESSION_LOG 2026-09-14)."""
+        s = self.raw.get("eval", {}).get("origin_horizon_s")
+        if s is None:
+            return self.horizon
+        steps = int(round(float(s) * self.fps))
+        if steps < self.horizon:
+            raise ValueError(f"eval.origin_horizon_s={s} is {steps} steps, shorter than the "
+                             f"{self.horizon}-step horizon: origins would lack a full target")
+        return steps
+
+    @property
     def force_idx(self) -> list[int]:
         return list(self.raw["target"]["force_idx"])
 
