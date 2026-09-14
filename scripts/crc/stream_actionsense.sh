@@ -3,21 +3,21 @@
 # DELETE it -> next. Bounds disk to a single file, so it fits a small home quota.
 # Per-clip metrics accumulate in acc.jsonl; a final --report-only pass prints the ranking.
 # Subjects S00-S05 (tactile). Usage (from anywhere):
-#   bash scripts/crc/stream_actionsense.sh [DEST_DIR]        # default ~/actionsense
-#   CLIPS=all  bash scripts/crc/stream_actionsense.sh          # save EVERY activity's raw map
-#   CLIPS=Pour,Slice,Peel bash scripts/crc/stream_actionsense.sh   # the old, narrow behaviour
+#   bash scripts/crc/stream_actionsense.sh [DEST_DIR]        # default ~/actionsense_causal_v1
 #
-# CLIPS defaults to `all`. It used to be hardcoded to "Pour,Slice,Peel", which is why the corpus
-# carries F/CoP for all 299 recordings but raw maps for only 100 of them -- F/CoP is computed
-# from the map in memory, and the map was then thrown away for every other activity, so the
-# flatten/cnn arms could never run at corpus scope. The maps cost ~4 KB per frame (2 hands x
-# 32 x 32 x float16) = ~1.3 GB for the whole corpus, which is nothing beside the ~47 GB this
-# script downloads to produce them; discarding them was never the saving it looked like.
+# The probe now always saves every activity's float32 raw map, uncorrected states and source
+# timestamps (previous-sample hold, no whole-clip p5), because TRAIN-only calibration is fitted
+# per fold from raw maps (docs/train_only_calibration.md). CLIPS survives only as a compatibility
+# flag. Maps cost ~8 KB per frame (2 hands x 32 x 32 x float32) = ~2.6 GB for the corpus.
+#
+# The default DEST is NEW on purpose. ~/actionsense/states holds the legacy (linearly
+# interpolated, whole-clip p5) extraction that every published number came from; it is kept for
+# the old/new comparison, and this script refuses to delete a legacy extraction.
 set -uo pipefail
 
 REPO="$HOME/TouchAnything"
 PROBE="$REPO/scripts/actionsense/probe_actionsense.py"
-DEST="${1:-$HOME/actionsense}"
+DEST="${1:-$HOME/actionsense_causal_v1}"
 ACC="$DEST/acc.jsonl"
 
 # numpy/h5py/scipy live in the `tactile` conda env, NOT in (base). Activate it, then FAIL FAST if
@@ -48,6 +48,15 @@ fi
 # numbering only survives if the URL list and the accept/reject logic are unchanged. Keep the
 # old manifest and diff (idx, label) against the new one at the end: a renumbering must fail
 # loudly here, not show up later as results silently attached to the wrong recordings.
+#
+# A legacy extraction is never wiped by a re-stream: the probe cannot append causal clips to it,
+# and deleting it would destroy the only inputs behind the published numbers.
+if [ -f "$DEST/states/manifest.jsonl" ] \
+    && grep -qv '"resampling": "previous_sample_hold_v1"' "$DEST/states/manifest.jsonl"; then
+  echo "FATAL: $DEST/states is a legacy (pre-causal) extraction; refusing to delete it."
+  echo "       Use a new DEST_DIR, e.g. bash $0 \$HOME/actionsense_causal_v1"
+  exit 1
+fi
 OLD_MANIFEST=""
 if [ -f "$DEST/states/manifest.jsonl" ]; then
   OLD_MANIFEST="$DEST/manifest.jsonl.before-restream"
@@ -104,4 +113,6 @@ fi
 
 echo ""
 echo "=== aggregating all streamed clips ==="
-python "$PROBE" --report-only --jsonl "$ACC" --out "$REPO/docs/predictability_actionsense.csv"
+mkdir -p "$REPO/docs/actionsense/train_only_v1"
+# New path: docs/predictability_actionsense.csv is the legacy (interpolated) probe and stays as is.
+python "$PROBE" --report-only --jsonl "$ACC" --out "$REPO/docs/actionsense/train_only_v1/raw_probe.csv"

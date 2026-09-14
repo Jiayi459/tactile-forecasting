@@ -1,15 +1,18 @@
 #!/bin/bash
-# UGE job: train the tactile-MAP -> F/CoP forecaster sweep (flatten + CNN x history {1,3,10 s}) on
+# UGE job: train the tactile-MAP -> F/CoP forecaster sweep (aggregate/flatten/CNN x history) on
 # ND CRC GPU. Same model/target/split/harness as the local run, just full training on GPU + all data.
 #
-# Prereqs on CRC (once): the raw maps must exist at ~/actionsense/states/clip_*.npy (from
-# scripts/crc/stream_actionsense.sh with --save-clips-for "Pour,Slice,Peel"). state_N.npy + manifest
-# + splits.json are already committed in the repo. This job SYMLINKS the clips into the repo data dir.
+# Prereqs on CRC (once): a causal raw extraction (previous-sample hold, float32 maps, uncorrected
+# states) at ~/actionsense_causal_v1/states, from `bash scripts/crc/stream_actionsense.sh`.
+# The default harness config is calibration.mode=train_only and REJECTS the legacy
+# ~/actionsense/states cache (linear interpolation + whole-clip p5); see
+# docs/train_only_calibration.md. STATES_SRC picks another extraction. This job SYMLINKS the
+# chosen extraction into data/actionsense_states (git tracks none of it).
 #
 # Submit from repo root after `git pull` and `mkdir -p logs`:
-#   qsub scripts/crc/train_tactile_map_gpu.job
-#   qsub -v EPOCHS=80 scripts/crc/train_tactile_map_gpu.job
-# 5-fold probabilistic CV -> docs/actionsense/tactile_map_cv_results.csv (skill + coverage). Plot locally.
+#   qsub -v BACKBONE=probgru,SCOPE=corpus,ENCODERS=aggregate,HISTORIES=3,SAVE_PREDS=runs/train_only_v1/actionsense/probgru_aggregate_h3 scripts/crc/train_tactile_map_gpu.job
+# Values inside -v must not contain commas: UGE splits on them (2026-07-09 ACTIONS incident).
+# 5-fold probabilistic CV -> docs/actionsense/train_only_v1/tactile_map_cv_results.csv. Plot locally.
 # NOTE: no inline comments on #$ lines.
 #$ -M jhao3@nd.edu
 #$ -m abe
@@ -32,20 +35,28 @@ python -c "import yaml" 2>/dev/null || pip install pyyaml --quiet
 # there" -- git tracks none of those three, so the job built a directory holding a hundred
 # symlinks and no index, then died 45 s later inside splits.py with a bare FileNotFoundError
 # (2026-09-01). Link the lot, then say so plainly if the index is still missing.
-SRC="$HOME/actionsense/states"
-mkdir -p data/actionsense_states
-n=0
-for f in "$SRC"/clip_*.npy "$SRC"/state_*.npy "$SRC"/manifest.jsonl "$SRC"/splits.json; do
-    [ -e "$f" ] && ln -sf "$f" data/actionsense_states/ && n=$((n+1))
-done
-echo "linked $n files from $SRC into data/actionsense_states/"
-
-test -f data/actionsense_states/manifest.jsonl || {
-    echo "FATAL: data/actionsense_states/manifest.jsonl missing after linking from $SRC."
-    echo "  The harness reads the manifest to build splits, so nothing downstream can run."
-    echo "  Check that $SRC holds manifest.jsonl (and state_*.npy); it is NOT in git."
+#
+# Links left by an EARLIER source are removed first. `ln -sf` only overwrites names the new
+# source also has, so switching from the legacy cache would otherwise keep its splits.json (the
+# causal extraction has none) beside the new manifest -- old recording IDs on renumbered data.
+SRC="${STATES_SRC:-$HOME/actionsense_causal_v1/states}"
+test -f "$SRC/manifest.jsonl" || {
+    echo "FATAL: $SRC/manifest.jsonl missing."
+    echo "  Extract first: bash scripts/crc/stream_actionsense.sh   (writes ~/actionsense_causal_v1/states)"
     exit 1
 }
+mkdir -p data/actionsense_states
+if [ -n "$(find data/actionsense_states -mindepth 1 -maxdepth 1 ! -type l)" ]; then
+    echo "FATAL: data/actionsense_states holds real files, not only links; this job will not mix"
+    echo "  them with $SRC. Move them aside, then resubmit."
+    exit 1
+fi
+find data/actionsense_states -mindepth 1 -maxdepth 1 -type l -delete
+n=0
+for f in "$SRC"/clip_*.npy "$SRC"/state_*.npy "$SRC"/time_*.npz "$SRC"/manifest.jsonl "$SRC"/splits.json; do
+    if [ -e "$f" ]; then ln -s "$f" data/actionsense_states/; n=$((n+1)); fi
+done
+echo "linked $n files from $SRC into data/actionsense_states/"
 
 echo "Host: $(hostname)  JOB_ID: ${JOB_ID:-NA}  started $(date)"
 python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
@@ -55,12 +66,39 @@ python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
 # runs with identical seed and data (SESSION_LOG 2026-08-23).
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
 
+# Which harness config this run uses; CONFIG is optional (default = the frozen 1 s harness).
+# EXPECT_HORIZON_S makes a wrong or ignored CONFIG fail HERE, in seconds, rather than training a
+# silently different horizon for hours -- the 2026-09-05 SCOPE failure class (CLAUDE.md rule 6).
+# The same check validates every manifest row against the config's calibration protocol, so a
+# legacy cache under a train_only config fails before pytest, not after the first fold's setup.
+CFG="${CONFIG:-configs/actionsense/eval_harness.yaml}"
+python - "$CFG" "${EXPECT_HORIZON_S:-}" <<'PY'
+import sys
+sys.path.insert(0, ".")
+from src.actionsense.eval_harness.config import load_config
+from src import calibration as C
+c = load_config(sys.argv[1])
+h = float(c.raw["rate"]["horizon_s"])
+print(f"harness config: {sys.argv[1]}  hash={c.config_hash}  horizon={c.horizon} steps ({h} s)  "
+      f"origin_horizon={c.origin_horizon} steps")
+if sys.argv[2] and abs(float(sys.argv[2]) - h) > 1e-9:
+    raise SystemExit(f"FATAL: EXPECT_HORIZON_S={sys.argv[2]} but {sys.argv[1]} has horizon_s={h}")
+rows = C.read_manifest(c.abspath("states_root"))
+mode = c.raw.get("calibration", {}).get("mode", "legacy")
+if C.enabled(c):
+    for r in rows.values():
+        C.validate_raw(r, c.raw["calibration"]["corpus"])
+print(f"calibration={mode}  {len(rows)} manifest rows validated  "
+      f"resampling={sorted({r.get('resampling', 'unrecorded') for r in rows.values()})}")
+PY
+
 # tests/ in full before anything trains, so a broken fork fails in seconds rather than after
 # hours. The hand-listed subset this replaced on the OpenTouch job had let a wrong assertion
 # sit unexecuted through an entire run.
 python -m pytest tests/ -q
 
 python -u scripts/actionsense/train_tactile_map.py \
+    --config "$CFG" \
     --epochs "${EPOCHS:-80}" --folds "${FOLDS:-5}" \
     ${BACKBONE:+--backbone "$BACKBONE"} \
     ${SCOPE:+--scope "$SCOPE"} \
@@ -71,7 +109,4 @@ python -u scripts/actionsense/train_tactile_map.py \
 
 echo ""
 echo "finished $(date)"
-echo "[done] 5-fold CV skill + coverage -> docs/actionsense/tactile_map_cv_results.csv"
-echo "Pull to local + plot:"
-echo "  scp -J jhao3@bastion.crc.nd.edu jhao3@crcfe01.crc.nd.edu:~/TouchAnything/docs/actionsense/tactile_map_cv_results.csv docs/"
-echo "  python scripts/actionsense/plot_tactile_map.py"
+echo "[done] 5-fold CV skill + coverage -> ${CSV:-docs/actionsense/train_only_v1/tactile_map_cv_results.csv}"

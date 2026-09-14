@@ -7,10 +7,14 @@
 # 7 s/epoch at t_in=30). That is both too slow to iterate on and heavier than a login node
 # should carry.
 #
-# WHAT IT PRODUCES IS EXPLORATORY, NOT REPORTABLE. It now defaults to the real location-level
-# split and FOLDS=4 runs the grouped cross-validation, but D1 (the DC offset) and D2 (the
-# label misjoin in 10 of 26 shards) are both open, so these numbers will be superseded once
-# either is settled. Every CSV row is tagged exploratory=True. See SESSION_LOG 2026-08-15.
+# WHAT IT PRODUCES IS EXPLORATORY. It defaults to the real location-level split and FOLDS=4
+# runs the grouped cross-validation. Every CSV row is tagged exploratory=True.
+#
+# CALIBRATION. The default config is calibration.mode=train_only: each fold fits one pressure
+# template on TRAIN raw maps and applies it frozen to held-out locations
+# (docs/train_only_calibration.md). It needs the UNCORRECTED cache (~/opentouch/cache, float16
+# maps), never cache_d1; the preflight below rejects corrected rows. Results go to
+# docs/opentouch/train_only_v1/ so the legacy docs/exploratory_opentouch.csv is not overwritten.
 #
 # Prerequisites (once):
 #   ln -sfn ~/opentouch/cache ~/TouchAnything/data/opentouch_states
@@ -52,11 +56,25 @@ python -c "import torch; print('torch', torch.__version__, '| cuda', torch.cuda.
 
 # Fail loudly here rather than deep in the run: the cache is reached through this symlink,
 # and a job that silently trains on nothing wastes the whole GPU slot.
-test -f data/opentouch_states/manifest.jsonl || {
-    echo "FATAL: data/opentouch_states/manifest.jsonl missing."
-    echo "  ln -sfn ~/opentouch/cache ~/TouchAnything/data/opentouch_states"
-    exit 1
-}
+CFG="${CONFIG:-configs/opentouch/eval_harness.yaml}"
+python - "$CFG" <<'PY'
+import os, sys
+sys.path.insert(0, ".")
+from src.actionsense.eval_harness.config import load_config
+from src import calibration as C
+c = load_config(sys.argv[1])
+root = c.abspath("states_root")
+if not os.path.isfile(os.path.join(root, "manifest.jsonl")):
+    raise SystemExit(f"FATAL: {root}/manifest.jsonl missing.\n"
+                     "  ln -sfn ~/opentouch/cache ~/TouchAnything/data/opentouch_states")
+rows = C.read_manifest(root)
+mode = c.raw.get("calibration", {}).get("mode", "legacy")
+if C.enabled(c):
+    for r in rows.values():
+        C.validate_raw(r, c.raw["calibration"]["corpus"])
+print(f"config: {sys.argv[1]}  hash={c.config_hash}  calibration={mode}")
+print(f"states_root -> {os.path.realpath(root)}  {len(rows)} manifest rows validated")
+PY
 
 # The torch-dependent tests only ever execute where torch works, i.e. here. Running them
 # first means a broken fork fails in seconds instead of after hours of training.
@@ -70,7 +88,7 @@ python -m pytest tests/ -q
 python -u scripts/opentouch/run_opentouch_exploratory.py \
     --model "${MODEL:-prob_gru}" \
     --split-mode "${SPLIT_MODE:-location}" \
-    ${CONFIG:+--config "$CONFIG"} \
+    --config "$CFG" \
     --seed "${SEED:-0}" \
     ${FOLDS:+--folds "$FOLDS"} \
     ${SAVE_PREDS:+--save-preds "$SAVE_PREDS"} \
@@ -83,6 +101,6 @@ python -u scripts/opentouch/run_opentouch_exploratory.py \
     ${EPOCHS:+--epochs "$EPOCHS"} \
     ${HISTORIES:+--histories "$HISTORIES"} \
     ${MAX_CLIPS:+--max-clips "$MAX_CLIPS"} \
-    --out "${OUT:-docs/exploratory_opentouch.csv}"
+    --out "${OUT:-docs/opentouch/train_only_v1/cv_results.csv}"
 
 echo "finished $(date)"
