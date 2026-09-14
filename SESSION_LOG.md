@@ -16340,3 +16340,61 @@ done
 四个作业的 `population [test]: N/179` 与 `population [test_unseen]: M/85` 必须完全相同；`RUN_BASELINES=0 -> reference ladder skipped`；
 `matrix: [('seq2seq', 'aggregate'), ('probgru', 'aggregate')] x histories [3.0] s = 2 models`。任一不符 → 结果作废。
 **ActionSense：** 等另一 session 的因果重提取（`stream_actionsense.sh`）完成后再交接 12 个作业（命令草稿见上节）。
+
+## Session (2026-09-15，续) — 扩展重训范围：AS/OT × Seq2Seq/ProbGRU × aggregate/flatten/cnn（3 s）
+
+**用户请求（两条）：** “提交as的seq2seq opentouch的probgru seq2seq 都是aggregate”；随后“把cnn和flatten也一起都跑了”。
+合并理解：两个数据集 × 两个骨干 × 三种输入，history 仍只跑 3 s（沿用 2026-09-15 Q4）。取代上文只含 AS probgru aggregate 的交接命令。
+
+### 1. 事实核查
+- **OT 模型名：** `run_opentouch_exploratory.py:286-287`：`pg_all` = prob_gru（aggregate）+ pg_flatten + pg_cnn；
+  `map_all` = map_aggregate（Seq2Seq aggregate）+ flatten + cnn。论文 OT 表：ProbGRU 行来自 d1_pg，Seq2Seq 行来自 d1_map2（`main.tex:264-270`）。
+- **OT 旧设置：** d1 prob_gru `FOLDS=4,EPOCHS=8`（SESSION_LOG:5576，d1_pg 的 prob_gru 与之差 0.0000）；d1_map2/3 `FOLDS=4,EPOCHS=8,MODEL=map_all`（:6730）。
+  → 沿用 FOLDS=4、EPOCHS=8；HISTORIES=3（旧运行扫 1/2/3 s，本次按 Q4 只跑 3 s，**与论文数字不是同一 history 选择**）。
+- **AS 设置：** EPOCHS=60、FOLDS=5（同上文 probgru 交接及 horizon ablation session）；论文 corpus 运行的 epoch 数未在日志找到。
+  AS 的 flatten/cnn 在 corpus scope **从未跑过**（旧 cache 只有 100 个 map），耗时未知。
+- `f10bc12`（另一 session）只改 horizon_ablation 配置、EgoTouch job 与测试，不影响主配置和本次代码路径。
+
+### 2. 发现：并发作业会同时构建同一份校准缓存（未改代码，用流程规避）
+- 缓存目录 key = version/split/raw sources/manifest rows/calibration options（`src/calibration.py:215-218`），**与模型、encoder、horizon 无关**。
+  AS 六个作业 fold 分配相同（`train.py:372-389`，seed 0），故每折写同一目录；OT 两个作业同理；horizon ablation 的 12 个 AS 作业也共享。
+- `prepare_fold` 在 calibration.json 缺失时直接把 `clip_i.npy`/`state_i.npy` 写到最终文件名（`calibration.py:236-240`），
+  completion marker 最后写。两个作业同时进入该分支 → 一方已写完 marker 并开始读取时，另一方仍在 `np.save` 截断重写同名文件
+  → 读到截断文件。预期为 np.load 报错崩溃（浪费 GPU），不是静默错误，但无法保证。
+- 另一微小窗口：`calibration.py:259-261` 每次调用都重写 `config_<hash>.yaml` 并立刻读回算 hash；同一配置的两个作业若在毫秒级内同时写，
+  provenance 中的 config_hash 可能不对（不影响数值）。记录为残余风险，未修。
+- **规避：先单进程预热缓存，确认齐全后再提交正式作业。** AS 用 EPOCHS=1 的 aggregate 作业（走同一 job 的链接/预检，同一 recording 总体
+  `corpus_recordings(require_maps=False)`，同一 fold）；OT 用 `MODEL=none`（`run_split:273` 在拟合基线前就 prepare_fold，产出的基线 CSV 也有用）。
+  若以后要允许并发，正确修法是 prepare_fold 先写临时目录再原子 rename（需先写计划）。
+
+### 3. CRC 交接（代码需 ≥ `a4935da`，已在 origin；本条日志之后无新代码）
+
+```bash
+cd ~/TouchAnything && git pull --ff-only
+git merge-base --is-ancestor a4935da HEAD && echo CODE-OK
+readlink data/opentouch_states                      # 必须是 /users/jhao3/opentouch/cache（不是 cache_d1）
+quota                                               # AS ≈15 GiB（raw + 5 折缓存）；OT 缓存较小，未精确测
+# 前提：bash scripts/crc/stream_actionsense.sh 已完成（不要设 KEEP=1，见另一 session 的重复提取发现）
+mkdir -p logs runs/warmup
+
+# 第 1 步：预热（各 1 个作业，不要同时提交第 2 步）
+qsub -N as_warmup -v BACKBONE=seq2seq,SCOPE=corpus,ENCODERS=aggregate,HISTORIES=3,EPOCHS=1,FOLDS=5,CSV=runs/warmup/as_warmup_cv.csv scripts/crc/train_tactile_map_gpu.job
+qsub -N ot_warmup -v FOLDS=4,MODEL=none,HISTORIES=3,OUT=docs/opentouch/train_only_v1/cv4_baselines.csv scripts/crc/opentouch_probgru_gpu.job
+
+# 两个都 finished 后检查（数字不对就停）：
+ls runs/calibration/actionsense/*/calibration.json | wc -l    # 必须 = 5
+ls runs/calibration/opentouch/*/calibration.json | wc -l      # 必须 = 4
+
+# 第 2 步：正式作业（AS 6 个 + OT 2 个）
+for BB in seq2seq probgru; do for ENC in aggregate flatten cnn; do
+  qsub -N as_${BB}_${ENC} -v BACKBONE=$BB,SCOPE=corpus,ENCODERS=$ENC,HISTORIES=3,EPOCHS=60,FOLDS=5,SAVE_PREDS=runs/as_preds_${BB}_${ENC}_corpus_tov1,CSV=docs/actionsense/train_only_v1/${BB}_${ENC}_h3_cv.csv scripts/crc/train_tactile_map_gpu.job
+done; done
+for M in pg_all map_all; do
+  qsub -N ot_${M} -v FOLDS=4,EPOCHS=8,MODEL=$M,HISTORIES=3,SAVE_PREDS=runs/ot_preds_${M}_tov1,OUT=docs/opentouch/train_only_v1/cv4_${M}_h3.csv scripts/crc/opentouch_probgru_gpu.job
+done
+```
+**失败即响的自检：**
+- AS 日志第一屏：`linked N files from /users/jhao3/actionsense_causal_v1/states`；`calibration=train_only … resampling=['previous_sample_hold_v1']`；`scope=corpus  N recordings`。
+- OT 日志第一屏：`calibration=train_only`；`states_root -> /users/jhao3/opentouch/cache  N manifest rows validated`。
+- 第 2 步作业不应再出现新的 `runs/calibration/*/<key>` 目录：提交前后 `ls runs/calibration/*/ | wc -l` 应不变。
+- horizon ablation 的 AS 作业同样应在 as_warmup 完成之后提交（缓存复用）。
