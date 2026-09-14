@@ -13958,3 +13958,2177 @@ than requiring the run to have trained it"),故 CSV 有、npz 无。于是这张
 
 **验证**:用 ActionSense(npz 里有真 persistence)对拍,合成结果与真实值
 **逐元素完全相同**(最大差 0.0)。未加 `--paper` 时 3×3 输出仍与改动前**字节一致**。
+
+## Session (2026-09-13) — 线性 decoder 的选型依据与 loss 的优化范围
+
+**用户请求：**「为什么不选择别的decode的方式而选择了linear的，optimize loss function
+是在哪一个架构上做的呢」。
+
+**计划与范围：** 查历史选型记录，区分记录支持的动机与现在对结构的分析；追踪当前
+`train_model` 中模型构建、loss、反向传播、optimizer 和验证选择的调用，解释具体更新
+哪些模块。只读解释并追加日志，不实施新 decoder 或实验。
+**OPEN QUESTIONS：** 无阻塞问题；本轮未请求架构改动，未另行询问。
+
+**选型核查与结论：**
+
+1. 本日志 1499–1524 的 2026-07-21 计划明确将当前 map→F/CoP 实验设计为
+   flatten/CNN 共用同一个 GRU+one-shot head，仅改变逐帧编码器；
+   `src/actionsense/tactile_map/models.py:1-2,127-143` 与之相符。
+   这是可以确认的研究设计背景，不能改写成 Linear 在与 MLP/Transformer 的比较中胜出。
+2. 本日志 1084–1086、1112–1128 曾记录用户想比较直接/自回归解码；
+   1492–1495 明确该旧目标上的比较未实施并已被新协议替代。它不构成当前的纯 decoder
+   消融证据。1591–1597 记录 2026-07-22 按用户要求增加概率头和 Gaussian NLL。
+3. 从结构分析，Linear 给固定长度、低维预测提供简单的读出方式，前面的 GRU 已经
+   能学习非线性历史表示；一次性预测不反馈早期预测误差。这些支持其作为简洁基线，
+   但不能证明它比其他 decoder 更准。避免反馈属于 one-shot 生成方式的属性，
+   MLP 也可一次性输出；残差零值可恢复 persistence 属于残差目标设计，不是 Linear 特有。
+4. `main.tex:213-215,255` 明确当前 Seq2Seq/ProbGRU 同时改变 rollout、
+   persistence anchoring、action conditioning，不是单因素 decoder 消融。
+   `docs/skill_comparison.md:519-523` 从两个传感器 shape 结果推导“one-shot head 的
+   architectural fact”的说法强于证据，本轮不沿用该因果归因，也未擅自编辑文档。
+   若要判断 Linear 与其他 decoder 孰优，需要固定输入/历史/目标/conditioning/loss/
+   数据切分和可比调参预算后重新训练比较；这只是指出证据缺口，不启动实验。
+
+**优化范围与代码证据：**
+
+- `train.py:91-96` 先按 encoder/backbone 构建一个完整模型，
+  `torch.optim.Adam(model.parameters(), lr=...)` 将该模型所有可训练参数交给 optimizer。
+  这里没有冻结 encoder，也没有在模型 forward 中 detach；不会自动更换网络结构。
+- Seq2Seq 的训练图是 frame encoder → history GRU → mu/lv 两个 Linear heads → NLL。
+  梯度从 NLL 经两个头回到 GRU 和 frame encoder；CNN/flatten/aggregate 投影等
+  可训练部分随整个模型端到端更新。物理状态提取、NumPy 预处理等不在该可训练图中。
+- `train.py:120-122,134-136` 使用
+  `loss = 0.5 * (lv + (y-mu)**2 * exp(-lv)).mean()`，即省略常数的对角 Gaussian NLL，
+  在 batch、未来步和通道上求平均，然后 `zero_grad()`、`backward()`、`step()`。
+  同一 loss 同时监督均值和方差；均值残差与标签按未来步/通道对齐。
+- ProbGRU 使用同一训练函数和 NLL 公式；完整模型的 frame encoder、encoder GRU、
+  decoder GRU、action embedding、mu/lv heads 均参与优化。
+  `models.py:118-123` 的均值反馈未 detach，后续步 loss 也可经反馈路径反传。
+- `train.py:385-405` 与 `data.py:155-169` 明确各模型单独构建/训练，Seq2Seq 的
+  `y` 为标准化未来值减最后观测值，ProbGRU 的 `y` 为标准化绝对未来值。
+  共享 loss 公式/代码不等于共享权重，也不等于两种架构的训练任务完全相同。
+- `train.py:123-128,184-197` 的验证不反传；`139-150` 按验证 NLL 选 checkpoint。
+  `224-250` 的 skill/Hausdorff 属于评价指标，不是当前 `backward()` 优化的目标。
+
+**修改与验证：** 完成上述源码与历史记录的静态核查，未训练或运行测试。唯一写入是本节
+日志追加，保留工作区已有改动。本轮未使用外部检索；未把未做过的 decoder 对比说成实验结论。
+## Session (2026-09-13) — Results 开头与 Reference Forecasts 段落修订
+
+**用户请求：** 重写用户粘贴的 Results 引导段和 A. Reference Forecasts：首句采用肯定句，
+补充已有 EgoTouch 数据，以简述 baseline 表现、逐 dataset 说明 neural model 相对 baseline
+的提升为主线。
+
+**计划与范围：** 按 academic-research-suite 的 academic-paper 修订流程，核对本地原始
+结果 CSV 与 signal inventory；在回复中提供可直接替换的英文段落。只追加日志，不修改
+模型、实验或论文其他段落。用户粘贴的是待修订文本，本地 `main.tex:298-303` 仍是较早版本，
+缺少粘贴文本已有的 ActionSense baseline 结果；本次以用户文本为修订对象。
+
+**OPEN QUESTIONS：** 无阻塞问题。用户已明确修订范围、结构与首句要求；沿用原段
+ActionSense .128/.830 对应的 3 s history、1 s horizon，EgoTouch 使用同样 history 的
+recording-balanced `skill`，不混用 `skill_pooled` 或右手单通道结果。
+
+**初步核查：** `docs/predictability_floor.csv:17-22` 的六通道 EgoTouch R 均值为
+0.8275166667，四舍五入 .828，1896 条录制；ActionSense 为 .6490833333（299 条），
+OpenTouch 为 1.0406666667（2902 条）。这些为独立全语料 signal inventories，不是
+forecast populations，尤其不能分别当成 EgoTouch seen/unseen 的 R。
+
+**结果核查与措辞决策：**
+
+1. OpenTouch：`main.tex:283-287` 的共同 scorer 表显示 physical-state Seq2Seq
+   force skill .318，高于 AR .302；CoP skill 则 AR 更高。Seasonal naive 各通道 skill
+   为负，但 Hausdorff ratios 最低，原始依据为
+   `docs/opentouch/d1_pg/opentouch_report_d1_pg.csv:66,68,70`。修订只称 force
+   pointwise gain，避免把神经模型概括为所有通道胜出。
+2. ActionSense：`docs/actionsense/results/corpus-aggregate-flatten-cnn/as_preds_seq2seq_plus_baselines.csv:2-7`
+   的 290-recording、六通道 `(all actions)` 行：AR skill .146187、HD ratio .872761；
+   aggregate Seq2Seq skill .127618、ratio .830211；seasonal skill -.008401、ratio
+   1.005288。Seq2Seq 相对 persistence 两个指标都提升，相对 AR 的提升是几何指标。
+   删除 “newly available” 等实验更新叙事，直接报告结果。
+3. EgoTouch seen：`docs/egotouch/results/test_seen/egotouch_test_seen_3s.csv:2-12`，
+   132 recordings。`ar_group` skill .277057 为所有列出模型最高；physical-state
+   `aggregate_seq2seq` skill .246415、ratio 1.184165，后者低于 `ar_group` 的 1.529350。
+   `aggregate_probgru` 是 neural skill 最高者 .263041，但仍低于 group AR。
+4. EgoTouch unseen：`docs/egotouch/results/test_unseen/egotouch_test_unseen_3s.csv:2-12`，
+   56 recordings。`aggregate_seq2seq` skill .226398、ratio 1.189854；对照该 split
+   skill 更高的 AR reference `ar_global`，其 skill .174331、ratio 1.453878。
+   因此这里可说 Seq2Seq 相对 AR 在两个指标都有提升。明确 seen/unseen 使用的 AR
+   scope，避免暗中更换比较对象。两个 split 的所有 neural aggregate ratios 都 >1，
+   persistence 与 global seasonal 并列最低（unseen group seasonal 也同为 1）。
+   回复保留 persistence 几何参照，避免将胜过 AR 误说成胜过所有 baselines。
+5. 首句使用肯定陈述，表达 1 s horizon 下相对 reference 的神经预测收益随 corpus
+   和 evaluation axis 变化；保留用户原有 Sec. IV/V 的结构衔接。A 节先概述 references
+   并补入 EgoTouch inventory R，再依 OpenTouch → ActionSense → EgoTouch 描述
+   哪些指标获得提升。仅报告点估计，不添加显著性或架构因果结论。
+
+**交付与验证：** 提供英文可替换正文，保留用户给出的 Table II/III 引用，不虚构 EgoTouch
+表号；回复附 EgoTouch CSV 和 R inventory 文件链接。逐一检查四舍五入、scoring 列、
+baseline 比较对象与 R population 区别。只追加本日志，未改动 `main.tex` 或实验文件，
+未启动训练、测试或外部检索。写日志期间一次无匹配的 patch 未生效，随后按实际末尾
+内容成功追加；不影响任何项目文件。
+
+
+## Session (2026-09-13) — Results 引导段改为 First / Second 结构
+
+**用户请求：** 保留上一轮 Results 第一段首句，将其后的叙述改成所给例句的
+“First … Second …” 顺序结构。例句中的 per-object training/object embedding 仅为
+写法示例，不构成新增实验内容。
+
+**计划与 OPEN QUESTIONS：** 仅修订回复中的英文引导段，保留首句与原有分析范围；
+无开放问题，不修改论文文件或实验。沿用此前已读的 academic-research-suite 修订指导。
+
+**修改与理由：** First 概括 reference forecasts 及逐 dataset 的 neural-versus-baseline
+比较；Second 概括 architecture、representation、action context 分析。保留 Sec. IV/V
+与 populations/clip-balanced scoring 的衔接。未引入对象 embedding 或其他未实施实验。
+
+**交付文本：**
+At a one-second horizon, neural gains over reference forecasts vary across corpora and evaluation axes. First, we evaluate the reference forecasts and identify where neural models improve over these baselines on each dataset. Second, we examine how architecture, representation, and action context affect forecasting performance. These analyses follow Sec. IV and use the populations and clip-balanced scoring in Sec. V.
+
+**验证与范围：** 检查首句保留、First/Second 顺序和分析范围与上轮一致。本轮仅追加
+SESSION_LOG.md，无数值变化，无需测试或外部检索。
+
+
+## Session (2026-09-13) — 解释 Results 中 R 数值的科学含义
+
+**用户请求：** 在列出 ActionSense .649、EgoTouch .828、OpenTouch 1.041 后，补充这些
+数值的严谨科学解释；用户提出“neural model 相对预测 mean 的误差为 .649 倍”作为待核实
+的表达示例。
+
+**计划与 OPEN QUESTIONS：** 核对 R 的实际实现和论文公式，修正指标/参照对象混淆，
+在回复中提供可替换英文段落。无阻塞问题；本轮是措辞和数学解释，不修改实现或论文文件。
+
+**核查与推导：**
+- `scripts/shared/predictability_floor.py:85-92` 对每个 recording/channel 计算
+  R = mean((x[H:] - x[:-H])**2) / (2 * var(x))，H 为配置中的 1 s 末端 lag。
+  这不是 1 s 内所有 horizon steps 的平均 forecast skill，也不依赖 neural prediction。
+- `scripts/shared/predictability_floor.py:98-119` 先汇总每通道的 recording ratios，再导出
+  通道均值；本段使用已导出通道均值的平均。应解释为平均的归一化误差，不说成 pooled
+  MSE 的总体比例，也不把 full-recording variance 当成 held-out evaluation 的总体方差。
+- 分母 2 Var(y) 是从同一分布独立抽取两次观测的期望平方差；在均值/方差不变且 lag-H
+  不相关的参照过程中，同样有 persistence MSE = 2 Var(y)，R=1。
+- 在弱平稳、总体矩解释下，R=1-rho(H)。均值已知的常数预测器 MSE=Var(y)，因此
+  persistence MSE / known-mean MSE = 2R；R=.649 对应 1.298 倍，而不是 .649 倍。
+  对有限非平稳 recording 的截断未来段，不能直接将其当成精确的实测 mean-baseline 比。
+- 所以用户示例中的 neural model 和 mean 两个对象都需要纠正。R 衡量 persistence
+  的归一化误差；神经预测的增益由另行计算的 skill 或 R² 衡量。
+- 基于报告的三位小数，.649/.828/1.041 分别表示平均归一化 persistence error 比
+  R=1 的去相关参照低 35.1%、低 17.2%、高 4.1%。这是信号与 persistence 的性质，
+  不能解释为 neural error reduction 或保证神经模型可利用的预测能力。
+
+**交付决策：** 回复先简要纠正上述指标含义，再提供英文完整段落，在数字之后定义
+分母及 R=1 的参照，给出三组百分比的对应解释，保留 inventory 与 forecast populations
+不同的说明。延续已读 academic-research-suite 修订流程；无需新增文献或外部检索。
+
+**修改与验证：** 只追加本日志。直接从代码定义推导并核算百分比；未训练、测试、修改
+数据或论文，亦未将近似总体解释伪装为同一测试集上的实测 neural/mean 对比。
+
+
+### 本轮追加要求 — 全文 dataset 顺序统一为 AS → OT → EgoTouch
+
+**用户补充：** “然后所有dataset的顺序用AS OT egotouch”。这是对当前 R 段落修订的
+追加约束，亦适用于后续本次论文文本中的 dataset 列举/逐 dataset 叙述。
+
+**执行：** 最终回复完整段落按 ActionSense .649 / 299 → OpenTouch 1.041 / 2902 →
+EgoTouch .828 / 1896 排列，对应误差解释也保持同序：相对 R=1 参照低 35.1%、高 4.1%、
+低 17.2%。保留先纠正 R 定义再给正文的交付方式，不丢弃上一条尚在处理的科学解释任务。
+本轮未修改 main.tex，顺序约束已记录供后续修订沿用。
+
+
+## Session (2026-09-13) — Results 第二小节：逐架构、表示与通道核查
+
+**用户请求：** 改写用户粘贴的 Architecture Choice Across Evaluation Axes；先概括整体，
+再依 AS → OT → EgoTouch、input representation 与目标通道逐条给出哪个架构更好及具体
+数值。核实“Seq2Seq 的 R/skill/Hausdorff 总体均优”和“F 通常 Seq2Seq 更好，CoP 通常
+ProbGRU 更好”这两个观察。
+
+**计划与 OPEN QUESTIONS：** 在既有 academic-research-suite 修订流程内只读核查原始
+CSV、汇总规则与配对基线，再交付可替换 LaTeX。未请求修改 main.tex 或重跑实验。无阻塞
+问题；按用户原文数值使用 AS/EgoTouch 3 s histories（AS 1 s physical-state 仅验证一致性），
+1 s forecast horizon，clip/recording-balanced skill。此处用户的 R 按给定原文解释为 R²，
+并明确前一小节的 persistence R 不能给模型排名。
+
+**证据来源与统计口径：**
+- AS：`docs/actionsense/results/corpus-aggregate-flatten-cnn/as_preds_tmap_seq2seq_corpus3s.csv:2-4`
+  与 `as_preds_tmap_probgru_corpus3s.csv:2-4` 的 `(all actions)` 行，290 recordings。
+  两表与 `as_preds_seq2seq_plus_baselines.csv` 的 persistence 行除 label 外逐字段相等。
+- OT：`docs/opentouch/d1_map2/opentouch_report_d1_map2.csv` 提供 Seq2Seq R²/skill；
+  `opentouch_report_d1_map2_hd.csv` 提供 Seq2Seq HD；
+  `docs/opentouch/d1_pg/opentouch_report_d1_pg.csv` 提供 ProbGRU，均取 overall/all。
+- EgoTouch：`docs/egotouch/results/test_seen/egotouch_test_seen_3s.csv:2-9`（132 recordings）
+  与 `test_unseen/egotouch_test_unseen_3s.csv:2-9`（56 recordings）。
+- `scripts/shared/score_preds_per_action.py:235-252`：r2 和 skill 为通道等权平均，
+  aggregate HD ratio 是 mean(channel HD) / mean(channel persistence HD)，不是通道
+  HD ratios 的等权平均。逐通道 ratio 另由对应 HD/对应 persistence HD 得到。
+  所有 AS/EgoTouch neural 行的通道均值已与 CSV aggregate 值核对到 1e-12。
+- 为整体比较，OT 三通道 R²/skill 取等权均值，HD ratio 用与 shared scorer 相同的
+  ratio-of-channel-means，从原始报告派生；不与现有逐通道 HD ratios 的简单平均混淆。
+  各 population 单独比较，未拼接不同 dataset 求总体预测分数。
+
+**数值证据汇总：** 下表每格均按 R² / clip-balanced skill / aggregate HD ratio，
+保留六位小数用于复核。四个 evaluation populations × 三种 representation 共 12 组。
+
+| Population | Representation | Seq2Seq (R², S, HD ratio) | ProbGRU (R², S, HD ratio) |
+|---|---|---|---|
+| AS | aggregate | 0.741411, 0.127618, 0.830211 | 0.637436, -0.722475, 0.901423 |
+| AS | cnn | 0.703311, 0.034649, 0.876239 | 0.641690, -0.663518, 0.910052 |
+| AS | flatten | 0.694609, 0.007152, 0.876266 | 0.626598, -0.711108, 0.974210 |
+| OT | aggregate | 0.336658, 0.411131, 0.810228 | 0.338920, 0.406747, 0.852370 |
+| OT | cnn | 0.272799, 0.363333, 0.821904 | 0.307316, 0.382141, 0.876155 |
+| OT | flatten | 0.239664, 0.328381, 0.838065 | 0.298252, 0.365155, 0.883578 |
+| Ego seen | aggregate | 0.449503, 0.246415, 1.184165 | 0.459970, 0.263041, 1.327813 |
+| Ego seen | cnn | 0.405080, 0.191911, 1.226956 | 0.450354, 0.250326, 1.145608 |
+| Ego seen | flatten | 0.348611, 0.109662, 1.072233 | 0.433602, 0.225101, 1.302749 |
+| Ego unseen | aggregate | 0.480712, 0.226398, 1.189854 | 0.490780, 0.224359, 1.298211 |
+| Ego unseen | cnn | 0.463565, 0.207802, 1.218671 | 0.462764, 0.190426, 1.294822 |
+| Ego unseen | flatten | 0.396844, 0.120274, 1.190483 | 0.454041, 0.175008, 1.363013 |
+
+**整体结论：** 上述明确的 12 组描述性配对中，Seq2Seq 的 mean R² 在 4 组较高、mean
+skill 在 6 组较高、aggregate HD ratio 在 11 组较低。计数不是统计显著性检验或跨语料
+整体效用评分。支持“几何优势最一致”，不能接受“所有指标全面更好”的概括。
+
+
+**逐项结论、例外与写作决策：**
+
+1. AS aggregate 指标：Seq2Seq 在 physical/CNN/flatten 三种表示的 mean R²、mean skill、
+   aggregate HD ratio 都领先。AS physical 1 s history 复核为 Seq2Seq .740963/.124290/.826306，
+   ProbGRU .642799/-.720292/.901945，保留同样排序，但新正文集中于 3 s history。
+2. AS 通道：physical Seq2Seq 在四个 CoP 通道的 R²/skill 均更好，例 CoPx_R skill
+   .235080 vs .208720；F_R 则 ProbGRU 略高（skill .126419 vs .124041），不能把 AS
+   physical 描述成 F 偏 S2S、CoP 偏 PG。CNN 上 S2S 两个 F 通道均更好（F_L skill
+   .033211 vs -4.430211；F_R .098718 vs .090959），PG 四个 CoP 均更好（CoPx_R
+   .162883 vs .030668；CoPy_R .115640 vs .019297）。Flatten 下 S2S 赢 F_L，PG 赢
+   F_R 和 3/4 CoP：CoPx_L 为例外，S2S -.019867 vs PG -.123310。
+3. AS ProbGRU 的 F_L skill 极低：physical -4.826308、CNN -4.430211、flatten
+   -4.396455，对应 S2S .031615、.033211、.017498。这对六通道 mean skill 有巨大影响。
+   不将负的 mean skill 改写为 PG 在每个通道都不如 persistence；多数其他通道实际为正。
+4. OT 三种表示都支持用户的目标通道观察：R² 和 skill 在 F 上均偏 S2S，在 CoPx/CoPy
+   均偏 PG。physical/CNN/flatten 顺序，F skill S2S .317860/.293452/.238614、PG
+   .290488/.267877/.223992；CoPx S2S .440939/.374918/.338186、PG
+   .451736/.440738/.422341；CoPy S2S .474593/.421628/.408344、PG
+   .478017/.437807/.449132。S2S 在全部 9 个 representation-channel 对比中 HD 更低。
+   平均 CoP 收益使 PG 在三种输入的 mean R² 都更高，mean skill 仅 physical S2S 更高。
+5. EgoTouch seen：PG 在三种输入的 mean R² 和 skill 全部更高；HD 则 physical 和
+   flatten 偏 S2S，CNN 偏 PG（1.226956 vs 1.145608）。CNN 为 PG 三指标均赢的明确
+   配置。physical 的 F_L/F_R skill 也是 PG 更高，S2S 0.265375/0.297314、PG
+   0.318057/0.317302（最终引用三位小数 .265/.297 vs .318/.317，已按原 CSV 校核）。
+6. EgoTouch unseen：physical PG mean R² 更高，S2S mean skill/HD 更好；CNN 三个
+   aggregate 指标均偏 S2S，但 mean R² 差只有 .000801，不能称显著或巨大优势；flatten
+   PG mean R²/skill 更高、S2S HD 更低。通道上，physical F_R S2S .119033 vs PG
+   .034901，CoPx_R PG .209611 vs S2S .205401，但 CoPy_R S2S .195328 vs PG
+   .155772；CNN CoPy_R S2S 0.213680 vs PG -0.016259（最终以三位小数 .214/-.016 表述）。
+   这些例外进一步限制“CoP 总是 PG 更好”的概括。
+7. 同通道同 population 的 R²/skill 排序一致，但跨通道均值可能反向，因为各通道的
+   variance 分母和 persistence-error 分母给误差改变量不同权重。这解释 physical
+   EgoTouch unseen 的 mean R²/skill 排序不同，不用它推断模型某种机制。
+8. 所有本轮 EgoTouch neural aggregate HD ratios 都 >1；部分 CoP channel ratios
+   <1。正文明确 aggregate，相对 PG 的 HD 改善不自动代表超越 persistence。
+9. 结论呈现为：整体计数 → AS mean 和 channel 条件 → OT 的表示/通道一致性 →
+   EgoTouch seen 的表示差别 → EgoTouch unseen 的表示差别与通道例外。各项提供
+   数字；triplets 统一为 mean R² / mean skill / aggregate HD ratio。所有成对值按
+   Seq2Seq 在前、ProbGRU 在后，防止数字顺序随赢家改变。
+10. 保留用户提供的三张 grid 图引用，顺序 AS/OT/EgoTouch，说明每张图只来自一条
+    recording、每 H 个 origins 拼接一次，仅提供定性 context。保留模型包比较的限制：
+    rollout、anchoring 和 conditioning 共同变化，不将差异归因为单独 decoder。
+    LaTeX label/ref 中恢复普通 underscore，使用 ~ 表示不换行空格而非转义重音。
+
+**修改与验证：** 仅读取原始 CSV、scorer 和配置，用 Python 标准库计算配对汇总及检查
+均值/基线一致性；临时审计数据保存在 /tmp/touchanything_architecture_data.json、
+/tmp/touchanything_opentouch_architecture.json、/tmp/touchanything_architecture_summary.json。
+项目内只追加 SESSION_LOG.md，不改用户论文、模型或数据，不训练、不运行无关测试。
+论文级陈述只给描述性点估计，不声称统计显著性、统一跨语料排名或因果 decoder 效应。
+
+
+## Session (2026-09-14) — 压缩 Architecture Results 为总起句与逐 dataset 短段
+
+**用户请求：** 增加一句总起句，取消 item/枚举，每个 dataset 仅保留 1–2 句话，说明
+physical-state、CNN 和 flattened-map 输入下哪个模型更好。
+
+**计划与 OPEN QUESTIONS：** 在上一轮已核实的结果上精简，不重新分析或更改实验。
+无开放问题；用户已经明确篇幅、格式与内容范围。仍按 AS → OT → EgoTouch 排列，
+交付可替换 LaTeX，项目内只追加日志。
+
+**修订决策：**
+- 总起句概括 Seq2Seq 的几何优势及 pointwise 排序对 dataset/representation 的依赖。
+- AS 用一句：三种表示均为 Seq2Seq 在 mean R²、mean skill、aggregate HD ratio 上更好。
+- OT 用一句：三种表示均为 Seq2Seq loading pointwise/HD 更好，ProbGRU CoP pointwise
+  更好，避免将 CoP 结论误扩展到 HD。
+- EgoTouch 用两句：seen 的三种表示 PG pointwise 更好，physical/flatten 几何 S2S
+  更好而 CNN 几何 PG 更好；unseen 的 CNN 三指标 S2S 更好，所有表示几何 S2S 更好，
+  physical mean R² 偏 PG、mean skill 偏 S2S，flatten pointwise 偏 PG。
+- 删除上一版 12 组胜负计数、数值三元组、单通道例子和重复解释，遵照本轮“说明哪个
+  model 在各 input/repre 上好就行”的收窄要求。去掉 enumerate，保留小节标题和 label。
+  不重复 grid、baseline 和模型包因果限制段，交付聚焦用户要求的架构排序短文本。
+
+**验证与修改：** 每个 dataset 1–2 句、顺序正确、无 item、没有把 Seq2Seq 写成所有
+数据集/指标都领先。结论逐项对照上一轮原始 CSV 核查记录；不生成新数值，不需测试、
+外部检索或改写 main.tex。继续沿用此前已读 academic-research-suite 修订流程。
+
+
+## Session (2026-09-14) — Physical Representation 小节精简与机制解释
+
+**用户请求：** 继续修订 Physical Representation；一句总起句，核实是否 physical state
+在所有 dataset/model/metric 都最好，其次 CNN、最后 flatten；每个 dataset 1–2 句，
+最后依据仓库的结果和输入特点解释 physical state 的优势及所含预测信息。保留先前
+AS → OT → EgoTouch 顺序，不使用 item。
+
+**计划与 OPEN QUESTIONS：** 用原始共同 scorer CSV 重新检查 representation 排序，
+读取仓库分析与 encoder/data/目标定义，再提供 LaTeX 短段。无开放问题；用户明确要求
+核实结论，原设想不成立时据数据修正。项目内只追加日志，不修改论文或实验。
+
+**排序复核（本轮使用同一 3 s AS/EgoTouch 及既有 OT 报告）：**
+- 复读 AS `corpus-aggregate-flatten-cnn/as_preds_tmap_seq2seq_corpus3s.csv:2-4` 和
+  `as_preds_tmap_probgru_corpus3s.csv:2-4`、EgoTouch 两个 `*_3s.csv` 的 all-actions 行。
+  r2/skill 取 mean scores，HD 取 aggregate ratio，不能替换成 frame-pooled skill。
+- AS Seq2Seq：mean R²、skill、aggregate HD 均为 physical > CNN > flatten。
+  skill .127618/.034649/.007152。两个 map HD ratios .876239/.876266 几乎相等，
+  不夸大这个极小差距。AS ProbGRU：R² 为 CNN .641690 > physical .637436 >
+  flatten .626598；skill 为 CNN -.663518 > flatten -.711108 > physical -.722475；
+  HD 则 physical .901423 优于 CNN .910052、flatten .974210。
+- OT：按上一轮已逐通道读取的 d1_map2 pointwise/HD 与 d1_pg 原始报告，physical
+  在两种 backbone、三个 channel 的 R²/skill/HD 都最优；Seq2Seq 各通道 CNN > flatten。
+  ProbGRU 在 F/CoPx 也为 CNN > flatten，但 CoPy 为 flatten 更好：R² .057738 vs
+  CNN .038366，skill .449132 vs .437807，HD ratio .858742 vs .867402。
+- EgoTouch 两种 backbone、两个 split 的 mean R²/skill 全部 physical > CNN > flatten。
+  HD 排序（从低到高）：seen Seq2Seq flatten 1.072233、physical 1.184165、CNN
+  1.226956；seen PG CNN 1.145608、flatten 1.302749、physical 1.327813；unseen
+  Seq2Seq physical 1.189854、flatten 1.190483、CNN 1.218671；unseen PG CNN
+  1.294822、physical 1.298211、flatten 1.363013。正文用 seen flatten/S2S 和两个
+  split 的 CNN/PG 概括几何例外，不声称 CNN 总是第二、flatten 总是最后。
+- 四个 populations × 两个 backbones 的 8 组通道平均比较里，physical 的 mean
+  R² 和 skill 均在 7/8 组最好，aggregate HD 在 5/8 组最好。总起句只能概括为
+  “通常点位最好”，不能接受所有模型/数据集/指标上全胜的断言。前一轮的 12 组
+  backbone 配对与本轮 8 组 representation 排序是不同计数单元，不能混淆。
+
+**仓库解释及证据强度：**
+- `main.tex:104-110`：F 是 pressure 的零阶总和，CoP 是按坐标加权的一阶矩除以 F；
+  每手三个量直接描述总载荷和压力中心位置，且它们就是本次预测目标。只能说该状态
+  保留了当前 loading/location，不能说保留全部接触几何、滑移信息或未来决定因素。
+- `src/actionsense/tactile_map/models.py:4-9,22-56`：AS map 是 2×32×32，EgoTouch
+  是 2×21×21；physical 为每手三维。Flatten 用 dense linear projection，CNN 用
+  local convolutions/共享 filters 与 global pooling，physical 用六维投影。
+  `main.tex:98` 与旧 notes 确认 OT map 为16×16。正文不需要罗列全部网格尺寸。
+- `src/actionsense/tactile_map/data.py:173-199` 明确 physical input 是目标 F/CoP 的
+  历史。低维和目标对齐是实现事实；“可能减少学习空间聚合的负担/有限数据下更易估计”
+  是合理解释而非单因素实验验证的因果结论。
+- `docs/_skill_comparison_notes.md:21-29` 有旧版“raw detail 越多排序越低”和跨传感器
+  旧 ProbGRU 口径说明。它可作为历史解释背景，不能覆盖最新 CSV 或当成普适证据。
+  `docs/skill_comparison.md:381-384` 进一步指出表示排序与 backbone 有交互。
+- `main.tex:188,218` 提醒 physical/map preprocessing 和维度都变化；不把当前差异
+  归因为只保留三个空间量的纯消融。最终说明约束在当前模型、1 s horizon、任务和
+  preprocessing/training regime，不声称 statistical sufficiency 或“其余 map 信息无用”。
+
+**交付决策与验证：** 一句总起 + AS/OT/EgoTouch 各两句 + 一段解释；保留少量 skill
+和HD数值用于说明排序及关键例外。解释使用 suggests/may/consistent with，区分结构
+事实与可能原因。最终附目标定义及 encoder 的仓库链接。只更新 SESSION_LOG.md，
+不训练或运行无关测试，不做外部检索，不修改 main.tex。
+
+
+## Session (2026-09-14) — 澄清 geometric ranking 的含义
+
+**用户请求：** “什么叫 geometric ranking”。
+**计划与 OPEN QUESTIONS：** 解释上一轮英文措辞并提供更直接的替换表达；无开放问题。
+
+**结论：** 本文该短语指依据预测信号轨迹与真实轨迹的 Hausdorff ratio 对模型或输入
+表示排序，ratio 越小越好；不是按传感器/物体的空间几何形状排序，也不是新指标。
+例如 EgoTouch seen 的 Seq2Seq，flatten ratio 1.072 < physical 1.184，因此按此指标
+flatten 更好；但 skill 为 .110 < .246，所以 pointwise 排序相反。数据沿用此前原始
+CSV 核查结果。该例只说明 Hausdorff 指标排序，不声称它证明事件时序恢复。
+
+**措辞决策：** 承认 geometric ranking 不够直观，建议正文直接写
+“rankings based on the Hausdorff ratio”，例如
+“However, the input representation with the lowest Hausdorff ratio varies across models and datasets.”
+只解释与建议措辞，未修改 main.tex。唯一项目写入是日志追加，无需测试或外部检索。
+
+
+## Session (2026-09-14) — Action-Level Predictability：标签、指标与反例核查
+
+**用户请求：** 修订 Action-Level Predictability；一句总起，各 dataset 1–2 句，按
+AS → OT → EgoTouch；核查“smooth 一般更高 R² 和 skill，Hausdorff 不确定”的观察，
+结合持续/缓慢/重复动作与突然动作的性质解释，找出反例并引用代码依据。
+
+**计划与 OPEN QUESTIONS：** 读取 per_action_metrics、原始 CSV、smooth/abrupt 标签
+与统计实现，再给出简短 LaTeX。无开放问题：用户已明确要求核验而不是接受预设结论。
+不修改标签、模型、报告或 main.tex，不开展新的推断检验。
+
+**标签定义核查：**
+- `src/opentouch/trait.py:18-25` 定义 abrupt 为动作典型执行中的离散 contact-state
+  transitions（impact、grasp/release、contact-surface change），smooth 为 sustained
+  contact + continuous force modulation；不是动作速度或周期性指标。
+- 同文件 `30-45` 将工具传递的碰撞也计为事件，并区分动作构成事件和持续动作边缘的
+  偶然 onset/offset；`64-67` 明确不按测得结果重新分配标签。
+- `src/actionsense/trait.py:91-125`：clean/peel/spread/pour 为 smooth，slice/stack/
+  open 等为 abrupt。slice 曾经在旧表里为 smooth，2026-09-02 改为与 OT cutting
+  一致的 abrupt（工具撞板或反复接触）。不能凭“切片反复、有 pattern”又当成 smooth。
+- `src/opentouch/trait.py:106,123`：holding 为 smooth、placing 为 abrupt，两者不依赖
+  turning 等 contentious 动作解释来构成反例。
+- 本轮检索 src/scripts/configs/docs/egotouch 未发现 EgoTouch 专用冻结 trait 表；
+  不把相似动词自动移植为经过验证的 class 标签，也不据少量例子宣称 EgoTouch 的
+  smooth-vs-abrupt 统计规律。
+
+**ActionSense：** 原始 physical-state、3 s history、recording-balanced CSV：
+`docs/actionsense/results/corpus-aggregate/as_preds_seq2seq_corpus.csv` 与
+`as_preds_probgru_corpus.csv`。
+- Seq2Seq peel（smooth，n=30，line18）R² .680791、skill .190966，高于 open
+  （abrupt，n=6，line14）的 .259401/.123746，支持部分动作对上的用户直觉。
+- 但 slice（abrupt，n=45，line24）R² .736062 为 14 个 actions 最高；stack
+  （abrupt，n=5，line28）skill .253717 为最高。clean（smooth，n=55，line4）
+  ProbGRU skill -.933903（Seq2Seq .109934）是持续接触仍可失效的反例。
+- 附加只读描述性核算：先取每个 action 原有分数，再对 actions 等权平均，smooth
+  4 个 actions/136 recordings，abrupt 10 个/154 recordings。Seq2Seq smooth/abrupt
+  平均 R² .594632/.506929，但 skill .104475/.163449；PG R² .554235/.507702，
+  skill -.177431/.156178。R² 趋势部分成立，skill 不成立。此处是 action-score 的
+  描述性均值，不是将所有 clips 按 class 重新 scoring 得到的 R²/skill，也没有 CI，
+  因而不将这些新均值作为本文既有 class-level 推断结果或加入简短正文。
+
+**OpenTouch：**
+- `docs/opentouch/d1_map2/opentouch_report_d1_map2.csv:116,140`：Seq2Seq 的 placing
+  n246 R² .361145；holding n112 R² .280303。`d1_pg/opentouch_report_d1_pg.csv:153,177`
+  对应 PG .371153/.270771。smooth holding 在两模型均低于 abrupt placing；在导出的
+  13 个 n>=30 actions 中 holding 为最低，最高 turning 为 contentious abrupt。
+- 原始两个报告的 scope=trait/subset=delta/metric=dR2 各 18 行、共 36 个已报告
+  model-channel CIs，逐一验证 ci_lo <= 0 <= ci_hi。重复 reference 行不当成独立
+  36 次实验；这是“全部已报告区间包含零”的核查，不是接受零假设或证明类别等价。
+- `scripts/opentouch/opentouch_report.py:227-244` 的正式比较为 class-specific
+  smooth-minus-abrupt R²，使用独立两样本 clip bootstrap；本轮不将其扩写成 skill 或
+  Hausdorff 的正式检验。该 driver 虽可支持 stratification，现有报告调用未传 action
+  strata，不能称这里使用 action-stratified bootstrap。
+- `scripts/shared/export_per_action_metrics.py:57-78` 明确 OT 表中 skill* 由已经跨
+  通道平均的 action R² 推出，不等于 mean channel skill。本轮不把它与 AS/Ego 的
+  原始 per-action skill 混为一个指标，也不据它肯定跨语料 smooth skill 优势。
+- OT per-action Hausdorff 仍未由现有 report 导出，本节不制造该级别比较。
+
+**EgoTouch：** 原始 `docs/egotouch/results/test_seen/egotouch_test_seen_3s.csv` 中
+physical-state ProbGRU：pick（line233,n34）R² .383859、skill .282479、HD ratio
+1.768306；open（line189,n9）.379618/.292408/.921009。相似 pointwise scores 对应
+不同 HD，支持动作和指标异质性，不能据这两个例子比较正式 smooth/abrupt 类别。
+`test_unseen/egotouch_test_unseen_3s.csv:68` 的 wring（n6）R² -1.951229、skill
+-.389265、HD ratio 1.532665。核算 seen 共40 actions，其中26个 n<3；unseen
+6 actions 均 n>=3。保留样本稀疏的限制，不把 wring 的失效归因为未经测量的意图。
+
+**解释与最终措辞：**
+- 持续接触可以产生局部规则的载荷变化，重复动作相位也可能提供外推线索；这些为
+  plausible mechanism，不是对速度/周期性/意图进行的实证检验。
+- abrupt 标签描述离散事件，而离散事件可以周期性重复，所以 abrupt 不等于随机、
+  无模式或低可预测性；smooth 也不意味着慢、周期性或容易超过 persistence。
+- 对可能由未来运动或控制变化触发的 contact transitions，历史触觉输入未必包含
+  事件时机线索。使用 may/can，不声称代码测量了“临时动机”或已证明其导致误差。
+- 更强 temporal regularity 也会改善 persistence，故更容易外推不保证 higher skill；
+  `scripts/shared/score_preds_per_action.py:260-271` 的 R²/skill/HD 采用不同参照并
+  在 action clips 上各自评分。R² 的 action-specific variance 也限制把跨 action
+  的 R² 差直接解释成绝对 MSE 或同一难度差。
+- 最终总起句写 action-level 异质性及 smooth 的 mixed advantage，保留 AS 的正例及
+  abrupt/clean 反例、OT CI、Ego 指标差异与 n 限制；每 dataset 两句，无 item。
+
+**修改与验证：** 只追加 SESSION_LOG.md；原始数字、分类和 CI 已用标准库读取核对。
+依据当前代码修订正文，不沿用 per_action_metrics 中过时范围说明或过强因果评论。
+未更改任何分类或重新训练/评分，未运行无关测试，未外部检索；沿用已读 ARS 修订流程。
+
+
+## Session (2026-09-14) — Action 小节改为具体动作的结果叙述
+
+**用户追加要求：** 不用 smooth/abrupt 直接给动作分类，不解释 implemented labels；
+从 slice/peel/spread 等具体动作的 R² 出发；删去 OpenTouch，将 AS 与 EgoTouch 合为
+一段，EgoTouch 不分 seen/unseen 逐段叙述；末尾以一句话说明可能与“临时动机”有关的原因。
+
+**计划与 OPEN QUESTIONS：** 保持已核实指标与 cohort，不改代码标签；将正文改为
+关于持续/重复操作的描述性观察，而非预设二分类检验。无开放问题。用户的措辞要求
+适用于当前文章表达，不据此删除或否认仓库已有 trait 实现。不修改 main.tex。
+
+**重新核查的例子：**
+- AS physical-state Seq2Seq，3 s history：slice R² .736062、peel .680791、spread
+  .650103（按原 CSV 直接读取并四舍五入 .650），open .259401。与此前数值同源，
+  不称 slice 是代码定义的 smooth，而是称这几类操作持续或反复执行。
+- 保留一个简短指标例外：AS stack skill .253717 高于 slice .140033；因此不能把
+  若干动作上的高 R² 扩展成 skill 也普遍更高。该句与 AS 放在一起，维持 dataset 顺序。
+- EgoTouch 例子全部取同一个 recording-holdout population 的 3 s physical-state
+  ProbGRU：squeeze n6 R² .4617、swing n3 .4907，pick n34 .3839、open n9 .3796。
+  不与 unseen rows 混合，不构造不存在的 whole-EgoTouch score。正文用
+  “EgoTouch's recording-holdout results”说明范围，不再分别叙述 seen/unseen。
+  这些只是部分动作的点估计，不构成新定义类别的统计检验。
+
+**最终结构与机制措辞：** 一句总起 + AS 两句/EgoTouch 一句合为同一段 + 一句可能
+解释。总起限定 several actions/观察到的 R²，避免普适断言。末句用 may，表述反复操作
+可提供时间线索，新接触事件的时机可能取决于触觉历史未反映的临时行动选择
+(spontaneous action decisions)。没有测量意图，因此不声称该机制已被实验确认。
+删除标签定义、OpenTouch bootstrap、冗长 persistence 讨论与 seen/unseen 分段。
+
+**修改与验证：** 只更新 SESSION_LOG.md。用原始 CSV 复核数值和各例所属 population；
+不更改标签、训练、评分或论文文件，不需要外部检索或测试。
+
+
+## Session (2026-09-14) — Action 小节补充 therefore 总结句
+
+**用户请求：** 在持续/重复动作与临时行动选择的解释之后，加一句 therefore 总结，
+表达 smooth 动作一般预测更好。
+
+**计划与 OPEN QUESTIONS：** 仅提供一句可追加的英文；无开放问题，不修改论文文件。
+
+**证据与措辞决策：** 前文是具体动作例子的 R² 比较，且已核实 skill、Hausdorff 和
+部分动作存在反例。因此保留 reported examples、suggest 和 in terms of R²，表达当前
+例子显示的方向，不声称所有动作或所有指标上的普适优势。smoother 在该句是动作的
+描述性措辞，不更改、复用或宣称验证了代码中的正式二分类标签。
+
+**交付文本：**
+Therefore, the reported examples suggest that smoother or more repetitive actions tend to yield better predictions in terms of $\Rtwo$.
+
+**修改与验证：** 只追加本日志；依据前轮已核实数据检查结论范围，无新数值，无需
+外部检索或测试。
+
+## Session (2026-09-14) — 回忆核对：1/2/3/5/10 s history 到底在哪个 dataset 上跑过
+
+**用户问题：** "我们在哪几个 dataset 上面跑了 history 为 1/2/3/5/10s？我记得是在
+ActionSense 上，并且 plot 了不同 history 的预测图。" 要求 find out and check，不实现。
+
+**结论：用户记忆正确——{1,2,3,5,10} s 只在 ActionSense 上跑过，且只在早期的
+F/CoP action-dynamics 阶段（Slice+Peel，10 Hz，horizon 1 s）。** 证据：
+
+| 证据 | 位置 |
+|---|---|
+| sweep 默认值 `--pasts 1,2,3,5,10` | `scripts/actionsense/train_action_dynamics.py:56` |
+| 结果 CSV 实跑 history_s = {1,2,3,5,10} | `docs/actionsense/action_dynamics_results.csv`（200 行）、`action_dynamics_results_earlystop.csv`（200 行） |
+| 全因果 CRC 结果按 history 列表 | SESSION_LOG.md:940-960（job 1169778, Slice）、SESSION_LOG.md:963-985（job 1170576, Slice+Peel 75 clips） |
+| 五个 history 是五个独立模型，不聚合 | SESSION_LOG.md:1079 |
+
+**不同 history 的预测图（用户记忆的第二半）——两个脚本，都是 ActionSense：**
+- `scripts/actionsense/plot_forecast_overlay.py:5,52` — 网格 rows = past-context
+  (1/2/3/5/10 s)，cols = (test clip × hand)，每通道一张图 →
+  `docs/actionsense/forecast_{F,CoPx,CoPy}.png` / `forecast_all_*.png` / `forecast_overlay.png`。
+- `scripts/actionsense/plot_action_forecast.py:4,40` — 默认 sweep 模式训练每个 history
+  一个模型，panel (a) 比较它们 → `docs/actionsense/action_forecast_density.png`。
+
+**其他 dataset 用的都是别的 history 集合，没有 5 s/10 s：**
+
+| corpus | history 集合 | 位置 | 原因 |
+|---|---|---|---|
+| ActionSense (tactile-map/后期 harness) | {1, 3, 10} s | `configs/actionsense/tactile_map.yaml:23`；`docs/actionsense/tactile_map_cv_results.csv` 实跑 {1,3,10} | 论文表只报 1 s / 3 s（main.tex:337） |
+| OpenTouch | {1, 2, 3} s | `configs/opentouch/gru_aggregate.yaml:19-23` | clip 太短：3/5/10 s 在 OpenTouch 上物理不可能（SESSION_LOG.md:2288-2330 的时长测算） |
+| EgoTouch | {1, 3} s | `configs/egotouch/tactile_map.yaml:38` | — |
+| D256 | 未做 history sweep | `configs/d256/eval_harness.yaml:61-67`（min_history 24） | — |
+
+**一个容易混淆的点（提醒未来的自己）：** `docs/actionsense/tactile_map_skill_vs_history.png`
+名字里有 "history" 但画的是 tactile-map 阶段的 {1,3,10} s，不是这个 1/2/3/5/10 s sweep。
+
+**这个 sweep 的科学结论演变**（避免引用过时版本）：早期（无 early stopping）结论是
+"more history hurts"，skill 从 1 s 单调降到 10 s（SESSION_LOG.md:952）；加入 early
+stopping 后该结论被**撤回**为过拟合假象，skill 在 history 上基本持平
+（0.513@1s → 0.502@10s，`docs/PROJECT_CONCLUSIONS.md:186-187`）。且长 history 训练窗口
+更少（10 s 少约 22%），data-size confound 至今未消除（PROJECT_CONCLUSIONS.md:388-389）。
+
+**修改与验证：** 仅追加本日志，未改动任何代码/配置/论文文件；所有数字来自直接读取
+上述 CSV 与源文件。
+
+## Session (2026-09-14) — PLAN: ActionSense 1/2/3/5/10 s history 的 force 预测图（1×5 横排）
+
+**用户请求：** 把 ActionSense 的 1/2/3/5/10 s history 预测画出来，**只画 force**，
+分别画，一共 5 格，**横着排一行**，5 个不同的 history input；x 轴 time (s)，y 轴 total force。
+
+**现状勘查（已实测，不是推测）：**
+1. 这个 sweep 归属早期 F/CoP action-dynamics pipeline（`src/actionsense/action_dynamics.py`），
+   只有它有 {1,2,3,5,10} s。
+2. **没有可复用的 checkpoint**：`runs/` 下无 `ad_*.pt`（`train_action_dynamics.py` 本会存
+   `runs/ad_<acts>_p<p>s.pt`，但本地不存在）。所以必须**重训 5 个模型**。
+3. **可行性实测**（右手 / raw / Slice+Peel）：75 clips，split seed=1 → 56 train / 19 test；
+   windows 9,828 (1 s) … 7,341 (10 s)；**~4.3 s/epoch**。60 epochs × 5 history ≈ **20 min** 本地 CPU。
+4. **环境**：conda base 的 torch 动态库损坏（`libtorch_global_deps.dylib` missing）。
+   可用解释器 = `/Library/Frameworks/Python.framework/Versions/3.12/bin/python3`（torch 2.10.0）。
+5. test clip 长度（帧@10Hz）：6→505, 33→1229, 35→970, 31→625, 39→627 …
+   需 ≥ max_tin+t_out = 110 帧才能撑 10 s history。
+
+**OPEN QUESTIONS（等用户裁决，未动手）：**
+
+- **OQ-1（关键）"total force" 在这个 pipeline 里不存在直接对应量。**
+  `action_dynamics.py:28` `TARGETS=("F_fast","x_fast","y_fast")`；`build_features` 的 target 是
+  `Ff = F − causal_lowpass(F)`，即**高通/fast 分量**，零均值。现有图的 y 轴标签本来就写的是
+  "fast total force (sensor units, a.u.)"（`plot_forecast_overlay.py:23`）。三条路：
+  - **(A) 画 F_fast**，轴老实标 "fast (high-pass) total force"。是模型真正预测的量，不引入任何
+    未经验证的外推。**代价：不是用户字面要的 total force。**
+  - **(B) 重建 total = F_slow + F_fast_pred**，但未来 horizon 的 F_slow 模型没预测；因果可行做法是
+    把 F_slow 冻结在 origin 的最后观测值（persistence-of-slow）。轴可真写 total force (a.u.)。
+    **代价：panel 里大部分数值来自那个冻结常数，5 个 history 的差异会被视觉压扁；且 slow 外推
+    不是这个 pipeline 验证过的东西。**
+  - **(C) 换 pipeline**（Seq2Seq/ProbGRU harness 真的预测绝对 total force）—— **做不到**，那边
+    只有 {1,3} 或 {1,3,10}，没有 2 s 和 5 s。
+  我的推荐：**(A)**，轴标注说清是 high-pass 分量。若用户坚持绝对值则走 (B)。
+
+- **OQ-2 每个 panel 画什么？**
+  - **(i) 整段 clip 滚动预测**（现有 `plot_forecast_overlay.py` 的做法，每 1 s 重锚一次）：
+    5 个 panel x 轴相同（整段 clip），差别只在预测曲线。注意 SESSION_LOG:1070 已记录过
+    这种 1 s 重锚图 "honest but flattering"。
+  - **(ii) 单 origin 放大**：灰=L 秒 history、黑=1 s 真值、橙=预测、虚线=persistence。
+    **panel 宽度随 history 从 1 s 长到 10 s**，"5 个不同的 history input" 在图上直接可见，
+    与 main.tex Fig.1 风格一致。
+  我的推荐：**(ii)**（用户强调的是 "5 个不同的 history input"）。
+
+- **OQ-3 图的去向与宽度**：论文 `figures/`（IEEE 双栏 \textwidth ≈ 7.16 in）还是
+  `docs/actionsense/` 诊断图（宽松尺寸）？
+
+**已定默认（除非用户改）：** hand=**right**（此前结论：右手 > 左手，dominant/tool hand）；
+input_mode=**raw**（已证 raw ≈ highpass，更简单）；clip=test 集中够长的一条（默认 clip 6，50 s）；
+5 个 panel **共享 y 轴**（同一段未来，便于比幅度）；训练**开 early stopping**（否则会复现
+已被撤回的 "more history hurts" 过拟合假象，见 PROJECT_CONCLUSIONS.md:186）。
+
+**状态：** 计划已写，等 OQ-1/2/3 裁决后再实现。本轮未改动任何代码或论文文件。
+
+### 用户裁决（2026-09-14）与实现
+
+**裁决：** OQ-1 = **(A) 画 F_fast，轴标注说清**；OQ-2 = **(i) 整段 clip 滚动预测**；
+OQ-3 = **figures/ 论文图**（IEEE 双栏 \textwidth = 7.16 in）。
+
+**新文件：** `scripts/actionsense/plot_history_force_row.py`（不改动 `action_dynamics.py`
+或旧的 `plot_forecast_overlay.py`）。输出 `figures/history_force_row.{png,pdf}`。
+
+**实现中做出的设计决定（及理由）：**
+1. **共享 origin（我加的，偏离旧脚本）。** 旧 `plot_forecast_overlay.forecast_all` 从
+   `a = t_in` 起算，10 s panel 会比 1 s panel 晚 9 s 开始，5 格覆盖不同的信号段，横排无法比较。
+   新脚本所有 history 在**同一组 origin**（`a ≥ max(t_in) = 100 帧`，步长 = horizon 10 帧）预测，
+   5 格的时间跨度与真值**完全相同**，唯一差别是 history 深度。这正是 SESSION_LOG 2026-07-07
+   记下的 shared-anchor TODO。代价：前 10 s 不画。
+2. **clip = 54**（test，"Slice a potato"，245 帧 = 24.5 s → 画 10–24 s，14 个 origin）。
+   理由：每格在 7.16 in 横排里只有约 1.3 in；默认"最长 test clip"（clip 33，123 s）在这个宽度下
+   不可读。候选统计见上一条日志（clip 20/54/61 均够长且 F_fast 有结构）。脚本拒绝画 TRAIN clip。
+3. **early stopping 开启**，VAL 从 TRAIN 按 `train_action_dynamics.cross_validate` 同样方式切
+   (`nv = max(2, n//6)`)；test split 用与原 sweep 相同的 `split_train_test(seed=1)`。
+4. **画布上不印 skill 数字**（`--show-skill` 可开），沿用 2026-09-13 Fig.1 的裁定：单条录制的
+   skill 不是报告量。数字只打印到 stdout。
+5. 字号/配色沿用 `plot_study_logic.py`（真实宽度 7.16 in，C_TRUTH/C_MODEL/C_PERS，dpi 400）。
+   首版 y 标签被裁、图例压曲线 → 改为左边距 .105、图例放图底横排。
+
+**smoke（epochs=2，仅验证管线，数字不可引用）：** 管线正常，5 格渲染无误。
+
+**⚠ CLAUDE.md 规则 6：** 正式 run 是**本地**运行，但依赖的脚本
+`scripts/actionsense/plot_history_force_row.py` **尚未 commit/push**。未经用户同意不 push；
+交付时需向用户说明并请示是否 commit+push。
+
+**正式 run：** `--clip 54 --epochs 60`，本地后台运行中（结果待补）。
+
+### 正式 run 结果（2026-09-14，`--clip 54 --epochs 60`，本地，exit 0）
+
+输出：`figures/history_force_row.png`（400 dpi）、`figures/history_force_row.pdf`（29 KB，矢量）。
+渲染已目检：5 格共享 x（10–24 s）与 y，y 标签完整，图例在图底不压曲线。
+
+clip 54 上的 skill vs persistence（F_fast，14 个共享 origin；**单条录制、单 seed**）：
+
+| history | 1 s | 2 s | 3 s | 5 s | 10 s |
+|---|--:|--:|--:|--:|--:|
+| skill | +0.311 | +0.363 | +0.259 | +0.208 | +0.239 |
+
+**解读边界（避免被误引）：**
+- 这是**一条录制**上的数，不是报告量；5 格之间 ±0.1 的差距很可能落在 seed 噪声内——
+  **本次未测 seed 方差**，不能据此说 "history 越长越差"。corpus 级 early-stop 结论仍是
+  "基本持平"（0.513@1s → 0.502@10s，PROJECT_CONCLUSIONS.md:186），本图与之不矛盾。
+- 视觉上 5 格预测形态高度相似：都能跟上 20 s 附近的大下探，都漏掉 10.5 s 的 −3800 尖峰
+  （第一个 origin 在 10 s，尖峰发生在 horizon 内、history 里无前兆）。
+- 每 1 s 处曲线断开是重锚造成的，属设计而非 bug。persistence 虚线很淡（零均值 fast 分量的
+  最后值常接近 0，线段短而平）。
+
+**状态：** 图已生成，未插入 main.tex（用户未要求）。脚本与图均**未 commit/push**，等用户决定。
+
+## Session (2026-09-14，续) — history force 图 v2：荧光绿、竖排、时间更长；"为什么是断的"
+
+**用户请求：** (1) 预测线换荧光绿，与黑色区分更大；(2) 问：为什么图看起来都是断的；
+(3) 重新生成一遍，时间稍长；(4) 5 格改为**竖排**。
+
+**问题 (2) 的回答 —— 断开有两个来源，一个是方法本身，一个是画法造成的：**
+1. **方法本身（保留）：** 每段是从一个 origin 出发的独立 1 s rollout；下一个 origin 模型重新
+   以**实测值**起步（`forecast_at`：`yl = targ[a-1]`）。所以上一段末尾（模型 1 s 后的预测）与
+   下一段开头（实测值）一般不相等——这个跳变 = 模型 1 s-ahead 误差，是方法的真实表现，抹平会误导。
+2. **画法造成（修掉）：** v1 每段只画 `[a, a+t_out)` 的 10 个预测点，没有从 origin 的最后观测样本
+   `a-1` 连出去；所以每段之间还多出一个 0.1 s 的空白、起点悬空，看起来比实际更"碎"。v2 每段前面
+   补上 `(a-1, truth[a-1])`（同 `plot_study_logic.py` 的 `np.r_[origin_val, model]` 画法），
+   persistence 同样处理。剩下的断点只剩第 1 类真实跳变。
+
+**实现（v2，同一脚本 `scripts/actionsense/plot_history_force_row.py`，输出路径不变）：**
+- 颜色 `C_MODEL = #39ff14`（荧光绿），线宽 1.15 → 1.4。
+- 竖排 `subplots(5, 1, sharex, sharey)`；每格左上角标 "N s history"；共享 y 标签；图例在顶部横排；
+  x 标签只在最底格；总高 = 5 × `--panel-height`(1.05 in) + 顶/底边距。
+- 新增 `--seconds`：从第一个共享 origin 起截取绘制时长。
+- **新增 checkpoint 缓存**（`runs/history_force_row/`，`runs/` 已 gitignore）：v1 没存模型，每次改
+  画法都要重训 ~20 min。v2 每个 history 存一个 ckpt，meta（actions/hand/input_mode/t_in/t_out/
+  cut/downsample/hidden/epochs/seed/split_seed/n_act/din）不符则**报错拒绝**，`--retrain` 强制重训。
+  另加 `--train-only`。
+- **注意：** v1 的模型没存，v2 是重新训练的；即使同 seed，CPU 上数字也可能与 v1 表格略有出入。
+
+**OPEN QUESTION（本轮问用户）：** 竖排的宽度——`\columnwidth`（3.5 in，单栏窄长图）还是
+`\textwidth`（7.16 in，跨双栏）？"稍长"的时长也依宽度而定（窄栏下 20 s 已较密）。
+训练与此无关，先后台跑。
+
+**用户回答（2026-09-14）：** 宽度 = **\columnwidth 3.5 in**（单栏窄长图）；时长 = **约 20 s**。
+候选 clip：38（Peel a potato，32.9 s → 共享 origin 后可画 22.9 s，截 20 s）、20（Slice a cucumber，
+28.3 s → 18.3 s）。训练完成后两条都画出来目检再定。脚本默认 `--width` 改为 3.5。
+
+**用户问（2026-09-14）："为什么要重新训练？"**
+回答：这次重训是**我的疏忽造成的，不是必需的**。v2 只改画法（颜色、竖排、时长、clip），模型本身
+不需要变。但 v1 脚本把 5 个模型只放在内存里，进程结束就丢了，**没有存 checkpoint**，所以没有可以
+拿来重画的东西。v1 本来就该做缓存。
+- v1 的第一次训练是必需的：本地 `runs/` 下没有这个 sweep 的任何 `ad_*.pt`。
+- 即使 CRC 上还有 `train_action_dynamics.py` 存的 `ad_*.pt`，也**不能**拿来画：那种 final model
+  是在全部 75 条的 85% 上训练的（`train_action_dynamics.py:107-111`，随机切分 seed+7），会包含
+  我们要画的 test clip → 画出来是训练集上的拟合，不是预测。（CRC 上是否存在未核实。）
+- 已修：v2 存了 checkpoint（`runs/history_force_row/`），以后改颜色、排版、clip、时长都直接读缓存，
+  **不会再重训**。
+
+## Session (2026-09-14) — ActionSense / OpenTouch calibration 与训练数据泄漏审计
+
+**用户请求：** “检查actionsens and opentouch calibration 是否用到了未来的data，train的时候有没有data leakage，检查repo”。
+
+**范围与计划（先记录，后审计）：**
+1. 追踪两套数据的原始提取、sensor baseline/calibration、归一化、窗口构造、train/val/test 划分、模型训练与 uncertainty/sigma calibration。
+2. 区分预测 origin 之后的时序泄漏、跨 split 的统计量/样本泄漏、合法的训练标签与验证集调参；对当前默认路径和历史/可选路径分别判定。
+3. 阅读配置和现有测试，必要时用小型合成反例或只读数据检查验证，以具体文件行号报告影响和边界。
+4. 本请求是审计，不含修复或重训；只更新日志。若需非平凡代码修复，另写计划并等待用户裁决。
+
+**OPEN QUESTIONS：** 审计本身无需用户先行裁决；calibration 同时覆盖传感器 baseline 与预测 sigma calibration，避免遗漏。若发现需选择校准协议的修复，再提出明确问题。
+
+**初始状态：** 工作区已有用户/其他任务改动：SESSION_LOG.md、figures/overview.{pdf,png}、main.tex、scripts/shared/plot_study_logic.py，以及 history_force_row/model_architectures 脚本和图。审计保留全部现有改动，只追加日志。
+
+### v2 首批渲染 + clip 代表性检查（2026-09-14）
+
+**训练：** 5 个 ckpt 已缓存（`runs/history_force_row/right_raw_e60_s0_p{1,2,3,5,10}s.pt`，
+每个约 2 min，exit 0）。
+
+**3.5 in 宽度下的排版问题（已修）：** 图例两端被裁 → 标签缩短为 measured/forecast/persistence、
+收紧间距；左上角 "N s history" 带底框压住曲线 → 改为每格上方左对齐标题（hspace .16→.34）；
+右端刻度 "30" 被切 → 右边距留 0.12 in。
+
+**代表性检查（我主动做的，避免挑图）：** 用缓存模型，在全部 16 条够长的 test clip 上算 F_fast 的
+skill vs persistence（右手，共享 origin 从 10 s 起，整条 clip）：
+
+| clip | 时长 s | 1 s | 2 s | 3 s | 5 s | 10 s | 均值 |
+|--:|--:|--:|--:|--:|--:|--:|--:|
+| 48 | 43.6 | +.182 | +.109 | +.143 | +.139 | +.062 | +.127 |
+| 16 | 36.9 | +.285 | +.094 | +.259 | +.267 | +.359 | +.253 |
+| 54 | 24.5 | +.311 | +.363 | +.259 | +.208 | +.239 | +.276 |
+| 45 | 43.3 | +.425 | +.431 | +.350 | +.479 | +.414 | +.420 |
+| 61 | 26.6 | +.491 | +.449 | +.453 | +.421 | +.400 | +.443 |
+| 20 | 28.3 | +.515 | +.467 | +.489 | +.457 | +.444 | +.474 |
+| 52 | 35.9 | +.472 | +.530 | +.492 | +.446 | +.459 | +.480 |
+| 33 | 122.9 | +.502 | +.448 | +.465 | +.484 | +.512 | +.482 |
+| 6 | 50.5 | +.517 | +.519 | +.513 | +.496 | +.493 | +.508 |
+| 15 | 52.8 | +.526 | +.532 | +.467 | +.492 | +.535 | +.510 |
+| 35 | 97.0 | +.566 | +.549 | +.551 | +.551 | +.567 | +.557 |
+| 17 | 43.3 | +.539 | +.587 | +.637 | +.580 | +.583 | +.585 |
+| 27 | 14.0 | +.545 | +.494 | +.607 | +.700 | +.635 | +.596 |
+| 31 | 62.5 | +.547 | +.609 | +.648 | +.640 | +.609 | +.610 |
+| 39 | 62.7 | +.671 | +.641 | +.651 | +.694 | +.652 | +.662 |
+| 38 | 32.9 | +.709 | +.785 | +.704 | +.724 | +.704 | +.725 |
+
+- 每条 clip 的均值取中位数 = **+0.495**。**pooled（按 MSE 求和）每个 history 的 skill：1 s +.539 / 2 s +.541 /
+  3 s +.536 / 5 s +.539 / 10 s +.536 —— 完全持平**（单 seed）。这在 force 通道、test 集层面独立复现了
+  "加 early stopping 后 history 不起作用" 的结论（PROJECT_CONCLUSIONS.md:186）。
+- **clip 38 是 16 条里最好的**（+.725）→ 用作论文插图等于挑图，不推荐。
+- **v1 用的 clip 54 是倒数第 3**（+.276）→ v1 的图反而低估了模型。
+- clip 20（+.474）接近中位数，但只能画 18 s；**clip 52（+.480）、33（+.482）、6（+.508）接近中位数，
+  且能画满 20 s** → 作为候选渲染。
+- 注：表中是整条 clip 的 skill；实际画出来的 20 s 窗口内数值会不同（stdout 另行打印）。
+
+### v2 定稿（2026-09-14）
+
+**clip 选择 = 52**（Peel a potato，35.9 s，画 10–30 s = 20 s）。理由：整条 clip skill 均值 +.480，
+略低于 16 条的中位数 +.495，不美化模型；且能画满 20 s。其他候选：38 是 16 条里最好的
+（挑图嫌疑，否决）；20 只能画 18 s；33 在 29.5 s 有一个 −3300 的骤降没预测到，放在结尾显得反常；
+6（+.508）预测多次衰减回 0，也可以用。
+这个选择是**我基于代表性做的判断**，已向用户说明，可随时用 `--clip` 更换（读缓存，几秒出图）。
+
+**20 s 窗口内 clip 52 的 skill**（stdout，不印在图上）：1 s +.434 / 2 s +.482 / 3 s +.447 /
+5 s +.413 / 10 s +.409。
+
+**最终排版（3.5 in 宽）：** 顶部横排图例（head .44 in，修掉了与第一格标题的碰撞），每格标题左对齐，
+hspace .34，右边距 .12 in，荧光绿 #39ff14，lw 1.4。脚本默认值改为 `--clip 52 --seconds 20
+--width 3.5`，不加参数即可复现；`--clip -1` = 最长的合格 test clip。
+
+**输出：** `figures/history_force_row.png`、`.pdf`（覆盖 v1 横排版）。
+**待用户决定：** commit+push（规则 6）；是否插入 main.tex。
+**打印提醒：** 荧光绿在屏幕上与黑色区分度很高，但在白底上亮度高，灰度打印时几乎消失。
+
+### 审计结论与证据（完成）
+
+**总判定：有预测未来信息进入预处理，不能称整个 pipeline 无 leakage / 严格在线因果。**
+训练循环、归一化、默认划分和 ActionSense 的 sigma 校准没有发现直接拿 TEST 标签做梯度更新的问题；
+但两套 sensor calibration 在当前实现中均可能用预测 origin 以后的压力数据，且校正后的状态再进入
+history / decoder seed / persistence anchor。另有旧 ActionSense checkpoint 绘图分支存在确定的
+训练样本与所谓 test 样本重叠。下面区分当前主路径、旧/可选路径和证据边界。
+
+#### F1 — 高优先级：ActionSense target/state 的整段 recording p5 校正非因果
+
+- `src/actionsense/physical_state.py:59-80`：`baseline_correct` 在 :68 对整个 `clip` 的 time axis
+  计算 `np.percentile(clip, 5, axis=0)`，:69 减去它再截断到零。`clip_states` 默认启用 p5。
+- 实际入口 `scripts/actionsense/probe_actionsense.py:223-247`：完整活动 clip 提取后，:237 调用
+  `PS.clip_states(clip)`，然后保存 `state_N.npy`；校正发生在训练划分之前。
+- `src/actionsense/eval_harness/dataset.py:43-50` 原样读取这些状态作为所谓 RAW F/CoP，未撤销校正。
+  `src/actionsense/tactile_map/data.py:187-200` 的 aggregate history、:158 的 last、
+  `src/actionsense/tactile_map/models.py:113-123` 的 ProbGRU decoder seed 和
+  `src/actionsense/tactile_map/train.py:289-295` 的 residual 重建 anchor 都会使用它。
+  `src/actionsense/action_dynamics.py:54-78,92-94` 的旧 fast-target 路径也读取该缓存。
+- 因此即便窗口只切到 t，state[t] 也可能依赖 t 之后的压力。这是预测 origin 层面的未来泄漏；
+  同一 clip 独立校正本身并不等于不同 train/test clip 相互共享统计量。
+- ActionSense **map 的 first-N baseline 单独看**：`data.py:85-90` 用前 10 个下采样帧，
+  `configs/actionsense/tactile_map.yaml:6` 默认 N=10；harness 的 `min_history=40`
+  （`configs/actionsense/eval_harness.yaml:43`）比校准结束更晚，因此这一减均值步骤默认安全。
+  但它不能修复上游插值或另一路 target/state 的整段 p5；map 模型的完整预测仍不是端到端因果。
+- 代码未强制 N <= 首个 origin + 1；若自定义 `baseline_frames=50` 且 origin=40，会新增 first-N
+  校准自身的未来泄漏。该情况已用合成数据复现，是配置边界风险，非当前默认设置。
+
+#### F2 — 高优先级：OpenTouch 的 D1 target 校正及 map 校准使用完整 shard 的帧池
+
+- `scripts/opentouch/opentouch_apply_baseline.py:48-67` 对全部 manifest 行一次估计 shard baseline，
+  随后用它校正各 clip 并重算/保存 state，没有 train split 或 prediction-origin 参数。
+- `src/opentouch/baseline.py`：
+  :100-112 按 clip idx 依次取整 clip 的 `[::3]` 帧，最多 20,000 帧；:115-122 按 shard 分组估计；
+  :50-56 的 median/MAD/quantization floor 都来自该池；:126-130 校正。
+  “完整 shard”指可选来源范围，并非每个帧都会用到；subsample 和 cap 不提供 origin 因果保证。
+- map 分支 `src/opentouch/tactile_map.py:142-167` 同样从整个 clip 采样并做 shard median；
+  :184-203 的 `scope_ids(..., "shard")` 返回整个 manifest 的 IDs（包括 VAL/TEST）；
+  :292-302 默认采用该 scope。`src/opentouch/prob_gru.py:312-333` 也复用此实现。
+  CLI 默认见 `scripts/opentouch/run_opentouch_exploratory.py:136-141`。
+- D1 是**目标构造**，map baseline 是**输入构造**，两条非因果路径同时存在。源码中
+  “transductive in inputs, never in targets”只能说明 map estimator 未直接读取独立标签文件，
+  不能支持整个任务无泄漏：这里 F/CoP 目标本来就是压力的确定性函数，D1 又直接重算 state。
+- 当前 `src/opentouch/splits.py:132-168` 按 location 分折，一个 shard 不跨 train/val/test。
+  因为 baseline 按 shard 独立估计，TEST shard 的 median 不会混进 TRAIN shard 的 median。
+  合成实验也确认：只改 TEST shard 未来帧，TRAIN baseline 不变，TEST 历史输入变。
+  准确结论是 **held-out 输入参与校准 + 时序非因果**，而不是把所有 shard 混成一个全局
+  TEST→TRAIN mean/std。若采用旧 `--split-mode random`、同 shard 跨 split，则这个保护不成立，
+  校准又可能将 TEST 帧信息传回 TRAIN 特征；该 random 路径不是当前 location 协议。
+- 原始未校正 OpenTouch aggregate 对照：`scripts/opentouch/extract_opentouch.py:214-232`
+  逐帧 `moments(press)`，没有该 D1 校正。F2 的 target 问题适用于 D1 cache；map shard median
+  问题适用于采用这些 map 输入的路径，不能把 raw aggregate 对照也直接归为相同泄漏。
+- 不能只把 `--baseline-scope` 改成 train 就宣称修复：location-held-out 没有 test shard baseline，
+  `tactile_map.py:261-269` 会报错；而 D1 state 已预先校正，map scope flag 也不会重写它。
+
+#### F3 — 中优先级：ActionSense 原始时间轴上的线性插值也使用未来原始样本
+
+- `scripts/actionsense/probe_actionsense.py:71-77` 的 `searchsorted` 取 target timestamp 两侧样本，
+  `X[idx]` 是右侧/未来 raw sample；:85-94 用于每段 clip 的重采样。
+- 合成例：原始时间 [0,1] 秒、值 [0,10]，t=0.5 秒重采样值约 5；只把 raw t=1 秒值改成 20，
+  t=0.5 秒变成约 10。这是相对于原始采集时间的 look-ahead。若明确允许等待右侧样本，则是
+  有延迟的离线时间对齐；当前代码没有把此延迟计入预测 origin。改为 `[::3]` 只下采样，不能消除
+  之前产生的未来依赖。真实延迟取决于 raw timestamps，本轮没有原始 HDF5，未量化。
+
+#### F4 — 高优先级但限旧入口：ActionSense --ckpt 绘图重新划 test，发生 train/test 重叠
+
+- `scripts/actionsense/train_action_dynamics.py:106-116` 在 CV 后对全体 data 重新切约 5/6 TRAIN +
+  1/6 VAL，训练 final checkpoint；它不是某个 held-out CV fold 的 checkpoint。
+- `scripts/actionsense/plot_action_forecast.py:55-66` 载入该 checkpoint 后，:61 另用 seed=1
+  `split_train_test(..., force_test=[viz_i])` 创建所谓 TEST，未与 checkpoint 当初的训练 IDs 校验，
+  :65 在该集合计算 mean skill。绘图时把一个 ID 放入 TEST，不会使已训练权重忘掉该样本。
+- 实际读取本地 Slice/Peel 数据得到 n=75。按 trainer 默认 seed=0，final split = TRAIN 63 / VAL 12。
+  单纯新的 seed=1 TEST 19 条中，18 条在 final TRAIN，1 条在 calibration VAL。
+  按绘图默认 `viz-action=Slice`，`pick_viz` 返回 pooled index=3，force_test 后 TEST=20：
+  **19 条已用于梯度训练，1 条已用于 sigma 校准；绘制的 index 3 也在 TRAIN。**
+- 本地 `runs/ad_*.pt` 为 0；上述是精确重建两段代码的数据划分，未声称某个已存在图一定出自该入口。
+  CV 结果本身不受这条 checkpoint 消费路径影响。新 `scripts/actionsense/plot_history_force_row.py`
+  :128-147 使用固定 holdout 后在其 TRAIN 内 carve VAL，并拒画 TRAIN clip，本轮未发现同类错分；
+  但它仍继承 F1/F3 的上游预处理问题。
+
+#### 其他可选/历史风险与未确认事项
+
+- `src/actionsense/action_dynamics.py:63-64` 的 `hand="active"` 用整段 state 平均 force 选手，
+  因而未来改变能改变当前输入选择。合成同前缀时选中 force 从 10 变成 5，已复现。
+  正式 trainer 默认 `--hands left,right`（`scripts/actionsense/train_action_dynamics.py:52`），
+  最新 history_force_row 也指定手，故不把此列为这些默认实验的新增问题。
+- `physical_state.derive` 中 `np.gradient` 及 `phase` 的 FFT Hilbert 非因果，但 inspected 当前
+  forecasting train path 使用 `action_dynamics._causal_diff` / `opentouch.prob_gru.causal_velocity`，
+  没有证据将未调用的派生函数归咎于当前训练输入。
+- ActionSense manifest 只有 T/cat/features/fps/has_clip/idx/label，没有 subject/session/source interval。
+  已验证 clip IDs 不重叠，但无法据此保证受试者独立、同 session 独立或无原始帧重复。
+  OpenTouch location split 同样不能保证跨 location 的人不同。这是证据限制，不是已证实重复数据。
+- 部分配置注释（OpenTouch 的 split placeholder、corpus-wide grouping）已落后于实现；判定以
+  `splits.py` 和 `evaluate.py` 实际调用为准，没有将旧注释当成当前代码行为。
+
+#### 已确认正确的训练/评估环节
+
+1. 本地 `data/actionsense_states/splits.json`：TRAIN 45 / VAL 15 / TEST 15，三个集合两两无重叠。
+   299 条 manifest、299 个 state 文件、100 个 map 文件。CV 在 recording ID 层先分组再建窗口：
+   `src/actionsense/tactile_map/train.py:365-405`；OpenTouch 按 location 分组，见 F2。
+2. ActionSense Norm/MapNorm 仅从 `trn` 拟合：`train.py:392-404`。
+   OpenTouch Norm/FeatNorm/MapNorm 的当前调用同样只从 TRAIN 拟合，并把对象复用于 VAL/TEST：
+   `src/opentouch/prob_gru.py:325-333,464-477`，`tactile_map.py:298-302`，
+   `gru_aggregate.py:171-200`。这不消除所输入 state 的非因果来源。
+3. ActionSense sigma calibration：`train.py:407` 明确传 `val_ds`；旧 action_dynamics CV 在
+   `scripts/actionsense/train_action_dynamics.py:35-42` 也只用独立 VAL，之后才在 TEST 评 coverage。
+   校准利用 VAL 的未来真值作为残差标签是正常离线校准，未发现用 TEST 残差拟合 sigma；
+   它只缩放区间，不改变预测均值。checkpoint 旧绘图的泄漏见 F4，不能由 CV 正确推出它正确。
+4. OpenTouch 当前模型输出 `exp(lv/2)*train_std`（`prob_gru.py:504-525`、`tactile_map.py:349-386`），
+   未发现另用 TEST 残差拟合 sigma multiplier。`plot_opentouch_loss.py:80-98` 读取真值是事后
+   coverage 诊断，不反向改模型/预测，不能因看到了 test truth 就判定泄漏。
+5. 两套 harness 的 Norm / mask force thresholds / baseline fit 用 TRAIN；AR order/模型选择用 VAL：
+   `src/actionsense/eval_harness/evaluate.py:52-63`、`src/opentouch/evaluate.py:59-75`。
+6. 窗口的 X 截至 t，Y 为 t+1..t+H；ProbGRU 训练与预测都将自身预测均值反馈 decoder，
+   不是把未来 Y 喂回输入。见 `src/actionsense/tactile_map/data.py:147-163`、
+   `src/opentouch/prob_gru.py:225-240,268-280`。训练 loss 使用训练集未来标签是正常监督学习。
+
+### 验证记录与复现边界
+
+解释器：`/Library/Frameworks/Python.framework/Versions/3.12/bin/python3`（torch 2.10.0、pytest 9.1.1）。
+未安装依赖，未访问远端或下载数据，未改代码/配置/缓存/论文，未重训正式实验。
+
+**相关现有测试：81 passed，25.71 秒；两个 seasonal fallback UserWarning，无失败。**
+命令：
+```text
+/Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m pytest -q tests/test_harness.py tests/test_tactile_map.py tests/test_opentouch_baseline.py tests/test_opentouch_splits.py tests/test_opentouch_prob_gru.py tests/test_opentouch_tactile_map.py tests/test_val_selection_and_baseline.py tests/test_corpus_baseline_folds.py
+```
+另外 `scripts/actionsense/check_leakage.py` 六项均 PASS，但其检查只覆盖 state 缓存之后的 filter、
+normalization、clip IDs、window index 和 persistence。尤其 :67-76 的 “baseline” 指 persistence，
+并未检查 sensor calibration；:79-91 的 pipeline order 也未从原始压力重新校准。
+`tests/test_tactile_map.py:42-50` 同样从已处理 map 开始测试窗口切片，无法发现 F1/F3。
+因此 “ALL CHECKS PASSED” 不是端到端无泄漏证明。当前测试甚至明确验证 OpenTouch shard scope
+会触及 held-out shard（`tests/test_opentouch_tactile_map.py:154-174`）。
+
+**合成未来扰动诊断（直接调用 repo 函数；文件仅写临时目录并自动清理）：**
+
+| 检查 | 固定部分 / 改动部分 | 实测结果 |
+|---|---|---|
+| AS `PS.clip_states` | (100,2,2,2)，前 41 帧全为 10；后 59 帧由 8 改为 2 | origin 40 每手 F：8 → 32 |
+| AS `D.load_map(...,10)` | 同样数组、同样扰动 | 前 41 帧完全不变（默认 first-N 步骤安全） |
+| AS `D.load_map(...,50)` | 同样数组、同样扰动 | 前 41 帧改变（缺少 N/origin guard） |
+| OT `TM.taxel_baselines/load_map` | TRAIN/VAL/TEST 各一个独立 shard；TEST (90,1,16,16)，前 16 帧=10，之后 8 → 2 | TEST median 8 → 2，origin 15 每格校正值 2 → 8；TRAIN baseline 完全不变 |
+| OT `B.shard_baselines/correct/moments` | 同上一行，真实 median/MAD/quantum + k=1 路径 | origin 15 的 F：256 → 1024 |
+| AS `resample` | raw t=[0,1]，只改未来 t=1：10 → 20 | t=.5 输出约 5 → 10 |
+| AS `AD.build_features(hand="active")` | 前 41 帧左右手 F 固定 10/5，仅改后 59 帧为 1/20 | origin 40 被选中的 F：10 → 5 |
+
+以上断言全部通过（断言验证“存在未来依赖”，不是通过代表无泄漏）。
+
+**真实 ActionSense 样本核验：** 冻结 TEST 的 clip_2，raw map shape=(1324,2,32,32)，
+第 120 原始帧对应约 4s / 第 40 下采样帧。只比较 baseline 可用范围：完整 clip p5 vs
+截至原始 origin=120 的 p5，2,048 个 taxel 中 1,533 个 baseline 不同。该 origin 每手 F：
+完整 clip 校正 [3348.4248, 5318.4746]；past-only p5 校正 [2650.0, 5110.0]。
+缓存 state 的 F=[3353.2620,5317.7544]，与从 float16 保存 map 重算存在小幅精度差异，
+原 extraction 在 float32 raw map 上生成 state。此比较证明 calibration 范围会实质改变历史状态，
+**不是重训结果，不能据此宣称模型 skill 虚高多少**。
+
+**OpenTouch 限制：** 本地配置的 `data/opentouch_states`、`/users/jhao3/opentouch/cache_d1` 和
+常用本机 `~/opentouch/cache{,_d1}` 均不存在；其结论来自源码调用链 + 真实函数的合成反例，
+没有伪称核验 CRC 当前 cache 或 checkpoint。未检查任何外部发布数据生成代码。
+
+### 决策、影响与后续（未实施修复）
+
+- 当前工作区 `main.tex:180-188,394` 已披露 complete-recording / shard offline calibration，
+  不能把“论文披露了限制”当成“实现已消除泄漏”。日志早期笼统的“无泄漏”必须限缩为当时
+  验证过的下游环节；本审计给出更完整的端到端边界。
+- 严格 online forecasting 需要独立预采集 calibration 或明确允许的观测前缀，baseline 冻结在
+  origin 可用信息内；训练/验证/测试的 states/maps/anchors/persistence 必须按同一新协议重建。
+  还需因果 resampling 或显式报告采样延迟，并用新缓存重新训练/评估，才能测量数字变化。
+  不能只改 z-score/sigma，或只改 test calibration 然后继续用旧训练模型。
+- 若后续修 F4，应保存 checkpoint 的真实 split IDs/数据来源，并在所有 checkpoint 消费端验证
+  评估 ID 与训练/校准 ID 无交集，使用对应 held-out fold 的权重；重新标记无法证明来源的旧图。
+- 未来测试应在原始压力/原始 timestamp 层改变 t 之后的数据，重跑预处理，并断言截止 t 的
+  inputs、anchor 和预测不变；另在 TEST shard 扰动时验证 TRAIN 拟合参数不变。
+- **OPEN QUESTIONS（仅后续实施需要用户裁决）：** 独立 calibration 还是可用前缀；允许多长
+  warmup/采样延迟；OpenTouch 新地点的校准协议。当前请求仅审计，因此没有擅自修改这些实验定义。
+- **本轮修改：** 仅追加 SESSION_LOG.md；结束时 git status 的其他既有改动列表与开始一致。
+
+## Session (2026-09-14，续) — v3：浅绿色 + 挑一条不同 history skill 差距大的 clip
+
+**用户请求：** 预测线换浅绿，不要荧光；换一条"不同 history 的 skill 差别大"的 clip。
+
+**我提出的顾虑（已向用户说明，然后照做）：** 按"history 之间差距大"挑 clip 就是在挑图。
+test 集合并后 5 个 history 的 skill 持平（+.536–+.541，见上）→ 单条 clip 上的大差距主要是
+这条 clip 自身的波动 + 单 seed 的训练随机性。这张图单独看会暗示 history 有影响，和整体结论相反。
+若进论文，caption 必须写明"挑选的示例；整体 skill 持平"。
+
+**颜色：** `C_MODEL = #74c476`（ColorBrewer Greens 的浅绿）。
+
+**差距排名（10–30 s 窗口，能画满 20 s 的 12 条 test clip，F_fast skill vs persistence）：**
+
+| clip | 差距 | 1 s | 2 s | 3 s | 5 s | 10 s |
+|--:|--:|--:|--:|--:|--:|--:|
+| 16 | .296 | +.273 | +.066 | +.232 | +.252 | +.362 |
+| 45 | .231 | +.480 | +.465 | +.295 | +.526 | +.449 |
+| 31 | .150 | +.457 | +.374 | +.524 | +.524 | +.506 |
+| 48 | .139 | +.241 | +.102 | +.108 | +.194 | +.204 |
+| 17 | .100 | +.528 | +.604 | +.629 | +.588 | +.572 |
+| 35 | .093 | +.377 | +.373 | +.466 | +.399 | +.439 |
+| 33 | .086 | +.502 | +.515 | +.437 | +.524 | +.485 |
+| 38 | .082 | +.708 | +.785 | +.702 | +.725 | +.709 |
+| 52 | .073 | +.434 | +.482 | +.447 | +.413 | +.409 |
+| 15 | .071 | +.593 | +.627 | +.557 | +.556 | +.609 |
+| 39 | .067 | +.671 | +.638 | +.649 | +.705 | +.642 |
+| 6 | .034 | +.555 | +.569 | +.554 | +.560 | +.536 |
+
+**选择 clip 16**（Peel a cucumber，36.9 s）：差距最大。**注意它不单调**（2 s 最差、10 s 最好，
+中间回升），更像波动而不是 history 的趋势。另外它的整条 clip skill 均值 +.253，在 16 条里排倒数第 2。
+
+**skill 数字印在图上（`--show-skill`）：** 这次偏离 2026-09-13 "图上不印数字"的裁定，因为用户这次
+要看的就是 skill 差距，不印数字读者看不出来。已向用户说明，可随时去掉。
+
+### v3 定稿（2026-09-14）
+
+**输出：** `figures/history_force_row.{png,pdf}`（覆盖 v2）。clip 16，10–30 s，浅绿 #74c476，
+每格右上角印 S。目检：排版干净，skill 标签不压曲线；2 s 那格在 10–13 s 和 15–20 s 预测过冲下探，
+与 S = +.07 对应。
+
+**图上 skill：** 1 s +.27 / 2 s +.07 / 3 s +.23 / 5 s +.25 / 10 s +.36。
+
+**脚本默认值与这张图一致：** `--clip 16`，skill 默认印出（`--no-skill` 去掉；原 `--show-skill`
+开关已移除）。不加参数重画后与带参数版本做 md5 比对，确认输出一致。docstring 已写明默认 clip 是挑选的
+示例、整体 skill 持平、caption 必须说明。
+
+**若进论文，caption 必须包含：** 这是按 history 间 skill 差距挑选的单条录制；test 集合并后 5 个
+history 持平（+.536–+.541，单 seed）；y 轴是高通分量。
+**待用户决定：** commit+push（规则 6）；是否插入 main.tex。
+
+## Session (2026-09-14) — PLAN: 修复 ActionSense / OpenTouch calibration leakage
+
+**用户问题：** “这个问题怎么解决”。承接前一轮源码与反例审计，本轮提供可实施方案，
+尚未把用户的问题解释为已裁决新的实验校准协议。按 AGENTS.md 第 5 条先记计划与 OPEN QUESTIONS，
+不在协议未确定时修改训练代码、数据定义或重新训练。
+
+**新增核查：** 重读 `physical_state.py:59-80`、`opentouch/baseline.py:40-56,100-130`、
+`opentouch/tactile_map.py:184-211,251-272`、`probe_actionsense.py:71-95`。
+OpenTouch 当前 train scope 依然是“只保留 TRAIN shard 对应的模板”，并没有可用于新 shard 的
+全局模板。因此修复必须增加可复用模板机制，而不是只改 CLI scope 参数。
+工作区有其他任务继续更新 history_force_row 图/日志；本轮保留它们，仅追加本计划。
+
+### 推荐协议：现有数据上的每 fold TRAIN-only 固定模板
+
+**基本约束：** 校准器是离线训练得到的固定参数，地位与 TRAIN z-score 相同。
+先划 TRAIN/VAL/TEST，再仅从 TRAIN 原始压力拟合 baseline/noise；预测时校准器不再读取整段
+clip/shard，不根据 VAL/TEST 压力重估。对每个固定 fold，所有模型和 baselines 使用相同的
+校正后 maps、F/CoP、origin anchor、target、mask 定义与样本集合。
+
+**处理图：**
+```text
+frozen split IDs
+    └─ TRAIN raw pressure → fit calibration artifact (per taxel, per hand, per corpus)
+                               └─ freeze
+TRAIN / VAL / TEST raw pressure → causal time alignment → apply frozen calibration
+    → maps + framewise F/CoP → TRAIN-only Norm → history windows / targets
+    → fit on TRAIN → model selection and sigma calibration on VAL → score TEST
+```
+
+- **ActionSense**：将整 recording 的 `np.percentile` 从 `clip_states` 内移到显式
+  `fit_calibration(train_raw)`；估计范围从每个待预测 clip 改为该 fold 的 TRAIN。
+  初始方案保留 p5 统计形式（每手、每 taxel 各一个参数），采样在 TRAIN recording 之间平衡，
+  不让最长 recording 独占模板。实际校正作为纯函数接收固定 b。
+- **OpenTouch**：从该 fold 的 TRAIN shards 估计一套共享 per-taxel b/sigma，继续显式记录
+  median、单侧 MAD、quantization floor 和 k。VAL/TEST 新 shard 直接复用这套共享模板，
+  不再按 shard lookup 要求一个来自该新 shard 自身的估计。采样按 TRAIN shard/clip 平衡。
+  k/采样量等预先配置或在 TRAIN/VAL 内选择，不用 TEST sweep 决定。
+- 两个数据集各自拟合模板，不跨数据集、不同 taxel 网格或左右手混合统计。
+- map 与 state 应有明确的一次校正来源，避免 raw map symlink / 已校正 map 混用或重复扣 baseline。
+  建议统一由校正后的压力生成对应 maps 与 F/CoP，作为新协议；旧结果保留其原有定义。
+- **不是物理效果保证**：共享模板可以消除 TEST 参与校准，但未必准确描述新佩戴/地点的静息
+  电平；可能残留 DC，也可能截去弱接触。必须如实评估这个跨地点偏移，不以 TEST 参数适配掩盖。
+  这不要求额外采集校准段，也不因缺少 held-out shard 模板而丢掉全部 TEST。
+- 在训练期使用完整 TRAIN 拟合固定统计量属于普通离线拟合；因果性测试必须**冻结该 artifact**，
+  然后扰动预测样本的未来。不能一边更改训练集重训校准器，一边要求输出不变，那也会错误否定
+  合法的 TRAIN mean/std 拟合。
+
+### 另一个有效协议：预测前的独立校准段
+
+如果实际使用允许，给每个设备/佩戴/session 一段有明确 timestamps、在预测开始前已经完成的
+校准数据，估计 b/sigma 后冻结。评估 origin 必须晚于 calibration_end_time，任何评分 horizon
+不能参与拟合该模板。需明确实验是“提供了校准数据的新地点”而非无需适配的新地点预测。
+
+不能直接把 OpenTouch 每条 clip 的前 1 秒当作无接触段：当前短 clip 已围绕接触事件切出，
+开头可能已经受力，扣掉其均值会改写真实接触。选取 shard 最早若干 **clip IDs** 也不能自动代表
+独立、按时间先发生的校准段；要核验原始时间顺序、排除重叠帧并将所用校准区间从评分中隔离。
+当前本地没有 OpenTouch 原始 cache/HDF5，也没有证明存在这样的无接触校准区间。
+若选择这一协议，需要先核验/获取相应原始数据与 calibration interval，不能以等待用户回复的
+时间代替确认。
+
+### 两种协议都要完成的实现步骤（待协议裁决后执行）
+
+1. **因果原始提取**：ActionSense 的线性插值改为 previous-sample hold，即
+   `j = searchsorted(raw_times, query_times, side="right") - 1`，只允许 raw_times[j] <= query_time。
+   没有过去样本时标记缺失/不发 forecast，禁止把 j=-1 当成末帧或用未来首帧补齐。
+   时间网格使用固定采样率的 start + n/fps，保存真实 query/source timestamps 与 source IDs；
+   不依赖事后 clip 结束时间的 linspace 来改变早期 sample timestamps。
+   如果改用“等待右侧样本”的插值，必须将实际可用时间计入 origin 和 horizon，这是另一种有延迟
+   协议，需要单独注明。推荐 previous-sample hold 作为此次简单、可验证的实现。
+2. **fold-aware 新缓存**：保留未校正 raw pressure，按 fold 与 calibration artifact 生成新的
+   state/map cache；保存 fit IDs、统计量、采样方法、seed、raw source hash、校准版本/hash。
+   不复用旧全 recording/shard 校正后的 state；clip float16 会造成重算差异，需要记录 raw
+   精度，正式重提取尽量保留原始 float32。
+3. **统一 wiring**：两套 aggregate/flatten/CNN/ProbGRU、classical baselines、绘图与 scorer
+   共享同一 fold 的新目标和 anchor；保留 TRAIN-only Norm、VAL checkpoint selection 和 sigma
+   calibration。first-N/active-hand 等可选模式必须显式检查校准结束时间或选择固定手；严格模式
+   拒绝整段 clip 的 active-hand 选择。
+4. **checkpoint 来源校验**：保存实际 TRAIN/VAL/TEST recording IDs（以及 source lineage/hash）
+   和 calibration/Norm。修 `plot_action_forecast --ckpt`，禁止重新随机生成一个 TEST。
+   测试/绘图使用 checkpoint 自己的 held-out IDs，并验证与 train/val 无交集。
+   旧 final model 若只有 TRAIN+VAL，则没有可声明的 held-out TEST；须使用另一个未见数据集或
+   重训正确的 fold model，不能通过绘图时 force_test 获得合法 test。
+5. **新增真正覆盖漏洞的测试**：冻结训练 artifacts，固定 <=t 的 raw pressure/timestamps，
+   任意扰动 >t 数据并完整重跑预处理，assert maps/history/last anchor/predictions 不变；
+   在模型拟合路径中扰动/追加 TEST clip 验证 TRAIN calibration/Norm 不变；验证 VAL 不参与
+   baseline/noise 拟合；验证新 OpenTouch shard 有固定模板可用且不丢 origin；checkpoint
+   train/val/test 重叠必须报错。测试包含边界时间、没有过去样本、短 clip 和双手对齐。
+6. **重新训练与报告**：通过上述检查后重提取/生成校正缓存，重训所有受影响神经模型与拟合
+   classical baselines，再重新在 VAL 拟合 sigma、在 TEST 评分。保留旧结果并清楚标为 offline
+   calibration 协议，与新协议在一致样本集合上比较。不能只重画图或仅校正 test 后继续用旧权重。
+
+### 数据与实施边界
+
+- 当前 ActionSense 本地 299 个 state 只有 100 个 raw map；旧 maps 本身也经过线性插值。
+  它们足以用于部分 calibration 代码验证，但无法逆转已发生的原始时间插值。
+  要宣称原始时间轴端到端因果，必须从原始 timestamped HDF5 重新提取，需先定位既有数据。
+- OpenTouch 本地无现有默认 cache，正式生成/重训需取得实际 raw cache 或在其所在环境执行。
+  代码和合成数据测试可先准备；不能用合成测试替代真实 corpus 重跑。
+- 此方案修复本 repo 的 calibration/window/checkpoint 因果与 split 问题；受试者身份或上游
+  数据集制作造成的未知重叠仍需原始 provenance 才能证明独立。
+
+**OPEN QUESTION（需要用户裁决后才实施）：** 新地点/新 recording 预测前是否允许额外提供校准数据？
+推荐为当前已有数据先采用 **不额外提供校准段、每 fold TRAIN-only 固定模板**；如果部署本来包含
+独立 calibration，则选择独立前置校准段协议。两者都是有效问题，但可用信息、目标构造与测试
+定义不同，不能由实施时静默替用户选择。
+
+**状态：** 方案已写入日志。仅追加 SESSION_LOG.md；未改实现、未重训。本轮将向用户说明推荐路径、
+修复代价和上述一个协议问题。规则来源：AGENTS.md 第 5 条 “Plan-before-code ... including explicit
+OPEN QUESTIONS ... wait for user resolution before implementing.”
+
+### 用户裁决与开始实施（2026-09-14）
+
+用户已选择：“不额外提供：使用 TRAIN-only 固定模板（推荐，适合重跑现有实验）”。
+上述协议问题已解决；本轮实施已记录方案，无需再次请求相同授权。先建立可序列化的校准 artifact、
+fold 绑定的数据接入与因果提取/来源校验，再接入各训练/评估入口并验证；实际数据位置将并行核查。
+正式跑数受原始数据可用性约束，任何缺失将明确说明，不用旧插值缓存伪装完全因果的新结果。
+
+### 实施进度（2026-09-14）
+
+- 新增 `src/calibration.py`：显式 TRAIN-only per-taxel artifact、平衡采样、raw 文件 hash、split
+  校验、一次校正后同时生成 map/state、按 source+split+protocol 定址缓存、完成标记最后写入，
+  并输出可供 scorer/诊断工具重放的 resolved config。旧缓存与结果不覆盖。
+- 默认 ActionSense/OpenTouch harness 开启 train_only；历史 OpenTouch D1 配置显式标为 legacy。
+  新默认结果目录为 train_only_v1，旧论文结果保留。
+- ActionSense tactile-map CV、baseline export、两套 harness 与 OpenTouch run_split 已接入
+  prepare_fold；map 分支在已校正缓存上跳过 first-N/shard 重估，确保与 F/CoP 同源。
+- ActionSense 提取改为 previous-sample hold + 固定时间网格，保存 query/source timestamps、
+  source file/interval 和 float32 maps，state 提取不再做全 clip p5；新旧 manifest 不准混合追加。
+  OpenTouch 新提取保留 float32 pressure 并添加未校正/native 来源信息。
+- ActionSense action-dynamics 的新训练按真实 IDs 先划分再校准，最终 reusable checkpoint
+  保留真正 TEST；--ckpt 绘图不再随机重划 test，并校验 cache/split/calibration 来源。
+  history_force_row、plot_horizon、plot_forecast_overlay 与 state_forecaster 已接入同一校准流程；
+  对旧缓存使用 action_dynamics 默认报错，只有显式 allow_legacy 才可读历史数据。
+- prediction NPZ/模型 checkpoint 添加 calibration/split provenance；预测目录合并校验
+  calibration ID，避免把不同校准目标的模型放在一起。mask threshold 导出先绑定对应 fold。
+
+**验证进展：** 新的 raw-pressure 端到端回归测试首轮 15/15 通过（4.12s），包括三种 OpenTouch
+ProbGRU 输入的未来扰动预测不变性。旧相关 81 测试首轮 23 失败/58 通过，原因是旧状态合成
+fixtures 直接继承新默认 calibration.mode=train_only，却未提供原始压力或 prepare_fold；
+这些测试的历史模型契约已显式配置 legacy，新的严格流程由独立 raw→model 测试覆盖。
+原 test_real_map_loads 改为断言默认拒绝未经 fold preparation 的旧缓存，没有放宽新路径。
+现正运行整个 tests/ 检查共用模块对其他数据集是否有影响。
+
+**数据问题（已向用户异步询问，答复待到）：** 正式重跑的 ActionSense timestamped HDF5、
+OpenTouch raw cache 在哪台机器/哪个目录？本机 ~/actionsense、~/opentouch 与默认 cache 缺失。
+未下载大型数据、未启动 CRC 作业。代码修复与合成验证不依赖此答复，继续执行。
+
+### TRAIN-only 实施完成与验证结果（2026-09-14）
+
+**已完成的代码范围：**
+
+1. `src/calibration.py` 集中管理 TRAIN-only 拟合、framewise moments、原始压力来源 hash、
+   split 绑定缓存、checkpoint provenance 与外部 prediction archive 校验。ActionSense p5
+   不使用 VAL/TEST；OpenTouch median/one-sided MAD/quantum-floor 的 TRAIN 模板直接应用于
+   新 shard。采样按 shard 再 clip 平衡，短 clip 使用重复索引保持权重，采样完全确定。
+2. 两套 `dataset.py`、`evaluate.py` 和 ActionSense `tactile_map/data.py` / `train.py`、
+   OpenTouch `tactile_map.py` / `prob_gru.py` / `gru_aggregate.py` 接入 fold preparation。
+   严格 loader 拒绝未准备 config，trainer 校验实际 TRAIN/VAL 与 calibration split 一致。
+   Map 和 state 同源，仅扣一次模板；OT history scope provenance 在严格模式记录 train。
+3. AS `train_tactile_map.py` / `export_baseline_forecasts.py` 在严格模式不再因缺 map 而静默
+   丢 recording；缺 raw 必须报错。两个 corpus CV 使用相同分折方式及每 fold template。
+   旧 frozen baseline 的单个 TEST 和 neural frozen-population CV 并非同一 fold，不能合并；
+   文档明确说明，calibration-ID guard 会拒绝混合。
+4. AS `action_dynamics.py` 新增 metadata-only pooled_ids 和 fold_data；
+   `train_action_dynamics.py` 在划分后才拟合模板，final checkpoint 留出真正 TEST。
+   `plot_action_forecast.py --ckpt` 只读取该 checkpoint 保存的 TEST，并验证缓存来源。
+   `plot_history_force_row.py`、`plot_horizon.py`、`plot_forecast_overlay.py`、
+   `plot_test_results.py`、`plot_fcop_loss_curve.py`、`train_state_forecaster.py` 也已接入。
+   active-hand 整 clip 决策在严格模式报错；固定 left/right 可用。已有 history_force_row
+   脚本的风格/图形参数保留，仅修改数据准备与 checkpoint provenance 相关部分。
+5. AS `probe_actionsense.py` 保存全部 float32 raw maps、未校正 states、query/source 时间戳，
+   禁止把 causal extraction 追加到旧线性插值 manifest。`--save-clips-for` 仅作兼容并明确
+   提示已废弃筛选；aggregate 也需要全部原始 map 拟合模板。OT `extract_opentouch.py`
+   保存 float32 pressure 和 source_file/source_group/native/none 标记。
+6. OT `run_opentouch_exploratory.py` 的 raw/flatten/CNN ProbGRU、map family 和 deterministic
+   aggregate 均通过实际入口验证；预测/各 history 导出保存 calibration ID 与 split IDs，
+   已有 model exporter 保存完整 calibration provenance。修复集成测试发现的 json 缺失导入。
+7. `scripts/shared/export_mask_thresholds.py` 先按对应 corpus 绑定 fold，再只拟合 TRAIN
+   阈值并输出 calibration ID；`merge_preds.py` 保留来源并拒绝不同 calibration ID。
+   AS 外部 `--model-preds` 在严格模式要求 calibration_id、split_ids、完整且精确的 TEST IDs，
+   拒绝把无来源的旧 NPZ 放到新目标上评分。
+8. 默认两个 harness 开启 train_only，新默认结果路径为 train_only_v1；OT 历史 D1 config
+   显式 legacy。修订 OT config 中过时的“splits.py 不存在”和“corpus-wide group count”说明。
+   `docs/train_only_calibration.md` 新增提取、配置、分折重跑、来源和已知限制说明；
+   `docs/leakage_checklist.md` 链接新流程。`check_leakage.py` 默认运行 raw-pressure 回归，
+   旧 cached-state 六项诊断需要显式 --legacy-checks，避免把其 PASS 当成原始数据因果证明。
+
+**缓存重放细节修正：** 同一 pressure cache 可以被多个 horizon/config 共用，所以 resolved
+config 改存 `config_<hash>.yaml`，不再覆盖同目录固定 config.yaml。返回的 config_hash 与
+重新 load_config 读取该文件时的 SHA256 一致。缓存包括所有选中 raw map 的 hashes 作为输出
+来源，但只有 TRAIN map 信号用于拟合；改变 TEST future 会改变缓存身份，不改变模板身份。
+原始时间戳在 extraction 的 time_N.npz 保留；本实现没有宣称检查了未知上游重叠或受试者独立性。
+
+**测试记录（实际命令均使用本机可用的 Python 3.12 / torch 2.10）：**
+
+- 第一轮全仓 `python -m pytest -q tests/`：198 passed，6 个 seasonal fallback warning，41.81s。
+- ActionSense 六种 encoder/backbone 组合的实际 1-epoch CV、来源和导出测试加入后：新套件
+  22 passed，12.48s。包括确认 neural/baseline CV 的 calibration ID 一致。
+- OpenTouch 三组实际 run_split 集成测试首轮 3 failed：模型训练已完成，但 prediction 导出
+  的 json.dumps 缺 import json。补导入后 3 passed，5.21s；这不是校准拟合失败。
+- 最后一轮全仓 `python -m pytest -q tests/`：**210 passed，9 warnings，52.09s**。
+  warnings 均是合成/测试序列无明确周期时 seasonal 使用 persistence 的预期行为。
+- 随后新增 action-dynamics fold_data→train→predict 的未来扰动测试：**1 passed，5.39s**，
+  同时断言 active-hand 被拒绝。该新增测试未计入上一条 210，合计 211 个测试已验证。
+- 当前新 `tests/test_train_only_calibration.py` 共 28 项，覆盖只读 TRAIN、VAL 不参与模板、
+  持有固定 artifacts 后 future mutation 的 map/state/anchor/prediction 不变性、无过去采样
+  的边界拒绝、新 shard、重复校正拒绝、所有主要模型入口、配置文件重放、来源与 split 拒绝。
+- 旧 OT 模型 fixtures 在 `test_opentouch_prob_gru.py`、`test_opentouch_tactile_map.py`、
+  `test_opentouch_g2_wiring.py` 明确采用 legacy，以继续测试原模型契约；新严格端到端流程
+  由上述 raw tests 覆盖。`test_tactile_map.py` 改为验证默认 config 拒绝直接读旧缓存。
+- `git diff --check` 通过；相关 Python AST 解析通过。未改论文、已有 figures 或其他任务的
+  绘图样式；工作区已有的这些修改保留，不将其归为本次校准修复。
+
+**结论与仍待实际数据的工作：** TRAIN-only 固定模板的代码与合成回归已完成；没有重训真实
+ActionSense/OpenTouch，也没有生成可替换论文的真实新分数。仍待用户给出原始 HDF5/raw cache
+所在主机和路径，之后才能重提取、确认新旧 recording 来源映射、重新训练与做同样本对比。
+不能把旧权重或旧插值/整 shard 校正结果标成新协议。未 commit、push、启动远程作业或下载数据。
+
+### 澄清 leakage 的位置：physical input 与 calibration（2026-09-14）
+
+**用户问题：** “所以主要的leakage问题出在先算了physical input 这些input进入了training对吗”。
+
+**答复依据与结论：** 大方向是预处理使输入带有未来信息，但“先计算 physical input”本身
+不是问题。`physical_state.py:36-55` 的 frame_state 仅使用当前帧，提前缓存逐帧 F/CoP 合法。
+旧 `baseline_correct` 在 `physical_state.py:68` 沿整个时间轴算 percentile，再用此 baseline
+校正每一帧；`clip_states:78-80` 在逐帧计算 moments 前调用该校正。因此某 origin t 之前的
+F/CoP 可以依赖 t 之后的压力，随后作为历史特征/anchor 进入模型；同源 states 也定义 targets。
+`action_dynamics.py:67-76` 可见 F/CoP 同时进入 features 与 target 构造。训练及测试预处理
+都存在该问题，不能仅检查训练时窗口索引，也不能等同于已证明 TEST 标签参与梯度更新。
+OpenTouch 旧完整 shard 校准具有相同的未来信息路径；checkpoint 重新划 TEST 导致重叠是
+另一个独立问题。
+
+**当前实现与兼容说明：** physical_state.py 保留旧默认 percentile 接口以支持历史分析；
+严格新 extraction 在 `probe_actionsense.py:245` 显式 baseline_pct=None，后续
+`calibration.py:231-240` 只拟合 TRAIN 模板并应用后逐帧重算 moments。
+完整 TRAIN 在离线拟合阶段用于固定模板是已批准协议允许的；待预测 VAL/TEST recording 的
+未来不能参与模板估计。仅阅读旧 helper 的默认参数不能推断新严格入口仍在调用旧校正。
+本轮只复核与追加日志，未修改实现或重新运行测试。
+
+### EgoTouch 是否也存在 calibration leakage：追查上游（2026-09-14）
+
+**用户问题：** “egotouch应该也有这个leakage问题对吧”。本轮审计数据链路，不自动改变已裁定的
+EgoTouch released-as-is / official-split 实验协议；实现修复需另行明确上游重建方法。
+
+**本 repo 下游事实：** `scripts/egotouch/extract_egotouch_states.py:99-114` 读取发布版左右手
+pressure grids、裁齐长度、替换 NaN，不读取/撤销 normalization metadata；165 行明确
+`clip_states(..., baseline_pct=None)`。`configs/egotouch/tactile_map.yaml` 的 baseline_frames=0
+由共享 loader `src/actionsense/tactile_map/data.py:93-94` 正确跳过（配置文件里“尚未支持0”
+是旧注释，不是当前行为）。`train_tactile_map.py:139-166` 的 Norm/MapNorm 用 TRAIN、模型
+选择/sigma 用 VAL。因此不能说它调用了 ActionSense 的全 clip p5；也不能据此声称原始输入因果。
+本机默认 datasets/EgoTouch、data/egotouch_states 均不存在，没有冒充检查了完整本地缓存。
+
+**上游资料：** 官方仓库 Jianyi2004/TouchAnything 的 main tree SHA 为
+d74f9ef5c189a957b7ff72781a0c998e41b45a56（GitHub tree API，truncated=False，只有 main branch）。
+公开代码包含读取 pressure_grids.npz 的 converter，未找到生成网格/归一化的实现。
+官方论文 https://arxiv.org/html/2605.13083v1 附录8.2（web lines399-405）明确说明：可选首帧
+baseline（首帧被判定无接触时）、右手坏列空间插值修复、tactile 与 bending 分别归一化。
+论文没有给归一化分母的时间/split统计范围。首帧校正和空间插值本身不能据此判为未来泄漏。
+HF 没有 dataset card；最初 README.md URL 未能打开，随后通过数据 tree 与官方论文核查。
+
+**实际样本验证（新下载到 /private/tmp，未下载全数据）：**
+
+- Home/arrange_pillow/20260412_101136_379 的 pressure_grids.npz 与 jq_pressure.json，1652帧。
+  NPZ 保存 tactile_max=51、bend_max=90、separate_normalization=True，双手
+  baseline_corrected=True。利用本 repo configs/touchanything/pressure_position_mapping_left.json
+  逐格映射，全部217个 mapped left cells 都可在误差1e-6内还原为
+  max(raw[t,sensor]-raw[0,sensor],0) / 51 或 /90；216格有非零值。
+  匹配 /51 的左手传感器全程最大值恰为51，首次在355帧；前0..100帧最大仅49。
+  匹配 /90 的左手传感器全程最大恰为90，首次在289帧；前0..100帧最大仅26。
+- Workbench/change_screwdriver_bit/20260319_113351_072 的同类两个文件，267帧，
+  tactile_max=53、bend_max=59，同样两个 baseline flag 与 separate_normalization=True。
+  全部217个左手 mapped cells 同样能以各自分母精确重建（176格非零）；左手最大39/54，
+  所以不能仅用左手最大声称分母来自左手。进一步查镜像后的右手：匹配 tactile 通道的
+  全程最大53首次在146帧，前0..100最大37；匹配 bending 的最大59首次在55帧。
+  两个样本右手分别有26/23格不能由简单映射+除法重建，论文所述坏列修复可能解释，但本轮
+  未复原其生成算法；没有把右手也写成逐格全部复现。
+- 样本 pressure/raw JSON 的四个SHA256已写入 docs/egotouch/calibration_audit.md，数据来源
+  是 HF zhouzhoujy/EgoTouch 对应 episode 的 resolve/main URL。仅数MB小样本，未启动训练。
+
+**结论（区分证据与推断）：** 存在同类上游未来依赖的强证据：逐episode不同的分母、全程数值
+重建、分母恰等于未来才出现的传感器最大值，共同高度支持“完整episode计算归一化尺度”。
+在此规则下未来最大值一变，过去的normalized pressure就变，随后进入map/physical inputs与
+targets，属于当前forecast任务应排除的信息路径。不能再以“关闭baseline / 用发布版原样”证明
+EgoTouch端到端因果。生成源码仍未找到、仅核查2条，未证明每条数据规则一致，也未量化模型分数
+虚高程度；不把强样本证据写成全语料已验证的实现事实。共同标量可在CoP中抵消，但tactile/bend
+分开缩放时其空间权重可变；F/pressure mass直接受尺度影响，scale-free指标不能证明输入可用性。
+
+**文档变更与后续：** 新增 docs/egotouch/calibration_audit.md，记录上述证据、局限与hash；
+docs/train_only_calibration.md 追加EgoTouch不在现有AS/OT修复范围及上游风险链接。未改训练/
+提取实现、未修改论文/旧结果，未跑pytest（本轮用真实raw→releasedgrid数值比对）。
+下一步须核实/重建raw JSON→grid生成器（含modality mask、空间修复、首帧判定），再采用TRAIN
+拟合或固定传感器尺度重建map/state并重训；对已归一化NPZ再加一层TRAIN-only baseline无法
+撤销原有未来依赖。没有为了迎合用户而把“同类上游风险”误称为相同的下游p5 bug。
+
+## 2026-09-14 — 【论文图·计划】`model_architectures` 左侧加手套实物图，并仿照参考图重排版式
+
+### 0. 指令原文
+
+> 这个图的最左边加入一个手套的实物图，仿照我给你发的这个图的风格，调整结构，实物图你可以参考这个
+
+两张图已在本机找到：参考版式 = `~/Desktop/截屏2026-09-14 16.59.55.png`（机械臂 slip prediction 框图），
+手套实物 = `~/Desktop/截屏2026-09-14 17.07.22.png`。
+
+### 1. 参考图的版式要素（逐项看图所得）
+
+1. **嵌套圆角容器**：外层浅绿大圆角框 → 内层浅蓝虚线框 → 其中灰色虚线圆角面板（Slip Prediction）
+   和浅橙虚线圆角面板（Trajectory adaptation）。
+2. **面板标题用灰底"标签条"写在面板内部**（"Slip Prediction"、"Trajectory adaptation"），不是图下方的 (a)(b)(c)。
+3. **实物照片放在最左侧的粉色圆角框里**，照片下方写名字（"Robotic arm"）。
+4. **网络模块是小色块、文字竖排**：粉色 = 输入（robot / tactile），黄色 = FC，绿色 = LSTM。
+5. **细黑直角折线箭头**，信号名写在线旁（action / tactile / slip）。
+6. 输出沿底部一条长线回到左侧（那是闭环控制的反馈）。
+
+### 2. 拟定映射（待 OPEN QUESTIONS 确认）
+
+- 左：粉色圆角框放手套照片，下写 "Tactile glove"；
+- 中：灰色虚线面板，内含 $s_t=[F,CoP_x,CoP_y]$ → per-frame → Encoder GRU，标签条 "Physical state & Embedding"（或拆两块）；
+- 右：浅橙虚线面板，标签条 "Forecast"，内部上下两行 ProbGRU / Seq2Seq，保留 autoregressive / one-shot；
+- 输出 $\hat{s}_{t+n}$ 放在右端。
+- **不照搬第 6 条的底部回路。** 参考图那条线是机器人闭环控制；我们的模型是开环预测，
+  画一条回到手套的线会暗示一个不存在的反馈。
+
+### 3. OPEN QUESTIONS
+
+- **Q1 照片位置**：用手套照片**替换** (a) 里现有的紫色 "tactile frames" 方块（两者表达同一件事），还是**额外**加在 (a) 左边？
+- **Q2 版式改动深度**：完整照搬（嵌套彩色容器 + 面板内灰底标签条，取消图下 (a)(b)(c)），还是保留现有结构、只加照片框并换配色？
+- **Q3 照片里的橙色箭头 + 来源**：该图看起来是从已发表论文的插图里截的（橙色箭头是标注叠层）。
+  裁掉箭头所在区域、原样保留、还是你另给一张干净照片？**另：论文里用别人发表过的照片需要注明出处/取得许可**，这由你决定，我只提醒。
+- **Q4（上一轮遗留）**：Seq2Seq 两个 Linear 头改标 "one-shot decoder" / 维持现状 / 恢复带 reshape 标注的小网格。
+
+**状态：等待 Q1–Q4，未改代码。**
+
+### 4. Q1–Q4 回答（用户 2026-09-14）与实施
+
+| | 回答 |
+|---|---|
+| Q1 | **替换**紫色 tactile frames 方块，手套照片放最左粉色框 |
+| Q2 | **完整照搬**参考版式：嵌套彩色虚线容器 + 面板内灰底标签条，取消图下 (a)(b)(c) |
+| Q3 | **裁掉箭头区域**，不涂改照片内容 |
+| Q4 | Seq2Seq 两个 Linear 头**改标 "one-shot decoder"** |
+
+**文件：**
+- 新增 `figures/assets/tactile_glove_src.png`：用户桌面截图 `截屏2026-09-14 17.07.22.png` 的原样拷贝（486×502），
+  放进仓库是为了让裁切可以复现；
+- 重写 `scripts/shared/plot_model_architectures.py`：现在是**自包含**脚本，不再 import
+  `plot_model_diagram.py` 的画图原语，因为配色和线型已完全换成参考图的 draw.io 调色板，旧原语对不上；
+- 重新生成 `figures/model_architectures.{png,pdf}`（300 dpi；pdf 里照片是位图，其余是矢量）。
+
+**裁切：** `GLOVE_CROP = (40, 0, 450, 292)`。箭头尖端约在源图 y≈300，小指末端约在 y≈175，
+所以取 y<292 就能保留五指和手掌、完全去掉箭头。裁后的试样已目视确认无箭头残留。
+
+**参考图要素 → 本图映射：**
+
+| 参考图 | 本图 |
+|---|---|
+| 外层浅绿圆角框 | 同，包住全图 |
+| 内层浅蓝虚线框 | 同，包住三个模型面板 |
+| 左侧粉框实物照 + 下方名字 | 手套照片 + "Tactile glove" |
+| 灰色虚线面板 + 灰底标签条 | "Physical state"、"Embedding" 两块 |
+| 浅橙虚线面板 + 标签条 | "Forecast"，内含上下两行 |
+| 粉色输入块（竖排字） | $s_t=[F, CoP_x, CoP_y]$ 竖排块；per-frame 条也改粉色 |
+| 绿色 LSTM 块 / 黄色 FC 块 | Encoder / Decoder GRU 用绿；所有 Linear 头用黄 |
+| 线旁信号名（action / tactile / slip） | tactile、downsample ×3 / 10 Hz、$h$、reshape |
+| T 形分叉线、只在终点带箭头 | $h$ 总线：一根主干 + T 形分叉，每个接收方一个箭头（顺带彻底解决上一轮的"奇怪短箭头"） |
+| 底部虚线框写输出 | 虚线框 $\hat{s}_{t+n}$，两行输出汇到右侧总线后下行进入 |
+
+**刻意没照搬的一处：底部回到左侧的反馈长线。** 参考图那条线是机器人闭环控制；
+我们的预测器是开环，画回手套的线会宣称一个不存在的反馈。输出只进入 $\hat{s}_{t+n}$ 框，止于此。
+
+**Q4 的落点：** 两个 Linear 头外面加一个灰色虚线分组框，框下写 "one-shot decoder"，
+输出线上保留 `reshape H·C → (H, C)`。没有画 decoder GRU，与代码
+（`models.py:62-80` 等三处）和 `main.tex:213` 一致。
+
+**为求紧凑去掉的一项：** $\log\sigma^2$ 头上的 `clamp[−6,4]`。正文 `main.tex:215` 已写明 clamp，图上不必重复。
+
+**两件需要你处理或决定的事：**
+
+1. **照片版权/出处。** 该照片带橙色标注箭头，像是从已发表论文插图截的。放进论文图里
+   **必须在 caption 注明出处，或取得许可**，或者换成自己拍的手套照片（换图只需替换
+   `figures/assets/tactile_glove_src.png` 并改 `GLOVE_CROP`）。
+2. **印刷字号偏小（新发现，未改）。** `main.tex:13` 是 `ieeeconf` 双栏，`figure*` 通栏宽约 7 英寸；
+   本图画布宽 13.5 英寸，放进论文会缩到约 **0.53 倍**，最小的标注（fs 6.2）实际印出来只有 **约 3.3 pt**，
+   行标题（fs 7.3）约 3.9 pt，低于常见的 ~6 pt 可读下限。之前几版（12–15 英寸宽）也有同样问题，
+   这次才核对论文版心。修法是按 7 英寸原生尺寸重排、全部字号 ≥6 pt——这会让方块相对变大、
+   画面更挤，属于实质性改动，**等你决定**再动。
+
+**状态：** 图已生成并目视校对；`main.tex` 仍未动；工作区未提交。
+
+### 5. 删标注 + 换配色（用户 2026-09-14）
+
+**指令原文：** downsample 那里去掉所有数字，只保留 downsample；seq2seq reshape HC→(H,C) 删掉，
+decoder 里两个 (dh→HC) 也删掉；调整一下配色，用这几个颜色（Coolors "Ocean Pearl Delight"：
+`#006D77` `#83C5BE` `#EDF6F9` `#FFDDD2` `#E29578`）。
+
+**删除：**
+- `downsample ×3` / `10 Hz` → 只剩 `downsample`；
+- Seq2Seq 输出线上的 `reshape H·C → (H, C)` 删除；
+- Seq2Seq 两个头 `Linear(d_h→H·C), μ` / `…, log σ²` → `Linear, μ` / `Linear, log σ²`。
+  文字变短后两块从 22 收窄到 13 单位、分组框 26→17，保持"盒子贴字"。
+- 注：ProbGRU 行的 `Linear μ, log σ²` 不含形状，不在本条指令范围内，未动。
+
+**这些删掉的信息去哪了：** 降采样倍率和头的形状都已在正文（`main.tex:213-215`），
+图上不再重复。脚本 docstring 的 NOT DRAWN 段已同步。
+
+**配色角色分配（全部只用这五个色，文字另用近黑 `#1a1a1a` 与白色）：**
+
+| 角色 | 填充 | 边框 | 理由 |
+|---|---|---|---|
+| 外层框 | `#EDF6F9` | `#83C5BE` | 最浅的底 |
+| 内层模型框 | `#83C5BE` | `#006D77` 虚线 | 与外层、面板都拉开一档 |
+| Physical state / Embedding 面板 | `#EDF6F9` | `#006D77` 虚线 | 在中青底上浮出 |
+| Forecast 面板 | `#FFDDD2` | `#E29578` 虚线 | 用暖色把"唯一不同的部分"单独标出 |
+| 输入（手套框、$s_t$、per-frame 条） | `#FFDDD2` | `#E29578` | 延续参考图"输入=暖色"的约定 |
+| Encoder / Decoder GRU | `#006D77` | `#006D77` | 学到的循环模块最重，白字 |
+| 所有 Linear 头 | `#EDF6F9` | `#006D77` | 在桃色 Forecast 面板里需要浅色才看得清 |
+| 面板标题条 | `#006D77` | — | 白字粗体 |
+| 自回归回灌虚线、行分隔线 | `#E29578` | — | 暖色与 Forecast 同系 |
+| 输出框 $\hat{s}_{t+n}$ | `#FFDDD2` | `#E29578` 虚线 | 与 Forecast 同系，表明它是预测产物 |
+
+**一处可读性取舍：** 两个行标题原本想分用两色，但 `#E29578` 文字压在 `#FFDDD2` 面板上
+对比度只有约 2:1，看不清；故两行标题都用 `#006D77`（对比度约 5.6:1）。
+
+**状态：** 已重画并目视校对。仍开着：照片出处/许可；印刷字号（约 0.53 倍缩放）；`main.tex` 未接线；未提交。
+
+## Session (2026-09-14，续) — 核对：除 1 s 之外是否试过其他 forecast horizon
+
+**用户问题：** "我们有尝试过不同 forecast horizon 吗，1 s 之外？我记得没有。" 只查不实现。
+
+**结论：试过，但都在早期、都不在论文的冻结协议里；用户的记忆对论文阶段成立，对整个项目不成立。**
+
+| # | 做了什么 | horizon | 数据 / 模型 | 结果 | 现状 |
+|---|---|---|---|---|---|
+| 1 | tactile→tactile 像素图预测（2026-06-18/19） | **0.5 s**（t_out=15 @30 fps）；逐步报告 h1–h15 | EgoTouch Grasp/Hold/Lift，82 条；ConvGRU/ConvLSTM/SimVP | LTO 5 折：SimVP +.192、ConvLSTM +.152、ConvGRU +.138；LOTO SimVP +.005 | 0.5 s 是**定下来的**，不是 sweep（`configs/tactile_pixel/convgru.yaml:5` "decision: 0.5 s"），依据是 probe 显示持续性 nMSE 在 h=15 已达 .72（SESSION_LOG:118-121）。已被后来的 F/CoP 路线取代。 |
+| 2 | **ActionSense v2 F/CoP horizon sweep**（2026-07-06，commit a0a58e8，只记了日志） | **0.5 / 1.0 / 1.5 / 2.0 s** | Slice+Peel 等合并；slow/fast ProbGRU | skill .74 / .68 / .62 / .58（平缓下降；"1 s 是好的工作点"）SESSION_LOG:848 | **作废**：在因果修复（de70618，2026-07-08，filtfilt→sosfilt）**之前**，非因果滤波把未来信息漏进了 fast 目标，同一 pipeline 修复后 skill 从 ~.70 掉到 ~.40。没有修复后的重跑。没有留下 CSV/脚本输出，只有日志里这一行。 |
+| 3 | 早期 CRC 单次运行 | **0.5 s**（t_out=5） | Slice+Peel，1 s history | +.770 | 同样在因果修复之前（SESSION_LOG:885），**作废**。 |
+| 4 | 免训练的可预测性 probe | 多 horizon：h=1/3/5/10/15/30 帧，或 1/5/15/30 帧 | EgoTouch / OpenTouch / ActionSense | 只算持续性 nMSE，不训练模型 | `scripts/egotouch/tactile_predictability_probe.py:29`、`probe_egotouch.py:51`、`src/tactile_pixel/predictability.py:24`。是在描述信号难度，不是在试 forecast horizon。 |
+
+**不算"不同 horizon"的（容易混淆）：**
+- 1 s horizon 内部的逐步分析（+0.1…+1.0 s 的 skill 曲线，SESSION_LOG:966 等；harness 的 per-step
+  曲线）——都是同一个 1 s 模型的内部分解，不是用别的 horizon 训练。
+- `docs/actionsense/horizon_highpass.png`（`plot_horizon.py`）：名字带 horizon，但只是一个 origin 上
+  1 s 预测的示意图。
+- OpenTouch 立项时讨论过缩短到 0.5 s（SESSION_LOG:2273-2277 选项 (b)），**未采用**，最终 30 Hz、1 s。
+
+**论文 / 冻结协议阶段：** 所有数据集 horizon 统一 1.0 s——`configs/actionsense/eval_harness.yaml:16`、
+`configs/opentouch/eval_harness.yaml:19`、`configs/egotouch/eval_harness.yaml:27`、
+`configs/d256/eval_harness.yaml:28`；main.tex:68 "one-second tactile forecasting"。
+
+**含义：** 目前**没有任何因果修复之后、有效的 horizon 对比**。若论文需要讨论 horizon 敏感度，只能引
+1 s 内的逐步曲线，或者重新跑一次（未提议，只记录）。
+
+## 2026-09-14 — 【新图·计划】F 与 CoP 的物理含义图（从 OpenTouch 手套可视化出发）
+
+### 0. 指令原文
+
+> 画一个新的图，跟 dataset 的动作联系在一起，在图片上表示 total force and COP 都分别代表了什么，
+> 从 physica_state.py 可以看到公式；从我给你上传的这张图开始，在展开的手套图旁边标出 COP 的位置，
+> 列出 F 是采用了哪些 taxel 的数值来画的，几个物理量具体是怎么计算的
+
+上传图 = `~/Desktop/截屏2026-09-14 18.46.46.png`（三栏：手形压力渲染 / 第一视角视频帧（手持电钻）/ 手部叠加）。
+
+### 1. 事实核查（全部读码或读记录，非推测）
+
+**1.1 这张图是 OpenTouch，不是 ActionSense。** 单只右手、手持电钻的第一视角画面，与
+`scripts/opentouch/extract_opentouch.py:14-17`（"instrument ONLY the right hand"）一致；
+ActionSense 是双手 32×32 织物手套（`data/actionsense_states/clip_1.npy` 形状 `(1623, 2, 32, 32)`）。
+
+**1.2 公式在两个数据集上逐行相同，只有前处理不同。**
+- `src/actionsense/physical_state.py:36-56 frame_state`：$F=\sum p$，$\bar x=\sum p\,x/F$，$\bar y=\sum p\,y/F$，
+  坐标 `linspace(-1,1)`，先 `clip(p, 0)`。
+- `scripts/opentouch/extract_opentouch.py:140-160 moments` 与 `src/opentouch/baseline.py:66-85`：
+  docstring 明言 "Identical maths to physical_state.py"，逐行核对属实。
+- 论文 `main.tex:104-108` 同式（分母多一个 $\epsilon$）。
+- **前处理差异**（`main.tex:180-184`）：ActionSense 每 taxel 减整段录制第 5 百分位再截零；
+  OpenTouch 用 **D1**：每 shard 每 taxel 中位数 $b$、单侧稳健尺度 $\sigma=1.4826\,\mathrm{MAD}$（下限半个量化步长），
+  $\tilde p=\max(p-(b+k\sigma),0)$，$k=1$，再算矩。
+
+**1.3 论文的 OpenTouch 目标用的是 D1 校正后的数据。** 记录里 2026-08-16 曾"放弃 D1"（`SESSION_LOG.md:4742`），
+08-19 决定恢复（`:5380`），R3 起用 `configs/opentouch/eval_harness_d1.yaml`（`:5554`），`main.tex:184` 写明保留。
+为什么 D1 必需：传感器静息即在满量程 95%（F 均值 746,325 / 理论上限 256×3072=786,432，`:4715` 起），
+直流占 F 的 99.3%；不扣基线时 CoP 被钉在中心（活动范围 0.041 → 扣后 1.24）。
+
+**1.4 "F 用了哪些 taxel"：16×16 全部 256 格，没有任何手部区域掩码。**
+- `extract_opentouch.py:18` docstring 说"169 个活格、死格读 ~0"——**已被证伪**：26 个 shard 普查
+  `dead = 0`，每格静息读数约 2900（`SESSION_LOG.md:4620`；`opentouch_baseline_report.py:34-35`）。
+- 硬件确为 169 个 taxel 覆盖手指与掌侧（OpenTouch 论文，`:3768`），但**代码求和的是整个 256 格阵列**。
+- D1 之后，静息格被软阈值压成 0，**每帧实际贡献 F 的是 $\tilde p>0$ 的格子**——这是可以逐帧画出来的。
+
+**1.5 关键限制：仓库里没有"格子→手上位置"的映射。**
+`SESSION_LOG.md:4414`："taxel→手局部 3D 表面点——没有，最大缺口。仓库无任何 taxel 布局/几何标定。"
+OpenTouch 论文也未给映射表（`:3771`）。真实 16×16 数据是**方形阵列**，看不出手形
+（见 `docs/opentouch/exploratory/opentouch_tactile_map.png`）。上传图顶栏的手形渲染是 OpenTouch 自己的可视化。
+**因此 CoP 只能在 16×16 网格坐标里被如实标出；画到手形渲染上需要一个我们没有的映射。**
+
+**1.6 数据不在本机。** `data/` 只有 `actionsense_states`；OpenTouch D1 cache 在 CRC
+`/users/jhao3/opentouch/cache_d1`（`eval_harness_d1.yaml:67`）。这张电钻图对应哪个 clip，记录里查无（grep "drill" 无结果）。
+
+### 2. 应写进图里的物理含义（据代码，含两条必须的告诫）
+
+- **$F$** = 校正后 256 格压力读数之和，**任意单位（量化计数），不是牛顿**；无面积加权、无标定曲线（`:3772`）。
+  含义：整只手当前"压得多重"的总量代理。
+- **CoP $(c^x,c^y)$** = 压力加权重心，**在 16×16 网格的归一化坐标 $[-1,1]$ 里**，不是手表面上的 3D 点。
+  含义：接触"集中在哪儿"。**告诫：** 若网格跨越多根手指，网格空间的重心可以落在两指之间——
+  那里没有传感表面（`:4410` 已记，正确的 3D 压心须先把 taxel 映到 3D）。
+- **CoP 掩码**：力低于训练折第 5 百分位时 CoP 不参与评分（`src/opentouch/masking.py`）——CoP 在无接触时无定义。
+
+### 3. OPEN QUESTIONS
+
+- **Q1 CoP 标在哪**：真实映射不存在（§1.5）。只在旁边的 16×16 网格上标 CoP、手形渲染不打点（如实）；
+  还是在手形渲染上画一个"示意"位置；还是先去 CRC 查 shard 的 `calibration` 字段有没有映射（需下 587 MB）？
+- **Q2 数值来源**：本机无 OpenTouch 数据（§1.6）。我写脚本 + 给一条 CRC 导出命令、你跑完回传一帧；
+  还是用明确标注"示意"的合成帧；还是改用本机就有的 ActionSense（但与上传图不符）？
+- **Q3 "跟动作联系"**：只注释这一帧；还是一帧 + 该 clip 的 $F(t)$、$c^x(t)$、$c^y(t)$ 短时序，并标出 onset/peak/post？
+- **Q4 上传图的使用**：三栏都用，还是只用手形渲染 + 视频帧？（同上一张手套照片：若出自 OpenTouch 论文/网站，需注明出处。）
+
+**状态：等待 Q1–Q4，未写代码。**
+
+
+### EgoTouch normalization 的责任边界澄清（2026-09-14）
+
+**用户问题：** “所以egotouch的leakage是由于官方发布的normalization造成的，并不是我们在preprocessing过程中产生的？”
+
+**答复：** 就此次发现的 normalization 风险而言，现有证据支持“上游引入、下游继承”。
+两条官方发布 NPZ 与 raw JSON 的数值比对强烈指向整 episode 归一化；本 repo EgoTouch
+extractor 原样读取这些 grids，显式 baseline_pct=None，map 的 baseline_frames=0，
+后续 TRAIN Norm 不重新使用 VAL/TEST 拟合。因此这个特定未来依赖不是本 repo 在计算 F/CoP
+时新加入的，但进入 map/physical input 后仍会影响本项目预测协议的因果性。
+这不是对我们所有 preprocessing 的全面无泄漏担保，也不能因为来源是官方就声称结果严格
+在线可用。生成源码仍未找到、证据限于所查样本；完整规则和分数影响尚待核定。
+本轮只澄清和追加日志，未修改代码、未重跑实验。
+
+### 4. Q1–Q4 回答（用户 2026-09-14）
+
+| | 回答 |
+|---|---|
+| Q1 | **在手形图上画示意位置** |
+| Q2 | **CRC 导出真实一帧** |
+| Q3 | **一帧 + 该 clip 的时序**（onset/peak/post） |
+| Q4 | **只用手形渲染 + 视频帧** |
+
+**由回答引出的三点处理（记下以免被当成擅自决定）：**
+
+1. **Q1 与 Q2 之间必然错帧。** shard（含 RGB 视频）已全部删除（`SESSION_LOG.md:4700`），
+   CRC 上只剩压力 cache，**无法把导出的真实帧对齐到上传截图的那一帧**。
+   故图上：截图（渲染 + 视频）= "OpenTouch 可视化示例"；数字 = CRC 上一个真实电钻 clip。图注必须写明两者不是同一帧。
+2. **示意 CoP 点不随手放。** 用**手形渲染图自身的发光亮度加权重心**定位——它是"这张图的压力重心"，
+   有据可依；但渲染亮度 ≠ 标定压力、且无格子→手映射，故仍标注"示意"。
+3. **仍画一块真实 16×16 网格。** Q1 选了画在手上，但"列出 F 用了哪些 taxel"需要真实网格才答得出：
+   该面板显示 D1 后 $\tilde p>0$ 的格子（即本帧真正贡献 F 的格子）与网格坐标里的真实 CoP。
+
+**截图已拆分入库：** `figures/assets/opentouch_drill_src.png`（原样）、`…_render.png`（行 15–334）、
+`…_video.png`（行 340–577）；第三栏叠加图（行 580 起）按 Q4 不用。
+
+**导出方案（待写）：** 新脚本 `scripts/opentouch/export_fcop_explainer.py`，在 CRC 前端机跑（纯 CPU、秒级）：
+- 从 manifest 找 `object_name` 含 drill 的 clip，打印候选表；**全部候选各存一个小 npz**，免得为选 clip 再跑一趟 CRC；
+- 每个 npz：manifest 行、`cache_d1/state_N.npy` 的 $F,c^x,c^y$ 全时序、onset/peak/post 三帧的原始图与 D1 图、该 shard 的 $b,\sigma$；
+- **自检**：从原始 cache 按 D1 重算的矩必须与 `cache_d1/state_N.npy` 一致，否则非零退出——即规则 6 要求的"错代码会大声失败"；
+- 若 manifest 里没有 drill，打印 `object_name` 词表后退出，不静默换别的物体。
+
+
+### EgoTouch 能否绕过官方 normalization、具体包含什么（2026-09-14）
+
+**用户问题：** “可以不用他们的normalization吗，他们的normalization都包括了什么呢”。
+本轮核查可行性并解释处理范围；未将这一询问视为已经选择了具体 EgoTouch baseline/modality
+协议，未改训练或提取实现。
+
+**官方描述与样本事实：** 重读论文 https://arxiv.org/html/2605.13083v1 附录8.1–8.2。
+原始 JSON 保存每手256通道、ts/frame_index；固定映射到21×21网格、右手镜像、无sensor处NaN；
+首帧被判无接触时可减首帧baseline；右手已知坏列用相邻有效列作空间插值；tactile与bending
+分别归一化。严格说只有最后的缩放是normalization，其他是网格构造/校正/修复。两个已查NPZ
+保存tactile_max和bend_max（51/90、53/59）；样本高度支持完整episode统计尺度，论文未明示
+分母scope，完整生成源码仍缺。不同手/通道混合与空间插值不能简化成“整图乘一个scale”。
+
+**新增实际验证：** 使用上一轮已下载的两个raw JSON与NPZ，不再下载数据。对两份左手的217个
+mapped cells，以已由raw比对确认的cell/divisor对应关系分别乘回tactile_max或bend_max，
+恢复max(raw[t]-raw[0],0)的最大绝对误差分别为3.814697265625e-06、1.9073486328125e-06，
+无格点误差超过1e-5。若所有格点统一乘tactile_max，最大误差分别39、5.491523742675781。
+这些是两个样本左手的恢复测试，尚未验证完整右手修复路径，也不能把通过读完整待测clip推断
+modality mask的方法当作上线流程。实际恢复必须使用固定、核验过的通道类型mask。
+两样本各有21570/8897个mapped frame/cell的原始值低于首帧，说明减baseline后clip到0确实
+丢失信息；乘回scale只能得到校正后原尺度，不能恢复首帧向量/负差或被坏列插值覆盖的原始读数。
+
+**答复与推荐：** 可以不使用官方的episode归一化。推荐从jq_pressure.json重建固定空间网格，
+明确baseline与坏列处理，任何需要学习的尺度只从TRAIN拟合并冻结，统一重算maps/F/CoP后重训。
+保持同一source episode集合即可继续使用官方split；尚未核验全语料raw JSON覆盖，不能假设
+两条可下载代表全部都齐全。次选是依据元数据和固定modality mask撤销除法，但不能宣称完整
+原始压力恢复。数学上 y=x/s 再乘s能消除该尺度依赖，即使s原来来自未来也不自动意味着恢复
+结果仍泄漏；需要核验抵消完整性、浮点误差及剩余预处理，不能笼统断言“乘回未来max也必漏”。
+
+**文档：** docs/egotouch/calibration_audit.md 追加绕过/恢复方案、数值验证与限制。
+本轮没有实施protocol替换、没有重训、没有改动其他任务的文件；git diff --check 用于文档校验。
+
+### 5. 实施：两个脚本 + 本地冒烟测试（2026-09-14）
+
+**新文件：**
+- `scripts/opentouch/export_fcop_explainer.py` —— 在 CRC 跑。按 `object_name`/`object_category` 正则（默认 `drill`）
+  找候选 clip，**每个候选**导出一个小 npz：`cache_d1/state_N.npy` 的 $F,c^x,c^y$ 全时序，onset/peak/post 帧的原始图与 D1 图，
+  该 shard 的 $b,\sigma$，以及选定帧（有效 peak 用 peak，否则 argmax $F$，并排除 `data/opentouch_peak_mismatch.json` 里的 clip）。
+  另写 `candidates.tsv`，并打成 tar.gz。
+  **致命自检：** 从原始 cache 按 `src/opentouch/baseline.py` 重算 D1 矩，必须与 `cache_d1/state_N.npy` 一致
+  （$F$ 相对误差 ≤1e-4，CoP 绝对误差 ≤1e-4），否则**退出码 3**。无匹配时打印 `object_name` 词表，**退出码 2**。
+  第一行打印 `scope=D1 … candidates=n of N`，用来一眼确认跑的是新代码、范围对不对（规则 6）。
+- `scripts/opentouch/plot_fcop_explainer.py` —— 在本地跑，读一个 npz。**按论文原生宽度 7 in 画，所有字号 ≥6 pt**，
+  避免上一张图的印刷字号问题重演。出图前再断言一次：所画 D1 图的 $\sum\tilde p$ 与 CoP 必须等于 cache 里的数。
+- `figures/assets/opentouch_drill_{src,render,video}.png`（见 §4）。
+
+**本地冒烟测试（scratchpad，合成 cache，结果不入 `figures/`）：**
+
+| 步骤 | 期望 | 结果 |
+|---|---|---|
+| 用**真实的** `opentouch_apply_baseline.py` 在合成原始 cache 上写 D1 cache | 正常写出 | 3 clip，F 均值 743,032 → 275 |
+| export，模式 `drill` | 2 个候选，退出 0 | 2 个（clip 0 有 peak；clip 2 无 peak → 回退 argmax），**自检通过**，退出 0 |
+| export，模式 `zzz` | 打印词表，退出 2 | 退出 2 |
+| 把 D1 cache 中一帧 $F$ 改大 1% | 自检失败，退出 3 | `FATAL … F rel 9.90e-03`，退出 3 |
+| plot（clip 0 与无 peak 的 clip 2） | 出图，断言通过 | 通过 |
+
+**第一版版面问题与修正：** (1) (b) 下的脚注与 (c) 的说明文字重叠 → 脚注拆两行放 (b) 正下方，(c) 整体上移；
+(2) (d) 中 $\sum$ 的上下限掉进下一行灰字 → 改用行内 $\Sigma_{i,j}$；
+(3) "CoP (illustrative)" 标签压在黑色手套上看不清 → 移到右上白底；
+(4) **(b) 标题原写 "holding a drill"，但截图不是真实 clip，不能替数据集下动作标签** → 改为 "Egocentric view of the action"，
+真实动作标签只出现在 (c) 下方、从 manifest 读取。
+
+**规则 6 状态：** 两个新脚本与 assets **未跟踪**；`origin/main..HEAD` 为空；export 依赖的 `src/opentouch/baseline.py` 与
+`opentouch_apply_baseline.py` 与 origin **无差异**。→ **只需提交并推送 `export_fcop_explainer.py`**，CRC 即可跑。已征求推送许可。
+
+### 6. 提交与 CRC 交接（2026-09-14）
+
+**更正 §5 的时序：** §5 写"版面问题已修正"时，第一次补丁其实**没有生效**——搜索串的转义与文件不符，
+脚本在第一条断言处中止、一行未写，紧接着的重绘用的仍是旧版面。随后改为按行锚点替换，11 处全部命中，
+重绘后目视确认四个问题均已消失。§5 的描述现在属实。
+
+**提交：** `c82773f` "Export real OpenTouch D1 maps for the F/CoP explainer, and draw it at paper width"，已推送。
+仅含：`scripts/opentouch/export_fcop_explainer.py`、`scripts/opentouch/plot_fcop_explainer.py`、
+`figures/assets/opentouch_drill_{src,render,video}.png`，以及 `figures/assets/tactile_glove_src.png`。
+**注意：** 后者属于架构图，而 `scripts/shared/plot_model_architectures.py` **仍未提交**——素材先于脚本入库，无害，但要知道。
+暂存区事先确认为空；工作区其他未提交修改未触碰。推送后 `origin/main..HEAD` 为空。
+
+**CRC 命令（需要 ≥ `c82773f`）：**
+```bash
+cd ~/TouchAnything && git pull && git log -1 --oneline      # 必须显示 c82773f 或更新
+conda activate tactile
+python scripts/opentouch/export_fcop_explainer.py           # 前端机即可：纯 CPU，秒级
+```
+**跑对代码的一行确认：** 输出第一行必须是
+`export_fcop_explainer: scope=D1 d1=…/opentouch/cache_d1 raw=…/opentouch/cache match='drill' candidates=N of M`。
+退出码：0 = 正常；2 = 没有 drill（会打印物体词表）或候选全缺原始 map；3 = D1 自检失败（图会与论文数据不一致，**不要用**）。
+**前提：** 需要原始 cache `~/opentouch/cache/clip_*.npy` 仍在；若已删，会逐个打印 `skip … missing clip`。
+**取回：** `scp <CRC 登录>:~/fcop_explainer.tar.gz .`，然后告诉我选哪个 clip，我出 `figures/fcop_explainer.{png,pdf}`。
+
+### 7. CRC 导出结果（用户 2026-09-14 回贴）
+
+`c82773f` 确认在跑；首行 `scope=D1 d1=/users/jhao3/opentouch/cache_d1 raw=/users/jhao3/opentouch/cache match='drill' candidates=5 of 2904`；
+**5 个全部通过 D1 自检**，产出 `/users/jhao3/fcop_explainer.tar.gz`（尚未拷回本机）。
+
+| idx | action | object | T | F@帧 | $c^x$ | $c^y$ | $\tilde p>0$ 格数 |
+|---|---|---|---|---|---|---|---|
+| 1777 | picking up | yellow power drill | 105 | 1408 | +0.75 | −0.06 | 15 |
+| 1778 | grasping | yellow corded power drill | 142 | 1408 | +0.75 | −0.06 | 15 |
+| 1779 | grasping | DeWALT cordless drill | 62 | 1502 | +0.72 | −0.13 | 22 |
+| 2706 | picking up | cordless power drill | 324 | 833 | +0.70 | −0.45 | 14 |
+| 2707 | picking up | cordless power drill | 144 | 504 | +0.88 | −0.18 | 9 |
+
+**选 clip 前必须先查的两个疑点（据表，未下结论）：**
+
+1. **1777 与 1778 选定帧四个数完全相同**（F=1408、$c^x$=+0.75、$c^y$=−0.06、15 格），但物体名、动作、长度都不同，且 idx 相邻（同 shard）。
+   这不像巧合，更像**同一段录制被切成两个重叠 clip**，或是标注错配（D2 的错配问题出现在 10/26 个 shard）。
+   检查方法：比对两者 $F(t)$ 是否存在平移后逐帧相等的子段。**确认前两者都不用。**
+2. **5 个 clip 的 $c^x$ 全在 +0.70～+0.88**，接触全挤在网格最右几列，且活跃格只有 9–22 个。
+   早先原始 filmstrip（`docs/opentouch/exploratory/opentouch_tactile_map.png`）里，**网球拍、雨伞、青椒等无关动作**
+   也都有右侧暖色带和右下角热格；D1 记录里被标为饱和的格子承载了校正后 F 的 38.6%（`SESSION_LOG.md:4715` 起）。
+   所以右偏**可能是传感器边缘/饱和格的伪影，而不是握电钻的物理**——用它来解释"CoP 代表什么"会误导读者。
+   检查方法：看五个 clip 的 D1 图中贡献 F 的格子是否固定在同一批右侧/角落格子上，且与握持阶段无关。
+
+**状态：** 等待用户 `scp` 拷回 tarball；拷回后先做上述两项检查，再推荐 clip 并出图。
+
+### 8. 回传方式改为：CRC 上提交导出文件并推送到 GitHub（用户 2026-09-14）
+
+用户要求不用 `scp`，改由 CRC 直接 push。目标目录 `docs/opentouch/fcop_explainer/`：
+与其他 OpenTouch 产出同级；已用 `git check-ignore` 确认**不被忽略**（`.gitignore` 只忽略 `data/*_states` 等缓存目录），
+避免 `git add` 静默跳过 npz、推上去一个空提交。5 个 npz + tsv 总共几 KB，适合入库。
+
+命令要点：先 `git pull --ff-only`；解包时 `--strip-components=1`（tar 内顶层目录名为 `fcop_explainer`）；
+**文件数断言**（必须正好 5 个 npz，否则中止）；`git commit -- docs/opentouch/fcop_explainer` 只提交该路径，
+即使 CRC 暂存区里有别的东西也不会被带上。无需新代码，CRC 已在 `c82773f`（= origin），规则 6 满足。
+推送后本机 `git pull` 取回，再做 §7 的两项检查。
+
+### 9. 数据检查结果（本机 `git pull` 后，2026-09-14）
+
+**检查 1：1777 与 1778 —— 确认为重叠切片，不是巧合。**
+两者同 shard 相邻 demo（`hardware_homedepot_p2::demo_047` / `demo_048`，均为 `join=direct`）。
+**1778 的第 0–12 帧与 1777 的第 92–104 帧逐帧完全相等**（lag −92，13/13 帧 $|\Delta F|=0$），D1 图也逐格相同。
+两个"peak"（1777 t=101、1778 t=9）是同一物理帧，却分别标成 "picking up / yellow power drill" 与 "grasping / yellow corded power drill"。
+→ 本图不用这两个。**超出本图的含义（未调查，只记录）：** 语料中可能存在相邻 demo 重叠切片；同 shard 即同 location，
+不跨折泄漏，但会在 clip 等权平均里重复计数。仅偶然发现一对，未做全语料普查。
+
+**检查 2：右侧集中 —— 不是固定坏格，而是"只有右侧格子还有余量"的选择效应。**
+- 活跃格在 clip 间重合度低（Jaccard 0.04–0.19，重叠对除外）→ 不是一批固定的坏格。
+- **两个 shard（不同地点）静息时都有 116–117/256 个格子的基线正好顶在 3072 天花板上。** 这些格子
+  $\tilde p=\max(p-(3072+k\sigma),0)$ 恒为 0 —— **它们对 $F$ 和 CoP 的贡献在每一帧都确定为零**（确定性结论，非统计）。
+- 顶格的格子集中在第 0–7、9–10 列；余量 >100 计数的格子集中在第 8、11–15 列。
+  `hardware_homedepot_p2`：余量>100 的 98 格中 43 格在第 13–15 列（**44%，而这三列只占面积 19%**）；
+  `fablab_ml_p1`：69 格中 31 格（45%）。第 15 列 16/16 行均有余量，第 0 列 13–14/16 行顶格。
+- 活跃格的基线中位 2796–2918（余量 154–276），全网格基线中位 3042–3052（余量 20–30）。
+
+**结论：** OpenTouch 的 $c^x$ 被**系统性拉向右侧**，因为近一半格子（集中在左/中列）静息即饱和、永远无法记录接触；
+CoP 实际是"**尚有余量的格子**里的接触重心"。这是 `SESSION_LOG.md:4725`"静息在满量程 95%"在空间上的样子，
+此前未被记录。用本图解释"CoP 代表什么"时**必须把它画出来或写明**，否则读者会把右偏读成握电钻的物理。
+**对论文的含义（仅标记）：** `main.tex:180-184` 描述了 D1，但没说近半格子恒为零、CoP 有空间偏置。
+
+**检查 3：标注 peak 不是 D1 下的 F 峰值。** 标注 peak 处 F 仅在 clip 内第 27–66 百分位；
+argmax F 分别在 1777 t=50（2731）、1778 t=65（3006）、1779 t=12（2352）、2706 t=30（3317）、2707 t=99（1487），
+**均未被导出**。可能原因：标注按原始压力（被天花板直流主导）定义。**2707 更甚：peak 帧 F=504 < onset 帧 F=553。**
+若图里标 "peak"，它会落在 $F(t)$ 曲线的非峰值处，读者会困惑。
+
+### 10. OPEN QUESTIONS
+
+- **Q1 用哪个 clip**：2706（最长 324 帧，F 最大 3317，$c^y$ 有变化）/ 1779（62 帧，最短）/ 2707（标注与信号矛盾）。
+- **Q2 展示哪一帧**：改导出脚本、在 CRC 再导出 argmax-F 帧（多一轮 push/pull）；还是直接用已导出的标注 peak，并如实标注。
+- **Q3 顶格格子怎么呈现**：在 (c) 里把 116–117 个恒为零的顶格格子单独标出并加一行说明；仅在图注说明；还是不提。
+
+## Session (2026-09-14，续) — 核对：选 1 s 作为 forecast horizon 有没有明确理由
+
+**用户问题：** "那选择 1 s 作为 forecast horizon 没有明确的原因？" 只查不实现。
+
+**结论：没有。整个 repo 里找不到一条事先论证过、至今仍然成立的理由。1 s 是沿用下来的，
+后续每一步都把它当作已知前提，没有人重新论证过。**
+
+**1 s 的来历（按时间）：**
+1. **2026-06-18 EgoTouch 像素预测：明确选了 0.5 s，并主张不做 1 s。** `docs/TACTILE_PREDICTION_PLAN.md:239`
+   "Target horizon → 0.5 s … No ≥1 s goal"；`:200` 风险表 "autocorr<0 @1s → Target 0.1–0.5 s; treat ≥1 s
+   as stretch"；`docs/RESULTS.md:47` "≥1 s horizon not targeted (tactile-only autocorrelation → 0 by ~1 s)"。
+   理由有数据支撑（probe：持续性 nMSE 在 h=15 帧已 .72，h=30 帧 1.34）。**这是 repo 里唯一一次
+   有论证的 horizon 决定，而它的结论是 0.5 s，不是 1 s。**
+2. **2026-07-06 ActionSense horizon sweep：唯一一句支持 1 s 的话。** SESSION_LOG:848 "skill .74/.68/.62/.58
+   at 0.5/1.0/1.5/2.0 s (gentle decay; **1 s a good operating point**)"。只有这一句，没有展开；而且这些数字来自
+   因果修复（de70618，07-08）**之前**的泄漏 pipeline，已作废。
+3. **2026-07-07 sweep 默认值改成 1 s**（commit 67add0d、cbf0e65）。SESSION_LOG:885-886 只记录了"新默认
+   forecast 1 s，比 0.5 s 更难"，没有写为什么改。
+4. **2026-07-16 冻结 harness：** 需求来自用户给的规格（"~15 Hz, 15 steps"，即 1 s）。Q2 只确认了**步数**
+   （"10 Hz → 1 s = 10 steps"，SESSION_LOG:1310、1320-1324），**1 s 这个值本身没有被讨论**。
+5. **2026-08 OpenTouch：** SESSION_LOG:2274 "Keeps the 1 s horizon (**the physically meaningful quantity**)"
+   ——只是断言，没有论证；而且同一处还考虑过因为 clip 太短改成 0.5 s（选项 (b)），最终没采用。
+6. **论文计划与正文：** `docs/ICRA_PAPER_PLAN.md:285` "Horizon fixed at 1 s of wall clock"——只写了后果
+   （不同采样率下是 10/30/6 步，自回归误差累积步数不同），没写理由。main.tex:72 "a **common**
+   one-second horizon"——论证的是"各数据集用**同一个** horizon"（为了跨数据集比较），不是"为什么是 1 s"。
+7. **已承认为局限：** `docs/PROJECT_CONCLUSIONS.md:352` "1-second horizon only … Longer horizons … were never
+   tested and could favour the map or nonlinear models."
+
+**可以事后补的论据（我的分析，repo 里都没有被当作选择理由写下来）：**
+- SESSION_LOG:1034：F_fast 频谱质心 0.56 Hz → 周期约 1.8 s，1 s ≈ 半个切/削动作周期。但这是在泄漏
+  时期、针对 F_fast 算的，是在解释图为什么看起来太好，不是选择 horizon 的理由；需要在修复后的数据上重算。
+- "机器人需要提前约 1 s 知道接触变化"之类的应用理由：repo 里**没有**任何文献或论证支持，不能编造。
+
+**含义（未提议实现，只记录）：** 审稿人很可能问 "why 1 s"。目前能诚实给出的只有"为了跨数据集统一"，
+具体值没有依据；早期 EgoTouch 的证据甚至指向更短。补救选项：(a) 修复后在 ActionSense 上重跑 horizon
+sweep；(b) 在修复后的数据上重算周期论证并补文献；(c) 在论文里明确把 1 s 写成约定俗成的选择并列为局限。
+
+### 11. Q1–Q3 回答（用户 2026-09-14）与实施
+
+| | 回答 |
+|---|---|
+| Q1 | **clip 2706**（picking up / cordless power drill，fablab_ml_p1，324 帧） |
+| Q2 | **用已导出的标注 peak**（t=11，F=833），如实标注，不再跑 CRC |
+| Q3 | **在 (c) 里标出顶格格子并加一行说明** |
+
+**对 `scripts/opentouch/plot_fcop_explainer.py` 的修改：**
+1. **(c) 顶格格子**：基线 $\ge 3072$ 的格子画斜线，下方加一行 "hatched: N cells pinned at the ceiling at rest, so $\tilde p=0$ always"。
+   N 从 npz 里该 shard 的 `base` 现算，不写死。
+2. **帧标签如实**：时序图上 `peak` 显示为 "annotated peak"。2706 的 onset（0 s）与 peak（0.37 s）只差图宽的 3%，
+   标签会重叠 → **相距 <12% 图宽的标签合并成一个**（"onset / annotated peak"）。
+   在 $F(t)$ 上，这条线会明显不在峰顶（D1 下 F 最大在 t=30，F=3317）——这是如实展示，图注需一句解释。
+3. **(d) 灰字措辞改为与顶格发现一致**：
+   "total contact load; summed counts, not newtons" → "summed over all 256 cells; counts, not newtons"；
+   "where contact concentrates, in grid units" → "centroid of the registered pressure, grid units"。
+   理由：近一半格子无法记录接触，原措辞"总接触载荷""接触集中处"说过头了。
+4. 正式出图 `figures/fcop_explainer.{png,pdf}`，数据 `docs/opentouch/fcop_explainer/fcop_clip2706.npz`；
+   出图前脚本断言：所画 D1 图的 $\sum\tilde p$ 与 CoP 必须等于 cache 数值。
+
+**图注必须包含的四点**（写 `main.tex` 时用）：(a)(b) 是 OpenTouch 可视化截图，与 (c)(d) 不是同一帧；
+(a) 的 CoP 为示意（按渲染图发光亮度加权重心定位，无格子→手映射）；标注 peak 在 D1 F 下不是最大值；
+N 个静息即顶格的格子恒为 0，因此 CoP 系统性偏右。
+
+### 12. 出图完成（2026-09-14）
+
+`figures/fcop_explainer.{png,pdf}` 已由 clip 2706 生成，目视校对无重叠。
+出图断言通过：所画 D1 图 $\sum\tilde p$ = 833、CoP = (+0.698, −0.453)，与 cache 一致。本帧 14 格 $\tilde p>0$，**117 格静息即顶格**（斜线）。
+读图要点：CoP 落在右上，正好处在"非斜线区"；$F(t)$ 在约 1 s 附近达到 3317，而标注 peak（0.37 s）明显不在峰顶，与 §9 检查 3 一致。
+
+**最后一处修正：** (c) 下第一行说明原带 "(annotated peak)"，与 $c^y$ 轴的 −0.5 刻度标签重叠；
+这一信息 (d) 的时序标签已给出，故删去。
+
+**未提交：** `scripts/opentouch/plot_fcop_explainer.py` 在 `c82773f` 之后的修改（顶格斜线、标签合并、措辞、说明行），
+以及 `figures/fcop_explainer.{png,pdf}`。`main.tex` 未接线；图注须包含 §11 列出的四点。
+
+### 13. 精简版（用户 2026-09-14）
+
+**指令原文：** cd 所有内容都删掉只保留 ab；除了在手掌旁边标出来 cop 还要标出来 F；可以在 c 图旁边写
+F 就是所有这些有数据的格子的 p 加权求平均；图片保持精简。
+
+**更正用户的 F 定义（规则 2）：F 不是加权平均，是求和。**
+- 代码：`src/actionsense/physical_state.py:43` `F = p.sum()`；`src/opentouch/baseline.py` `moments` 中 `F = p.sum(axis=(1, 2))`；`main.tex:106` $F_t=\sum_{i,j}P_t(i,j)$。
+- 公式里的"p 加权平均"是 **CoP**：权重是 $\tilde p$，被平均的是**格子位置** $(x_j,y_i)$。
+- "所有有数据的格子的 p 加权平均"若按字面理解（对 p 本身加权平均）是 $\sum p^2/\sum p$，代码里没有这个量。
+→ 图上按代码写：$F=\sum\tilde p$（每个有数据格子的压力之和）；$\mathrm{CoP}=\frac{1}{F}\sum\tilde p\,(x_j,y_i)$（压力加权平均位置）。
+
+**实施（重写 `scripts/opentouch/plot_fcop_explainer.py`）：**
+- 只留 (a) 手形压力图、(b) 动作视频帧，上下排列；单栏宽 3.5 in × 3.05 in。
+- **F 的标法：** F 是整只手的一个标量、不是一个位置，所以用"一个 F 标签 + 指向渲染图中最亮的 3 个发光点的箭头"
+  表达"对所有受压处求和"。发光点由渲染图模糊后逐个取最大值（互相至少相隔 45 px）得到。
+- **CoP：** 仍在渲染图亮度加权重心处，引线连到右侧的 "CoP" 标签与公式。
+- 定义文字放在 (a) 右侧（原 (c) 的位置）；底部一行斜体 "marks on (a) are illustrative"。
+- **不再印任何真实 clip 数值。** 渲染图不是我们有数据的那一帧，把 clip 2706 的 F=833 放在它旁边会让数字与图不对应。
+  脚本因此不再读 npz（`--npz` 参数删除）。
+- **被删掉的真实数据面板的发现不丢：** 117/256 格顶格使 CoP 偏右、标注 peak 不是 D1 F 峰值——见本日 §9，应写进正文或图注。
+**精简版版面修正（同日）：** 画布高 3.05→3.20 in（原 (a) 标题被上边缘裁掉）；"= Σ" 紧贴 F；
+"marks on (a) are illustrative" 从右下角移到 CoP 定义下方。目视校对无裁切、无重叠。
+F 箭头指向的三个发光点：拇指尖 (259,163)、两个指尖 (124,29)/(179,41)；CoP 点 (154,153)，均为渲染图像素坐标。
+**未提交：** 重写后的 `plot_fcop_explainer.py` 与 `figures/fcop_explainer.{png,pdf}`；`main.tex` 未接线。
+
+## Session (2026-09-14，续) — `figures/model_architectures`：放大字号、减少留白
+
+**请求（用户）：** 不改变图片尺寸，放大所有字，减少留白。
+
+**分析：** 画布 13.5 in 宽，放进 `\textwidth`（ieeeconf ≈7.16 in）时缩放约 ×0.53；原字号 6–8 pt，印出来只有 3–4 pt，看不清。
+
+**对 `scripts/shared/plot_model_architectures.py` 的修改（只动 `build()` 和绘图基本函数，内容与语义不变）：**
+1. **尺寸不变：** `figsize` 仍为 13.5 × 4.86 in，300 dpi 下仍是 4050×1458 px（已核对）。
+2. **字号约 ×1.8：** 正文 11.5–15 pt，header chip 13.5 pt，$\hat s_{t+n}$ 17 pt，印出来约 6–9 pt。线宽 1.0→1.3，箭头 9→13，跟着一起加粗。
+3. **减少留白 / 重新排版：**
+   - 输出框 $\hat s_{t+n}$ 从底部独占的一条移到最右侧边距；内层容器和各面板在竖直方向拉满（面板 y 4.5–67，原来是 17–64）。
+   - 面板之间的空隙收窄（手套到 Physical state，Physical state 到 Embedding）。
+   - "Physical state" chip 改成两行，这个面板从 23 缩到 19 单位宽；$s_t$ 竖排框拉长到 45 单位。
+   - Embedding 面板里的帧方块和 Encoder GRU 往下移，让竖直方向的空白分布均匀。
+4. **目视检查：** 第一版里 "downsample" 压在 Physical state 面板边框上，"$h$" 压在 Embedding 面板边框上，已修正。当前没有文字重叠，也没有文字压线。
+
+**未改：** 图的内容和各项 "NOT DRAWN" 约定；`main.tex` 仍未接入这张图（论文里还是两个 minipage 占位）。
+**未提交：** 脚本和 `figures/model_architectures.{png,pdf}`。
+
+## Session (2026-09-14，续) — 核对："history 选 3 s 是因为总体上 history 短一些 skill 比较好"
+
+**用户记忆：** 当时选 3 s history，是因为整体来看 history 短的 forecast skill 更好。只查不实现。
+
+**结论：这个记忆和记录对不上。**
+1. **3 s 最初是随手定的。** SESSION_LOG:9434-9436（2026-09-05续2）原话："是，因为 qsub 里写了 `HISTORIES=3`；
+   配置默认 sweep 是 `[1,3,10]`。**我当初随手定的 3s，未做任何核实。**现补上依据。"
+2. **事后补的依据（SESSION_LOG:9438-9456）与"短 history 更好"无关：**
+   - 弱依据：history 影响很小，而且两个 backbone 偏好**相反**——Seq2Seq **history 越长越好**
+     （1 s +.1208 / 3 s +.1370 / 10 s +.1423）；ProbGRU-e150 1 s 最好（+.0786 / +.0700 / +.0703）；
+     跨度只有噪声底（~5e-3）的 2–4 倍。3 s 对哪个 backbone 都不是最优。
+   - "决定性"依据：左侧补零。10 s 下 `pour` 96% 的录制要补零，按动作排名会退化成按片段长度排名。
+3. **我发现的问题：那条"决定性"依据只排除了 10 s，并不能选出 3 s。** 9447 行写
+   "3s 是**唯一**对全部 14 个动作都无补零的候选"，但表里只列了 3 s 和 10 s。1 s（t_in=10 帧）同样
+   不补零——`docs/per_action_metrics.md:349` 自己就写了 1 s 和 3 s 都低于 `min_history=40`，"neither ever
+   zero-pads"。所以 **1 s vs 3 s 之间没有任何基于数据的选择理由**；"唯一"是过度表述。
+
+**各阶段按 history 的实际 skill（ActionSense；"短更好"只在一个已作废的阶段成立）：**
+
+| 阶段 | 1 s | 2 s | 3 s | 5 s | 10 s | 趋势 |
+|---|--:|--:|--:|--:|--:|---|
+| 因果修复后、**未 early stop**（raw/right，`action_dynamics_results.csv`） | +.410 | +.389 | +.388 | +.345 | +.314 | **短更好**（单调下降） |
+| 同上，**加 early stop**（raw/right，`_earlystop.csv`） | +.513 | +.515 | +.508 | +.508 | +.495 | 持平 |
+| 同上，highpass/right | +.513 | +.515 | +.519 | +.512 | +.502 | 持平（3 s 最高，差距 .017） |
+| 压力图 CNN，5 折 CV（`tactile_map_cv_results.csv`） | +.052 | — | +.050 | — | +.063 | 10 s 最好 |
+| harness 时代 Seq2Seq aggregate（SESSION_LOG:9441） | +.121 | — | +.137 | — | +.142 | **长更好** |
+| 论文表 Seq2Seq（main.tex:323-324，S_pers） | +.1243 | — | +.1276 | — | — | 3 s 略好，噪声级 |
+| 论文表 ProbGRU（main.tex:325-326，S_pers） | −.7203 | — | −.7225 | — | — | 1 s 略好，噪声级 |
+
+- 唯一出现"短 history 更好"的是**未 early stop** 的那一轮；它已被撤回为过拟合假象（PROJECT_CONCLUSIONS.md:186）。
+  这很可能就是用户记忆的来源。**但即使按那轮数据，选出来的也应该是 1 s，不是 3 s。**
+- 其他所有阶段：持平，或者 history 越长越好。论文正文结论是 "History has little effect"（main.tex:337，
+  median |ΔR²| = .006）。
+
+**含义（只记录，不改）：** 论文用 3 s 当主结果没问题（1 s 与 3 s 实测无差别，且 1 s 已作为一致性检查报告），
+但如果需要写选择理由，**不能**写"短 history skill 更好"，也不宜写"只有 3 s 不补零"。诚实的写法是：
+10 s 因补零被排除；1 s 与 3 s 无显著差异，报告 3 s 为主、1 s 为对照。
+
+### 14. 只留公式（用户 2026-09-14）
+
+**指令原文：** 把 (a)(b) 这两个标号去掉，F 和 COP 只保留公式，解释的文字全部删掉，COP 那个点旁边写坐标 (COP_x, COP_y)。
+
+**实施（重写 `scripts/opentouch/plot_fcop_explainer.py`）：**
+- 标题 "(a) Hand pressure" / "(b) Action" → **"Hand pressure" / "Action"**。只删了编号，标题词保留，因为指令只点名了"标号"。
+- 删掉三处解释文字："pressure summed over every cell that has data"、"pressure-weighted average position"、"marks on (a) are illustrative"。
+- 标签并入公式：**$F=\sum_{i,j}\tilde p_{ij}$**（鲑色，与指向三个受压点的箭头同色）；
+  **$\mathrm{CoP}=\frac{1}{F}\sum_{i,j}\tilde p_{ij}\,(x_j,y_i)$**（青色，与引线、圆点同色）。
+- CoP 圆点正上方写 **$(\mathrm{CoP}_x,\ \mathrm{CoP}_y)$**；圆点压在黑色手套上，青色字不可读，故加半透明白底。
+
+**因删掉 "illustrative" 字样而转移到图注的义务：** 图上的 F 箭头与 CoP 圆点均为示意（按渲染图像素定位，无格子→手映射），
+**图注必须写明**；否则读者会以为 CoP 是实测位置。脚本 docstring 已同步写明。
+
+**用户追问（2026-09-14）："所以 1 s 和 3 s 的差距一直都不大，所以选择了 3？"**
+回答：**前半句基本成立，但因果顺序反了。**
+- 差距确实一直不大：early stop 后 raw/right +.513 vs +.508；harness 时代 Seq2Seq +.121 vs +.137（差 .016，
+  约 3 倍噪声底）；ProbGRU-e150 +.079 vs +.070；论文表 Seq2Seq .1243 vs .1276、ProbGRU −.7203 vs −.7225；
+  per-action median |ΔR²| = .0061。唯一例外是已撤回的未 early stop 那轮（+.410 vs +.388），也只差 .022。
+- 但"差距不大"**不是选 3 s 的原因**：3 s 是先随手写进 qsub 的（SESSION_LOG:9435），1 s vs 3 s 的比较是
+  **之后**才补跑、补查的。"差距不大"说明这个选择**没有造成损害**，不是选择它的**理由**。
+- 若论文要写：可以写"1 s 与 3 s 结果无实质差异，报告 3 s、1 s 作为对照"；不应写成"因为差距不大所以选 3 s"
+  的事先决策，因为记录里没有这样的决策过程。
+
+## Session (2026-09-14，续) — PLAN：ActionSense forecast horizon ablation {0.2, 0.5, 0.8, 1.0} s（回答 "why 1 s"）[AWAITING RESOLUTION]
+
+**用户请求：** 采纳上一条的补救 (a)：在 ActionSense 上用修复后的 pipeline 重跑 horizon sweep，
+跑 0.2 / 0.5 / 0.8 / 1.0 s 四个，用于回答论文里的 "why 1 s"。
+
+### 事实核查（读码，非推测）
+1. **horizon 只经一个入口进入全流程，改配置即可，模型代码不用动。**
+   `Config.horizon = round(horizon_s × fps)`（`src/actionsense/eval_harness/config.py:36-38`）；10 Hz 下
+   0.2/0.5/0.8/1.0 s = **2/5/8/10 步**，都是整数。Seq2Seq/ProbGRU 的输出头按 horizon 构建
+   （`tactile_map/models.py:72-73,140-142`）；基线导出用 `cfg.horizon`（`export_baseline_forecasts.py:124,129`）；
+   评分器从 npz 形状读 H（`scripts/shared/score_preds_per_action.py:136`）。测试只用合成配置，不读真实 horizon。
+2. **预测起点随 H 变。** `origins(T,cfg)`：`hi = T − cfg.horizon`（`eval_harness/baselines/base.py:44-49`）→
+   H=2 时每条录制比 H=10 多最多 8 个起点，四个 horizon 的起点集合不同。
+3. **CRC job 没有 CONFIG 透传。** `scripts/crc/train_tactile_map_gpu.job` 只透传 EPOCHS/FOLDS/BACKBONE/SCOPE/
+   ENCODERS/HISTORIES/SAVE_PREDS/CSV。若用 `qsub -v CONFIG=...`，没人读 → **静默按 1 s 跑完、exit 0**，
+   正是 2026-09-05 SCOPE 事故的同一类问题（CLAUDE.md 规则 6）。必须先加透传 + 运行时打印 horizon。
+4. **配置哈希：** `config_hash = sha256(yaml 字节)`，四个 horizon 配置文件各有自己的哈希，可追溯。
+5. **现有 1 s 结果（legacy 校准，论文 Table II 所用）：** `runs/as_preds_seq2seq_corpus`（3 s，290 条）、
+   `as_preds_probgru_corpus`（3 s，290）、`*_h1`（1 s；**seq2seq_h1 只有 250 条**）、`as_preds_baselines_corpus`（290）。
+   npz 含 `y`、`origins`、`mu_*` (N,10,6)。
+6. **⚠ 工作区状态（阻塞）：** 恰好在这次要用的模块上有大量**未提交**改动——TRAIN-only calibration v1
+   （`eval_harness.yaml` 已设 `calibration.mode: train_only`、`out_csv → train_only_v1/`；`dataset.py`、
+   `evaluate.py`、`tactile_map/{data,train}.py`、`train_tactile_map.py`、`export_baseline_forecasts.py`、新
+   `src/calibration.py`）。按 SESSION_LOG:15110 前后，严格模式正式重跑所需的 timestamped HDF5 位置"答复待到"。
+   这些改动不是本条工作做的。规则 6：run 依赖的文件必须已提交并推送。
+7. **H=2 时的指标问题：** Hausdorff 在 2 个点上几乎退化；persistence 在 0.2 s 的 MSE 很小，skill 分母小、数值不稳。
+8. **CRC 耗时：** 本地没有 logs/，以往 corpus 作业耗时未记录；AS corpus @mh40 约 92k 个训练窗口（SESSION_LOG:11135）。
+
+### 事先登记的判读（防止事后挑结论）
+- 若四个 horizon 下模型排名与主要结论（Seq2Seq > ProbGRU、AR 强、history 无影响）都不变 → 回答为
+  "1 s 是约定选择，结论对 horizon 不敏感"。
+- 若 R² 随 H 单调下降、skill 随 H 上升、persistence 的 R_diff 随 H 上升 → 可以说明 1 s 处在"persistence 不再
+  近乎完美、但 R² 仍有意义"的区间；**但不得据此声称 1 s 是最优**。
+- 若排名在某个 horizon 翻转 → 必须在论文里报告，不能只挑 1 s。
+
+### OPEN QUESTIONS（等用户裁决，未写代码、未提交作业）
+- **Q1 用哪种校准？** (a) **legacy**（已提交、论文 Table II 所用的整段 p5）：1 s 可直接复用现有结果，只需跑
+  0.2/0.5/0.8 三个；与现论文表一致。(b) **TRAIN-only v1**（未提交、进行中）：与正在做的修复一致，但被原始数据
+  位置阻塞，且 1 s 也要重跑；论文表本身反正要随之更新。**我倾向：跟随论文最终会用的那一套**——需用户告知。
+- **Q2 跑哪些臂？** 推荐：Seq2Seq + ProbGRU（aggregate/physical-state）+ persistence/seasonal/AR 三个基线
+  （CPU、便宜）。不跑 flatten/CNN。
+- **Q3 history：** 推荐只跑 3 s（论文主结果；1 s 与 3 s 已知无差别）。
+- **Q4 起点集合：** 推荐**共享起点**（所有 horizon 都按 1 s 的完整未来来筛起点，唯一变量就是 H，且 1 s 结果可复用）。
+  需要在冻结 harness 里加一个很小的开关（如 `eval.origin_horizon_s`，默认等于 horizon_s，旧结果不变）。
+  备选：各 horizon 用自己的自然起点（不改代码，但起点集合不同）。
+- **Q5 重训 vs 截断：** 重训（每个 H 训一个模型，真正的 ablation）vs 截断（1 s 模型只评前 k 步，免费，但回答的是
+  "1 s 模型内部误差如何增长"，不是"当初选 H 会怎样"）。推荐：两个都做，截断作为免费预览先出。
+- **Q6 指标：** R²、S_pers、HD ratio 全报；0.2 s 的 HD 标注退化 / 或不报——请裁定。
+- **Q7 seed：** 与论文一致只跑 seed 0，还是 3 个 seed 以区分 horizon 效应和噪声（噪声底约 5e-3）？推荐先 seed 0。
+- **Q8 提交/推送：** 本条只会新增 horizon 配置、job 的 CONFIG 透传、（Q4 若选共享）起点开关。工作区里的
+  calibration 改动不是本条的——是先由那边提交，还是另开分支跑？未经同意不 push。
+
+**作业量估计：** Q1(a) → 3 H × 2 backbone = **6 个 GPU 作业** + 3 次基线（CPU）；Q1(b) → 8 GPU + 4 CPU。
+
+**状态：** 计划已写，等 Q1–Q8。截断预览（Q5 的免费部分）是只读分析，不改 repo，先做作为参考。
+
+### 免训练截断预览（2026-09-14，只读分析，未改 repo）
+
+**方法：** 把现有 1 s corpus 预测（legacy 校准，3 s history，290 条录制）的 `mu_*` 截断到前 k = 2/5/8/10 步，
+写到 scratchpad，用 `score_preds_per_action.py --mask none`（论文表所用参数，SESSION_LOG:10226）评分。
+起点集合 = 1 s 的起点，四个 horizon **共享**（即 Q4 的"共享起点"设计）。
+
+**核对：** k=10 与论文 Table II 逐位一致——Seq2Seq R² .7414 / S .1276 / HD ratio .8302；
+ProbGRU .6374 / −.7225 / .9014。
+
+| 指标 | 模型 | 0.2 s | 0.5 s | 0.8 s | 1.0 s |
+|---|---|--:|--:|--:|--:|
+| R² | persistence | .8934 | .7970 | .7296 | .6925 |
+| | seasonal | .8889 | .7933 | .7266 | .6897 |
+| | AR | .9119 | .8295 | .7761 | .7476 |
+| | Seq2Seq | .9082 | .8255 | .7708 | .7414 |
+| | ProbGRU | .7877 | .7128 | .6634 | .6374 |
+| S_pers | seasonal | −.0422 | −.0175 | −.0108 | −.0084 |
+| | AR | +.1560 | +.1291 | +.1389 | +.1462 |
+| | Seq2Seq | +.1095 | +.1074 | +.1195 | +.1276 |
+| | ProbGRU | −3.7626 | −1.6009 | −.9533 | −.7225 |
+| HD ratio | seasonal | 1.035 | 1.015 | 1.008 | 1.005 |
+| | AR | 2.035 | .939 | .889 | .873 |
+| | Seq2Seq | 1.185 | .919 | .854 | .830 |
+| | ProbGRU | 2.006 | 1.035 | .935 | .901 |
+| S_pers F_R | AR | +.2167 | +.1493 | +.1448 | +.1463 |
+| | Seq2Seq | +.1472 | +.1145 | +.1191 | +.1240 |
+| | ProbGRU | +.0289 | +.0994 | +.1189 | +.1264 |
+
+**读法（按事先登记的判读）：**
+1. R² 所有模型随 H 单调下降；persistence 1−R² 从 .107 升到 .308。
+2. **四个 horizon 下排名完全一致**：AR ≥ Seq2Seq > persistence ≈ seasonal > ProbGRU（R²）。
+3. skill：AR、Seq2Seq 大致持平；ProbGRU 在短 horizon 极差（−3.76 @0.2 s），巨大负值来自 CoP 通道——
+   其 F_R skill 为正且随 H 上升。说明 ProbGRU 的前几步（绝对值输出、未锚定到最后观测）很差。
+4. HD ratio 在 0.2 s（2 个点）退化：连 AR 都 2.03，不可解释。
+5. 另：AR 在 corpus 上 R²/skill 均略高于 Seq2Seq，与摘要 "Linear AR matches or exceeds" 一致。
+
+**局限：** 截断 ≠ 重训。Seq2Seq 是对 10 步联合训练的；ProbGRU 的损失覆盖 10 步 rollout；AR 的阶数是按
+`cfg.horizon`=10 在 VAL 上选的（`export_baseline_forecasts.py:124`）。只有 persistence 与 H 完全无关、
+结果精确。专门按短 horizon 训练的模型可能在短 horizon 上更好 → 这正是重训 ablation 要回答的。
+
+## Session (2026-09-14，续) — 解读 `docs/train_only_calibration.md`：CRC 上到底要做什么 [AWAITING RESOLUTION]
+
+**用户问题：** “read train_only_calibration, check the changes, 解释一下我要做什么，我应该是需要在crc上retrain把”。
+
+### 1. 核查（读码/读记录/实跑，非推测）
+
+- `tests/test_train_only_calibration.py`：**28 passed，20.98s**（`/Library/Frameworks/Python.framework/Versions/3.12/bin/python3`）。
+  默认 `python`（anaconda 3.11）的 torch 缺 `libtorch_global_deps.dylib`，同一套件 15 failed —— 是环境问题，不是代码问题。
+- git：`origin/main` 与 HEAD 同步，但整套修复**未提交**：`src/calibration.py`、`tests/test_train_only_calibration.py`、
+  `docs/train_only_calibration.md` 为 untracked，另有 30+ 个 modified。工作区还混有无关改动
+  （`main.tex` 图 1 caption、`figures/overview.*`、`plot_study_logic.py`、`plot_history_force_row.py`、`plot_model_architectures.py`）。
+- **ActionSense 原始 HDF5 已不在 CRC**（SESSION_LOG:2071 “raw HDF5 deleted from CRC”）。旧 `~/actionsense/states` 是线性插值 +
+  整段 p5 的产物，`src/calibration.py::validate_raw` 会拒绝（缺 `resampling=previous_sample_hold_v1`）。→ 只能重新流式下载（~47 GB）并重提取。
+  `data/actionsense_states` 不在 git 中（`git ls-files` = 0；SESSION_LOG:2071 所述 “git-tracked” 已过时）。
+- **OpenTouch 原始 HDF5 也已删除**（SESSION_LOG:2112；`stream_opentouch.sh`/`download_own_copies.sh` 设计上逐 shard 删除）。
+  CRC 上 `/users/jhao3/opentouch/cache` 仍在（SESSION_LOG:15620，2904 clips），是**未校正**的 raw cache，`validate_raw` 可接受；
+  但其 `clip_*.npy` 为 **float16**，[2048,4096) 区间步长 2.0 计数（SESSION_LOG:5034），而 `baseline.estimate` 的 quantum floor
+  与 k=1“高于静息至少 1 计数”的含义都依赖真实量化步长。旧 cache 可用但会把 float16 舍入带进模板；float32 需重新下载 ~14.6 GB（Drive 限速）。
+- **CRC 作业脚本未随修复更新：**
+  - `scripts/crc/stream_actionsense.sh:58` 无条件 `rm -rf "$DEST/states"`；默认 DEST=`~/actionsense` 会删掉旧 legacy cache（新旧对比需要它）。
+    新提取应指定新 DEST。另 `probe_actionsense.py` 去掉了 `t.max() < end` 条件，接受的 clip 集合/编号可能变化 → 旧 split ID 不可沿用。
+  - `scripts/crc/train_tactile_map_gpu.job:35-40,63-70` 硬编码把 `~/actionsense/states` 链接到 `data/actionsense_states`，且**不传 `--config`**，
+    无法指向新 cache 或 run config（跑旧 cache 会被 validate_raw 大声拒绝，不会静默出错）。
+  - `scripts/crc/opentouch_probgru_gpu.job:88` `--out "${OUT:-docs/exploratory_opentouch.csv}"` 会覆盖脚本新默认
+    `docs/opentouch/train_only_v1/cv_results.csv`，**不设 OUT 就会覆盖旧 legacy 结果**，违反文档“不要覆盖旧结果”。
+  - `export_baseline_forecasts.py` 没有 CRC job。
+- 结论与文档一致：旧权重、旧 preds、旧 `docs/*` 分数和论文表格都属于 legacy，**不能只重跑评估**；必须 重提取 → 按 fold TRAIN-only 校准 → 重训 → 重评。
+
+### 2. 拟定流程（待裁决后执行）
+
+0. 提交并推送修复（规则 6），交接时写明所需 commit 与一行自检。
+1. 修 CRC 脚本：AS job 加 `CONFIG`/`SRC` passthrough；OT job 的 OUT 默认改为新路径；新增 AS baseline export 步骤；stream_actionsense 用新 DEST。
+2. CRC 上：AS 重新流式提取到新目录；OT 按 Q2 决定复用或重下。
+3. 建 run config（states_root/split_file 指向新 cache，`calibration.mode: train_only`），先 `python -m src.calibration` 冒烟一个 fold。
+4. AS：corpus 5-fold neural（probgru × aggregate/flatten/cnn）+ baseline export（同 config/seed/folds）；OT：location 5-fold。
+5. 同样本集合做新旧对比，再决定论文表格/图如何更新。先前 [AWAITING RESOLUTION] 的 horizon ablation 应在新协议上跑，而不是旧数据。
+
+### 3. OPEN QUESTIONS
+
+- Q1 提交范围：只提交 calibration 修复相关文件，还是连同图/main.tex 等无关改动一起？（建议分两个 commit）
+- Q2 OpenTouch：复用 CRC 上 float16 raw cache（快，模板含 float16 舍入），还是重下 shard 做 float32 提取（慢，干净）？
+- Q3 是否由我先改 CRC job 脚本（上面三处）再交接？（建议是）
+- Q4 重训范围：论文表格用到的全部 arm/histories，还是先跑一个最小集合（如 AS probgru aggregate 3 s + OT pg_all）看数字变化再扩展？
+
+### 用户裁决（2026-09-14）
+- **Q1 校准 = TRAIN-only v1**（四个 horizon 都要跑，含 1 s）。
+- **Q5 = 预览 + 重训。** 截断预览已完成（上表），重训作为真正的 ablation。
+- **Q4 = 共享起点。**
+- **Q8 = 等 calibration 改动先提交**，ablation 改动在其之上追加。
+- 未表态、按计划推荐执行：Q2 臂 = Seq2Seq + ProbGRU（aggregate）+ persistence/seasonal/AR；Q3 history = 3 s；
+  Q6 = 三个指标全报、0.2 s 的 HD 标注退化；Q7 = seed 0。
+
+### 实施（2026-09-14，本地，未提交）
+
+**核查（决定实现方式）：**
+- ActionSense 所有取起点处都走 `eval_harness.baselines.base.origins()`：`baselines/base.py:59`、`evaluate.py:116`、
+  `tactile_map/data.py:149,189,215`、`export_baseline_forecasts.py:126,141` → 改一处即覆盖训练窗口、TEST 评分、
+  基线导出、预测导出。OpenTouch/D256 各有自己的 origins，未动。
+- `calibration.prepare_fold` 用 `copy.deepcopy(cfg.raw)` 重建配置（`src/calibration.py:251`）→ 新键不会被丢。
+  缓存键 = version/split/sources/rows/calibration options，**不含 horizon** → 四个 horizon 共用一份校准缓存
+  （该文件 260 行注释亦如此写）。
+- 本次改动的文件（config.py、base.py、splits.py、job、新配置、新测试）**都不在** calibration 的未提交改动里，无冲突。
+
+**改动：**
+1. `src/actionsense/eval_harness/config.py`：新增 `Config.origin_horizon`（步数）。未设 `eval.origin_horizon_s`
+   时 = `horizon`（**所有现有配置行为不变**）；设得比 horizon 短 → `ValueError`。
+2. `src/actionsense/eval_harness/baselines/base.py`：`origins()` 的上界改为 `T − cfg.origin_horizon`。
+3. `src/actionsense/eval_harness/splits.py:39`：`eligible_recordings` 同样用 `origin_horizon`。
+   （注：此处 `T//ds >= min_history + H` 比 `origins()` 的真实条件宽 1 帧，是**原有**的差一，D256 曾修过同类问题；
+   对 AS 无害——零起点的录制会被跳过。本次未改其语义，只替换了 H。）
+4. `configs/actionsense/horizon_ablation/eval_harness_{h0p2,h0p5,h0p8,h1p0}.yaml`：由当前主配置文本替换生成，
+   只改 `rate.horizon_s`、新增 `eval.origin_horizon_s: 1.0`、`paths.out_csv → train_only_v1/horizon_ablation/<tag>/`。
+   hash：h0p2 67daf6ecb13b4ffe、h0p5 7f85e40b18a08915、h0p8 cf4ae562af3fd5cf（主配置 c7fc603ba82e7cb4）。
+5. `scripts/crc/train_tactile_map_gpu.job`：新增 `CONFIG` 透传（`--config "$CFG"`，默认主配置）；pytest 前打印
+   config 路径/hash/horizon/origin_horizon；设了 `EXPECT_HORIZON_S` 且与配置不符 → `FATAL` 退出。
+6. `tests/test_horizon_ablation.py`（9 项）：默认起点不变；四个 horizon 共享起点完全相同且每个起点有完整目标窗口；
+   不开开关时 0.2 s 会多 8 个起点；origin_horizon < horizon 被拒；**四个 ablation 配置与主配置除三键外必须完全一致**
+   （主配置以后若再改而 ablation 配置没跟上，这里会失败）；四个 out_csv 互不相同。
+
+**验证：**
+- 全仓 `pytest tests/ -q`：**219 passed**（calibration 那边的 210 + 本次 9），9 个既有 seasonal warning，44.75 s。
+- job 自检单独运行：h0p2/0.2 通过；h0p8/0.8 通过；**h0p5 配 EXPECT 1.0 → FATAL，exit 1**；主配置不设 EXPECT → 通过。
+  `bash -n` 语法检查通过。
+- （第一次自检测试是假失败：zsh 不拆分未加引号的 `$pair`，把"路径 期望值"当成一个文件名——与 SESSION_LOG:12636
+  的坑相同；改为显式传参后结果如上。）
+
+### 阻塞（未提交、未推送、未提交任何作业）
+1. **calibration v1 改动尚未提交/推送**（用户裁定先由那边提交）。
+2. **严格模式需要原始 timestamped HDF5 / raw clip**，位置仍待用户告知（SESSION_LOG 15110 前后）。
+3. 规则 6：以下命令**在本条改动与 calibration 改动都提交并推送之前不得交给用户运行**。
+
+### 交接草稿（推送后才生效；届时补上所需 commit 号）
+每个 H ∈ {0p2:0.2, 0p5:0.5, 0p8:0.8, 1p0:1.0} × BACKBONE ∈ {seq2seq, probgru}，共 8 个 GPU 作业：
+```
+qsub -v CONFIG=configs/actionsense/horizon_ablation/eval_harness_h0p2.yaml,EXPECT_HORIZON_S=0.2,BACKBONE=seq2seq,SCOPE=corpus,ENCODERS=aggregate,HISTORIES=3,SAVE_PREDS=runs/as_h0p2_seq2seq,CSV=docs/actionsense/train_only_v1/horizon_ablation/h0p2/seq2seq_cv.csv scripts/crc/train_tactile_map_gpu.job
+```
+（`-v` 值内不能含逗号——UGE 会按逗号拆分，见 2026-07-09 ACTIONS 事故；上面各值均无逗号。）
+基线（CPU，4 次）：`python scripts/actionsense/export_baseline_forecasts.py --config <cfg> --scope corpus --out runs/as_<tag>_baselines`
+评分：`score_preds_per_action.py --preds <dir> --mask none`（与论文表相同）。
+**失败即响的自检：** 作业输出第一屏必须出现 `harness config: ...eval_harness_<tag>.yaml ... horizon=<2|5|8|10> steps ... origin_horizon=10 steps`；
+`grep -c EXPECT_HORIZON_S scripts/crc/train_tactile_map_gpu.job` 应 ≥ 1，否则 CRC 上是旧 job。
+
+### 4. Q1–Q4 回答（用户 2026-09-15）
+
+原话：“q1 全都push 2 之前用的是哪个用之前的 3改好 4 history只跑3s，actionsense probgru aggregate就行”。
+
+- **Q1**：全部改动一起提交并推送（包括图、main.tex 等无关改动）。
+- **Q2**：沿用之前用的 OpenTouch cache。之前的 OT 实验读 `/users/jhao3/opentouch/cache`（raw，float16）及由它派生的 `cache_d1`；
+  新协议只能用未校正的那个，即 `~/opentouch/cache`。**不重新下载**；float16 舍入进入模板作为已知限制记录。
+- **Q3**：由我修改 CRC job 脚本后再交接。
+- **Q4**：history 只跑 3 s；ActionSense 只跑 probgru × aggregate。
+
+### 5. 实施（2026-09-15）：CRC 脚本、提交、推送
+
+**并发发现：** 本工作树有 8 个 peer session。另一 session（horizon ablation）在本节 3 与 4 之间追加了其“用户裁决/实施/阻塞/交接草稿”
+（上文），已改 `train_tactile_map_gpu.job` 加入 CONFIG/EXPECT_HORIZON_S，并裁定“等 calibration 先提交、ablation 在其之上”。
+本次按该顺序分 commit，未改动其代码，只在同一 job 文件上叠加。
+
+**CRC 脚本改动（Q3）：**
+1. `scripts/crc/train_tactile_map_gpu.job`：链接源 `STATES_SRC`（默认 `~/actionsense_causal_v1/states`，不再是 legacy `~/actionsense/states`）；
+   链接前删除 `data/actionsense_states` 中旧 symlink（否则 legacy `splits.json` 会留在无 splits 的新提取旁边——旧 ID 配新编号）；
+   目录里若有实体文件则 FATAL；额外链接 `time_*.npz`；预检在 horizon 检查之后对每行 manifest 调 `calibration.validate_raw`，
+   打印 `calibration=… N manifest rows validated resampling=[…]`，在 pytest 之前失败。
+2. `scripts/crc/opentouch_probgru_gpu.job`：同样预检（拒 cache_d1），`--config "$CFG"` 恒传；`OUT` 默认改 `docs/opentouch/train_only_v1/cv_results.csv`
+   （原默认会覆盖 legacy `docs/exploratory_opentouch.csv`）。
+3. `scripts/crc/stream_actionsense.sh`：默认 DEST `~/actionsense_causal_v1`；DEST/states 若为 legacy manifest（非 previous_sample_hold_v1）则拒绝
+   `rm -rf`；汇总 CSV 改写 `docs/actionsense/train_only_v1/raw_probe.csv`（不覆盖 legacy `docs/predictability_actionsense.csv`）。
+
+**验证（scratch 目录，假 cache，不碰 repo 数据）：**
+- AS job 段：legacy 源 → `ValueError: ActionSense requires previous_sample_hold_v1…` exit 1；切到 causal 默认 → 旧 `splits.json`/`clip_2` 链接消失、
+  `calibration=train_only 2 manifest rows validated resampling=['previous_sample_hold_v1']` exit 0；目录含实体文件 → FATAL exit 1。
+- OT job 段：无 manifest → FATAL；cache_d1 行（d1=true）→ `already calibrated pressure` exit 1；旧 raw manifest（无校准字段）→ 通过。
+- stream 守卫：legacy manifest → 拒绝；causal manifest（probe 实际 json.dumps 格式）→ 允许重跑。三个脚本 `bash -n` 通过。
+- 全仓 `pytest tests/ -q`（Python 3.12）：**219 passed**，9 个既有 seasonal warning。
+
+**磁盘估算（须在 CRC 先 `quota`）：** 本地 manifest 299 条共 320,309 帧 × 2×32×32 float32 = **2.44 GiB/份**。
+raw 提取 1 份 + corpus 5 折各一份校准缓存（`runs/calibration/actionsense/<key>/` 存全部 recording 的校正 map）≈ **15 GiB**。
+horizon ablation 与本次同 split/同 options，缓存 key 不含 horizon → 复用，不再增加。
+
+**提交（Q1：全部）：**
+- `d80245a` calibration v1（src/calibration.py、各入口、配置、测试、文档、EgoTouch 审计文档）
+- `1f69f55` horizon ablation（另一 session 的 config/splits/base、4 个配置、测试）
+- `a4935da` CRC 脚本（含另一 session 的 CONFIG/EXPECT_HORIZON_S 与本次改动）
+- `3289dbd` 图与 main.tex（overview、model_architectures、history_force_row、fcop_explainer 及脚本）
+- 本日志 commit 随后。
+
+**Q4 的解读（写明以便纠正）：** 本轮只交接 ActionSense probgru × aggregate × 3 s、corpus scope（论文 AS 表是 corpus 290 条）。
+OpenTouch 本轮不跑；其 job 已修好，数据按 Q2 用 `~/opentouch/cache`。EPOCHS=60 取自 2026-08-25 probgru aggregate 运行
+（SESSION_LOG:7252）；论文 `as_preds_probgru_corpus` 的 epoch 数在日志中未查到，未核实二者相同。
+
+### 6. CRC 交接（需要 commit ≥ `a4935da`）
+
+```bash
+cd ~/TouchAnything && git pull --ff-only
+git merge-base --is-ancestor a4935da HEAD && echo CODE-OK        # 不打印 CODE-OK = 旧代码，停止
+grep -c STATES_SRC scripts/crc/train_tactile_map_gpu.job          # 必须 ≥ 1
+quota                                                             # 需 ≈15 GiB 余量
+
+# 1) 重新流式提取（前端节点，数小时；放 tmux）
+bash scripts/crc/stream_actionsense.sh 2>&1 | tee ~/stream_causal_v1.log
+wc -l ~/actionsense_causal_v1/states/manifest.jsonl; ls ~/actionsense_causal_v1/states/clip_*.npy | wc -l
+
+# 2) 训练（GPU）
+mkdir -p logs
+qsub -v BACKBONE=probgru,SCOPE=corpus,ENCODERS=aggregate,HISTORIES=3,EPOCHS=60,FOLDS=5,SAVE_PREDS=runs/as_preds_probgru_corpus_tov1,CSV=docs/actionsense/train_only_v1/probgru_aggregate_h3_cv.csv scripts/crc/train_tactile_map_gpu.job
+```
+**失败即响的自检（作业日志第一屏）：** `linked N files from /users/jhao3/actionsense_causal_v1/states`；
+`calibration=train_only  N manifest rows validated  resampling=['previous_sample_hold_v1']`；训练脚本行 `scope=corpus  N recordings`。
+任何一行缺失或 resampling 不是该值 → 不是新协议，结果作废。
+**未核实：** data.csail.mit.edu 下载源当前是否可用；`score_and_plot_runs.sh` 对带 provenance 的新 npz 是否无需改动（作业完成后再验）。
