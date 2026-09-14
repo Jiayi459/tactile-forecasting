@@ -16398,3 +16398,130 @@ done
 - OT 日志第一屏：`calibration=train_only`；`states_root -> /users/jhao3/opentouch/cache  N manifest rows validated`。
 - 第 2 步作业不应再出现新的 `runs/calibration/*/<key>` 目录：提交前后 `ls runs/calibration/*/ | wc -l` 应不变。
 - horizon ablation 的 AS 作业同样应在 as_warmup 完成之后提交（缓存复用）。
+
+## Session (2026-09-15，续) — PLAN：EgoTouch history ablation {1, 2, 3, 5, 10} s [AWAITING RESOLUTION]
+
+**用户请求：** "在 egotouch 上跑 history 1/2/3/5/10s 的 ablation"。
+
+### 事实核查
+1. **补零机制（决定性问题）。** `t_in` 不参与起点筛选；历史不足 `t_in` 的起点一律**左侧补零**
+   （`src/actionsense/tactile_map/data.py:195-199` AggWindows、`:157-159` MapWindows），没有"丢弃"选项。
+   EgoTouch `eval.min_history = 30`（= 3 s，SESSION_LOG:10915-10925 的裁定：让最长的 3 s 臂无补零）。
+   → 5 s（50 帧）与 10 s（100 帧）臂在 t < 50 / t < 100 的起点上会拿到**部分补零**的历史；1/2/3 s 臂不补零。
+   这正是 2026-09-05 在 ActionSense 上排除 10 s 的"决定性"理由（SESSION_LOG:9448-9455，pour 96%）。
+2. **若提高 min_history 到 100（10 s）让所有臂无补零**：录制需 T' ≥ 110 帧（11 s）。EgoTouch 原始长度中位 14.5 s
+   （SESSION_LOG:11079）；profiler 在 mh=80/100 只记了组数（test_seen 68/66、unseen 7/7，SESSION_LOG:10808-10809），
+   **没有录制数**，需在 CRC 上 `profile_egotouch_states.py --histories 100` 实测。预计丢失可观比例。
+3. **job bug（无论如何要修）：** `scripts/crc/train_egotouch_gpu.job:101` `--histories "$HISTORIES"` 不做 `+`→`,` 转换。
+   `qsub -v HISTORIES=1,2,3,5,10` 会被 UGE 按逗号拆开 → 只训练 1 s、exit 0（2026-09-12 PAIRS 丢臂同类）。
+4. **trainer 输出：** 每个 history 写 `{out_root}/test_{seen,unseen}_{h}s/`，同一 out-root 同一 config 可放多个 history；
+   `histories` 在同一作业内循环（`train_tactile_map.py` 约 131 行）。
+5. **旧 1 s/3 s 结果能否复用：** 2026-09-10 正式结果之后，`d80245a`（calibration v1）改动了 `tactile_map/{data,train}.py` 与
+   `eval_harness/{dataset,evaluate}.py`；EgoTouch 走 legacy 路径，预期数值不变但**未验证**。
+6. horizon：未指明，推断为冻结的 1 s。AR/seasonal 不读 history，history ablation 中无需重跑（表中数值恒同，SESSION_LOG:11896）。
+
+### OPEN QUESTIONS
+- **Q1 补零 / min_history：** (a) 保持 30，5 s/10 s 臂早期起点补零（与论文同一总体）；(b) 提到 100，所有臂无补零（总体大幅缩小，需实测）；
+  (c) 两个都跑（作业量翻倍）。
+- **Q2 horizon：** 1 s（冻结）还是与刚交接的 horizon sweep 交叉？
+- **Q3 模型：** seq2seq/aggregate + probgru/aggregate（与 horizon sweep 一致）？
+- **Q4 1 s/3 s：** 五个 history 全部重跑（推荐，代码自 09-10 后有改动），还是复用 09-10 的 1 s/3 s？
+
+**状态：** 未写代码、未提交作业。
+
+
+## Session (2026-09-15) — EgoTouch leakage 修复步骤与工期估算（未实施）
+
+**用户问题：** “如果要修egotouch的话要经历哪些步骤，估计用时”。
+**本轮计划/范围：** 复核已有上游审计、下载/提取/训练入口、共享 calibration 的可复用范围、历史真实样本/窗口数与算力记录；
+提供有前提的分阶段估算，不将询问工期视为授权实施、下载全量数据或提交 GPU 作业。
+只追加本日志；审计报告 docs/preprocessing_leakage_review_2026-09-15.md 是前轮未跟踪文件，保留不动。
+
+**代码与资料证据：**
+- docs/egotouch/calibration_audit.md:39-67：两个已审计样本的左手映射 217 cells 可重建；右手仍有 26/23 cells 未解释。
+  整 episode tactile_max/bend_max 对历史网格的依赖有强样本证据，不能扩大成对全 corpus 每条记录的验证。
+  :87-102 只确认两个样本存在 jq_pressure.json；全语料覆盖和固定 tactile/bending mask 未确认。
+- extract_egotouch_states.py:99-114 直接读取 released NPZ，:165 无额外 p5；切换下游 baseline 开关不能消去已有除法依赖。
+- download_egotouch.py:25-26 的 --pressure-only 只取 NPZ 与 split，不含原始 JSON；修复应单独取 jq_pressure.json + split + 必要映射，
+  不要求下载视频或重做视觉编码。下载脚本里的 16GB 是全部非视频资产的旧注释，不能当原始 pressure JSON 的实测体积。
+- 共享 calibration.py:20 仅支持 train/val/test，:72 仅允许 AS/OT，且目前 Calibration.apply 是减法模板；
+  EgoTouch 需支持其归一化尺度、左右手及模态 mask，以及 test_seen/test_unseen 同时绑定同一 TRAIN artifact。
+  不能直接仅加 corpus=egotouch 或把 test_unseen 排除在来源检查之外。
+- train_tactile_map.py 默认 6 pairs（两个 backbone × 三个 encoder），tactile_map.yaml 配置两段 history（1/3s）、60 epochs，
+  因此当前默认为 12 模型，不沿用文档中“8-model”的过时注释。单 horizon × 单 history × 六臂为 6 模型。
+- 既往 CRC 冒烟实测 train windows=493,787（本日志 11838 附近），不是旧 profiler 494,179；
+  本轮没有找到可用于估时的 EgoTouch 逐 epoch GPU 耗时或当前 GPU 型号，CRC job 只申请 gpu_card=1。
+- 本机 datasets/EgoTouch 不存在；没有读取 CRC 文件或作业状态。
+- 检查 scripts/core/convert_to_hdf5.py 的 pressure 路径，它读取已存在 NPZ，并不是已验证可用的 raw JSON 网格生成器。
+- 尝试通过 web 打开审计中两条 HF episode 页面均返回不可打开；未获得新的在线可用性证据。
+  本轮有关样本的数据事实引用已有本地审计，不声称重新核验全量远端数据。
+
+**推荐步骤及粗估（工作量估计，不是实测吞吐或完成承诺）：**
+1. 原始资料清点/来源与 split 对齐：1-3 小时人工/代码审计；下载时间单算。
+   列出 official split 内 JSON 缺失、长度/时间戳错误、重复来源；冻结数据版本。
+2. 明确并核验 raw→grid：0.5-1 工作日（如右手修复有难以取得的外部信息则超出此范围）。
+   固定左右映射与 tactile/bending mask；检查首帧扣除/截断、坏 taxel 的空间修复及采样对齐。
+   首帧扣除本身可因果，不能把它和整段 max 一并判为泄漏；不从 held-out 整段推断模态/坏点 mask。
+3. 实现 causal 提取与 TRAIN-only 尺度、缓存/入口接入：0.5-1 工作日。
+   raw JSON → 已核实的因果网格 → TRAIN-only 分模态固定尺度（或已知传感器固定常数）→ 同源 map/state；
+   固定官方 split（在源 episode 相同前提下），一份 TRAIN artifact 服务 VAL/seen/unseen；
+   拒绝旧 NPZ/错配缓存，记录 raw/mapping/mask/split/参数哈希，使用新产物目录。
+4. 因果回归、全量重提取与抽查：0.5-1 工作日，不含不确定的远端下载/排队。
+   改 TEST 某时刻后的 JSON，之前 maps/states/预测须不变；改 VAL/TEST 不能改变 TRAIN 模板/Norm；
+   查两测试集隔离、重复来源、错缓存拒绝，以及 aggregate/map 使用一致物理状态。
+   新旧对比应使用相同 episode/时间范围，披露 F 的数值尺度和 tactile/bending 相对权重变化。
+5. CRC 小规模试跑计时：选 aggregate 与 CNN 代表臂，2-3 epochs，记录数据加载/每 epoch/验证/导出时间，
+   据此按实际模型矩阵计算总 GPU 小时；初步预留约 0.5-2 小时试跑资源，排队另计。
+6. 重拟合所有报告所需模型/基线/Norm/阈值/VAL sigma，并分别评分 seen/unseen。
+   单 horizon × 单 history × 六臂初步预留 1-3 天单 GPU 作业运行窗口，仅作保守排程预算；
+   没有实测 epoch 时间，目前不能给精确 GPU 小时。双 history 默认 12 模型、多 horizon 要另乘相应任务量，
+   ProbGRU 更长 horizon 的单模型成本也增加；不能仅按模型数等速外推。
+
+**总估计：** 若原始资料齐全且映射/修复规则可核验，代码与数据验收约 2-4 工作日；
+正式六臂单设置重跑另预留 1-3 天单 GPU 运行窗口，不含集群排队或等待原始资料/作者回复。
+重跑前先做吞吐测量，再把宽范围换为实测预算。优先在单 horizon / history 验证修复，然后再展开已计划消融，
+这是建议的阶段安排，不代表修改用户已裁定的实验矩阵。
+
+**不推荐作为首选的捷径：** 对 released NPZ 统一乘 tactile_max 无法正确恢复 bending cells；
+按已核实模态逐块反归一化理论上可抵消该除法，但右手空间修复尚不清楚，且不能恢复首帧扣除后被截断的原始负差。
+它是另需验证的恢复路径，不能当作已完成的 causal raw 重建。
+
+**OPEN QUESTIONS（仅在用户要求实施时需按 AGENTS.md 落定，不阻塞本次条件估时）：**
+原始 JSON 全量路径/覆盖率（先审计可解决）；首帧 baseline 的保留规则；tactile/bending 固定尺度及目标定义；
+右手异常格子采用何种已核验的空间修复或固定屏蔽；首轮重跑矩阵/GPU 资源。
+此前“不新增独立校准段、只用 TRAIN”的用户偏好继续有效，无需重新索取该选择。
+**执行状态：** 未修改实现、未下载数据、未跑训练/测试、未联系作者或向他人发消息。
+
+### 用户裁决（2026-09-15）
+- **Q1 = 保持 min_history 30，允许补零。** 5 s / 10 s 臂在 t < 49 / t < 99 的起点上是部分补零的历史；1/2/3 s 臂无补零。
+  报告时必须写明，并在评分阶段从预测 npz 的 `origins` 离线统计各 split 被补零起点的比例（不改 job）。
+- **Q2 = horizon 1 s**（冻结主配置 `configs/egotouch/eval_harness.yaml`，自然起点；不是 horizon sweep 的 3 s 共享起点）。
+- **Q3 = seq2seq/aggregate + probgru/aggregate。**
+- **Q4 = 五个 history 全部重跑**；重跑的 1 s/3 s 顺带核对 2026-09-10 结果能否复现
+  （aggregate_seq2seq seen 1 s +.2148 / 3 s +.2464；aggregate_probgru +.2596 / +.2630，SESSION_LOG:11897-11903）。
+
+### 实施
+- **修 job bug：** `train_egotouch_gpu.job` 新增 `HISTORIES_ARG="${HISTORIES//+/,}"` 并打印 resolved 值，传 `--histories "$HISTORIES_ARG"`。
+  该 bug 是本日早些时候我给 job 加 HISTORIES 透传时引入的（只传单值 `HISTORIES=3` 时不触发）。
+- **作业拆分：** 每个 history 一个 GPU 作业、各自独立 `OUT_ROOT=runs/egotouch_history/h<N>`。不合并成一个作业：5 个 history × 2 臂
+  顺序跑太久；也不共享 out-root：`selection_report.json` 在作业开始时读、每个臂结束时整体重写，并行作业会互相覆盖。
+
+### 提交、推送与 CRC 交接（2026-09-15）
+
+用户同意提交并推送。job 修复 commit **`3d6ca60`**，日志另起一个 commit。
+
+**EgoTouch history ablation 交接（需要 commit ≥ `3d6ca60`）：** 5 个 GPU 作业，每个 history 1 个作业、内含 2 个臂。
+```bash
+cd ~/TouchAnything && git pull --ff-only
+git merge-base --is-ancestor 3d6ca60 HEAD && echo CODE-OK         # 不打印 CODE-OK = 旧代码，停止
+grep -c HISTORIES_ARG scripts/crc/train_egotouch_gpu.job      # 必须 ≥ 1
+mkdir -p logs
+for h in 1 2 3 5 10; do
+  qsub -v HARNESS_CONFIG=configs/egotouch/eval_harness.yaml,EXPECT_HORIZON_S=1.0,PAIRS=seq2seq/aggregate+probgru/aggregate,HISTORIES=$h,RUN_BASELINES=0,OUT_ROOT=runs/egotouch_history/h$h scripts/crc/train_egotouch_gpu.job
+done
+```
+**第一屏自检：** `harness config: configs/egotouch/eval_harness.yaml  hash=66b1902da6dd70bf  horizon=10 steps (1.0 s)  origin_horizon=10 steps  min_history=30`；
+`population [test]: 132/179`、`population [test_unseen]: 56/85`（与 2026-09-10 正式结果 n=132/56 一致；五个作业必须相同）；
+`resolved HISTORIES='<h>' -> --histories '<h>'`；`matrix: [('seq2seq', 'aggregate'), ('probgru', 'aggregate')] x histories [<h>.0] s = 2 models`；
+`RUN_BASELINES=0 -> reference ladder skipped`。任一不符 → 结果作废。
+**评分阶段待做：** 从 npz `origins` 统计 5 s / 10 s 被补零起点比例；核对重跑的 1 s / 3 s 与 09-10 数值。
