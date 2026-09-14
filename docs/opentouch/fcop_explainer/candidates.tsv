@@ -1,0 +1,6 @@
+idx	action	object_name	grip_type	T	shard	F_chosen	cx_chosen	cy_chosen	n_taxels_pos	chosen_frame
+1777	picking up	yellow power drill	Small Diameter	105	hardware_homedepot_p2	1408	0.7503	-0.06464	15	annotated peak
+1778	grasping	yellow corded power drill	Small Diameter	142	hardware_homedepot_p2	1408	0.7503	-0.06464	15	annotated peak
+1779	grasping	DeWALT cordless drill	Light Tool	62	hardware_homedepot_p2	1502	0.7152	-0.1302	22	annotated peak
+2706	picking up	cordless power drill	Medium Wrap	324	fablab_ml_p1	832.7	0.6979	-0.4525	14	annotated peak
+2707	picking up	cordless power drill	Medium Wrap	144	fablab_ml_p1	504.1	0.8778	-0.1787	9	annotated peak
