@@ -12,7 +12,7 @@ beat AR -- by putting all three on one axis.
 STYLE is the grid's, so the two figures read as one family: hue encodes the INPUT exactly as it
 does there (physical state blue, flatten orange, cnn green), AR keeps its pink, truth is black.
 Within a panel the input is fixed, so hue cannot separate the backbones; line style does --
-Seq2Seq solid, probGRU dashed and darker. The sigma bands are off by default because two
+Seq2Seq solid, probGRU dashed, both lightened. The sigma bands are off by default because two
 same-hue bands on one axis merge into one; --bands draws them anyway.
 """
 from __future__ import annotations
@@ -32,11 +32,20 @@ AR_COLOR = COLOR["ar"]
 LEGEND_GREY = "#9a9992"
 
 
-def darker(hex_color: str, f: float = 0.62) -> str:
-    """The same hue at lower lightness, so the dashed probGRU line stays legible against the
-    solid Seq2Seq line of its own input colour."""
+def lighten(hex_color: str, f: float) -> str:
+    """Blend a hue toward white by fraction f. At full saturation the input colours sat on top
+    of the black truth and buried it; lightened, the truth reads first and the forecasts second,
+    which is the order the figure is meant to be read in."""
     r, g, b = (int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
-    return "#{:02x}{:02x}{:02x}".format(int(r * f), int(g * f), int(b * f))
+    return "#{:02x}{:02x}{:02x}".format(*(round(v + (255 - v) * f) for v in (r, g, b)))
+
+
+# Both backbones are lightened; Seq2Seq more than probGRU, so the pair stays separable by
+# tone as well as by line style when the curves cross.
+LIGHT_S2S, LIGHT_PG = 0.42, 0.18
+# Thin throughout: at 7.16 in the three panels hold ~500 points each, and at the old widths
+# the forecasts merged into a band.
+LW_TRUTH, LW_S2S, LW_PG, LW_AR, LW_GRID, LW_SPINE = 0.6, 0.6, 0.6, 0.5, 0.3, 0.5
 
 
 def main():
@@ -91,33 +100,35 @@ def main():
         s2s, pg = s2s_row[c], pg_row[c]
         key, title = (s2s or pg)[1], (s2s or pg)[2]
         hue = COLOR[key]
-        ax.plot(tt, y[:, k], "-", color=TRUTH, lw=0.9, zorder=2)
+        ax.plot(tt, y[:, k], "-", color=TRUTH, lw=LW_TRUTH, zorder=2)
         if ar_arm in data["arms"]:
-            draw(ax, ar_arm, AR_COLOR, "-", 0.8, 3)
+            draw(ax, ar_arm, AR_COLOR, "-", LW_AR, 3)
         if pg and pg[0] in data["arms"]:
-            draw(ax, pg[0], darker(hue), (0, (3.2, 1.6)), 0.95, 5)
+            draw(ax, pg[0], lighten(hue, LIGHT_PG), (0, (3.2, 1.6)), LW_PG, 5)
         if s2s and s2s[0] in data["arms"]:
-            draw(ax, s2s[0], hue, "-", 1.0, 6)
+            draw(ax, s2s[0], lighten(hue, LIGHT_S2S), "-", LW_S2S, 6)
         ax.set_title(title, fontsize=PT_TITLE, color=INK, loc="left", pad=2.5)
         ax.set_xlabel("time  (s)", fontsize=PT_LABEL, color=MUTED, labelpad=1.5)
         if c == 0:
             ax.set_ylabel("Total Force F", fontsize=PT_LABEL, color=MUTED, labelpad=1.5)
         ax.tick_params(colors=MUTED, labelsize=PT_TICK, length=0, pad=1.5)
-        ax.grid(color=GRID, lw=0.4, zorder=0)
+        ax.grid(color=GRID, lw=LW_GRID, zorder=0)
         ax.set_axisbelow(True)
         for sp in ("top", "right"):
             ax.spines[sp].set_visible(False)
         for sp in ("bottom", "left"):
             ax.spines[sp].set_color(GRID)
+            ax.spines[sp].set_linewidth(LW_SPINE)
         ax.set_xlim(0, tmax)
 
     # Backbone entries are drawn in neutral grey: their hue changes panel to panel, and what
     # the legend has to carry is the line style that stays fixed. Not ink -- the truth is ink,
     # and a black solid "Seq2Seq" swatch was indistinguishable from the "ground truth" one.
-    handles = [Line2D([], [], color=TRUTH, lw=0.9, label="ground truth"),
-               Line2D([], [], color=LEGEND_GREY, lw=1.0, label="Seq2Seq"),
-               Line2D([], [], color=LEGEND_GREY, lw=0.95, ls=(0, (3.2, 1.6)), label="probGRU"),
-               Line2D([], [], color=AR_COLOR, lw=0.8, label="AR")]
+    handles = [Line2D([], [], color=TRUTH, lw=LW_TRUTH, label="ground truth"),
+               Line2D([], [], color=LEGEND_GREY, lw=LW_S2S, label="Seq2Seq"),
+               Line2D([], [], color=LEGEND_GREY, lw=LW_PG, ls=(0, (3.2, 1.6)),
+                      label="probGRU"),
+               Line2D([], [], color=AR_COLOR, lw=LW_AR, label="AR")]
     fig.tight_layout(rect=(0, 0, 1, 0.915), w_pad=0.8)
     fig.legend(handles=handles, frameon=False, fontsize=PT_LEGEND, labelcolor=INK,
                ncols=len(handles), loc="upper center", bbox_to_anchor=(0.5, 0.995),
