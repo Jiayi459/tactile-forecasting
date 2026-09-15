@@ -9,8 +9,8 @@ Panel c holds the ground truth and the Seq2Seq and probGRU forecasts reading inp
 "on the same input, do they differ" is read without the eye travelling between rows.
 
 COLOUR encodes the BACKBONE, not the input: within a panel the input is fixed and the panel title
-already names it, so hue is spent where it separates something. probGRU is pink and Seq2Seq
-green, both solid, from the Ocean Pearl Delight palette (#E29578, #83C5BE); truth is black.
+already names it, so hue is spent where it separates something. probGRU is deep red
+(#C62828) and Seq2Seq deep blue (#1F5AA6), both solid; truth is black.
 The sigma bands are off by default; --bands draws them in each backbone's colour.
 
 Drawing lives in render(), which takes plain (t, value) series, so the figure can be rebuilt from
@@ -28,7 +28,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "act
 from plot_clip_model_grid import (GRID, INK, LAYOUTS, MUTED, PAPER_W, PT_LABEL,  # noqa: E402
                                   PT_LEGEND, PT_TICK, PT_TITLE, TRUTH, load_clip, rolling)
 
-PG_COLOR, S2S_COLOR = "#E29578", "#83C5BE"
+# Deep red and deep blue at similar lightness, so neither forecast visually outranks the
+# other and both stand clear of the black truth. The earlier pastel pair (#E29578, #83C5BE)
+# receded behind the truth at 0.6 pt.
+PG_COLOR, S2S_COLOR = "#C62828", "#1F5AA6"
 # Thin throughout: at 7.16 in the three panels hold ~500 points each, and at 0.9-1.0 pt the
 # forecasts merged into a band over the truth.
 LW_TRUTH, LW_S2S, LW_PG, LW_GRID, LW_SPINE = 0.6, 0.6, 0.6, 0.3, 0.5
