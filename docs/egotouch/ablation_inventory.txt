@@ -1,0 +1,18 @@
+horizon  test_seen    h0p5   111 recs    58679 origins H=[5] arms=['aggregate_probgru', 'aggregate_seq2seq'] 
+horizon  test_seen    h1p0   111 recs    58679 origins H=[10] arms=['aggregate_probgru', 'aggregate_seq2seq'] origins==first
+horizon  test_seen    h2p0   111 recs    58679 origins H=[20] arms=['aggregate_probgru', 'aggregate_seq2seq'] origins==first
+horizon  test_seen    h3p0   111 recs    58679 origins H=[30] arms=['aggregate_probgru', 'aggregate_seq2seq'] origins==first
+horizon  test_unseen  h0p5    50 recs    17799 origins H=[5] arms=['aggregate_probgru', 'aggregate_seq2seq'] 
+horizon  test_unseen  h1p0    50 recs    17799 origins H=[10] arms=['aggregate_probgru', 'aggregate_seq2seq'] origins==first
+horizon  test_unseen  h2p0    50 recs    17799 origins H=[20] arms=['aggregate_probgru', 'aggregate_seq2seq'] origins==first
+horizon  test_unseen  h3p0    50 recs    17799 origins H=[30] arms=['aggregate_probgru', 'aggregate_seq2seq'] origins==first
+MISSING runs/egotouch_history/h1/test_seen_1s
+MISSING runs/egotouch_history/h2/test_seen_2s
+MISSING runs/egotouch_history/h3/test_seen_3s
+MISSING runs/egotouch_history/h5/test_seen_5s
+MISSING runs/egotouch_history/h10/test_seen_10s
+MISSING runs/egotouch_history/h1/test_unseen_1s
+MISSING runs/egotouch_history/h2/test_unseen_2s
+MISSING runs/egotouch_history/h3/test_unseen_3s
+MISSING runs/egotouch_history/h5/test_unseen_5s
+MISSING runs/egotouch_history/h10/test_unseen_10s
