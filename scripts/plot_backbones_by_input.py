@@ -79,7 +79,10 @@ def render(panels, tmax, out, height=2.15, bands=False):
     handles = [Line2D([], [], color=TRUTH, lw=LW_TRUTH, label="ground truth"),
                Line2D([], [], color=PG_COLOR, lw=LW_PG, label="probGRU"),
                Line2D([], [], color=S2S_COLOR, lw=LW_S2S, label="Seq2Seq")]
-    fig.tight_layout(rect=(0, 0, 1, 0.915), w_pad=0.8)
+    # Reserve a fixed ~0.18 in for the legend rather than a fixed fraction: a fraction tuned for
+    # the 2.15 in row left a wide gap above a taller single panel. 0.18275 in is exactly the
+    # 0.915 the row figure was drawn with, so that figure is unchanged.
+    fig.tight_layout(rect=(0, 0, 1, 1 - 0.18275 / height), w_pad=0.8)
     fig.legend(handles=handles, frameon=False, fontsize=PT_LEGEND, labelcolor=INK,
                ncols=len(handles), loc="upper center", bbox_to_anchor=(0.5, 0.995),
                handlelength=2.4)
@@ -100,6 +103,8 @@ def main():
                     help="plot only the first N seconds (clamped to the recording)")
     ap.add_argument("--bands", action="store_true", help="draw ±2σ for both backbones")
     ap.add_argument("--height", type=float, default=2.15, help="figure height, inches")
+    ap.add_argument("--only", choices=["aggregate", "flatten", "cnn"], default=None,
+                    help="draw a single input as one large panel (aggregate = physical state)")
     a = ap.parse_args()
 
     layout = LAYOUTS[a.dataset]
@@ -131,6 +136,8 @@ def main():
     panels = []
     for s2s, pg in zip(s2s_row, pg_row):
         cell = s2s or pg
+        if a.only and cell[1] != a.only:
+            continue
         panels.append(dict(title=cell[2], truth=(tt, y[:, k]),
                            s2s=series(s2s[0] if s2s else None),
                            pg=series(pg[0] if pg else None)))
