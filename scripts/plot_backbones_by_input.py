@@ -1,19 +1,20 @@
-"""One recording, three inputs side by side, both backbones and AR in every panel.
+"""One recording, three inputs side by side, both backbones in every panel.
 
     python scripts/plot_backbones_by_input.py --dataset egotouch \
         --preds runs/egotouch_merged/egotouch_test_unseen_3s \
-        --clip 76 --channel F_R --out figures/backbones_by_input_ego_unseen_clip76.pdf
+        --clip 76 --channel F_R --out figures/backbones_by_input_ego_unseen_clip76.png
 
-Panel c holds the ground truth, Seq2Seq and probGRU reading input c, and AR. The grid
-(plot_clip_model_grid.py) asks "what does each arm look like"; this asks the narrower question
-the grid spreads over two rows -- on the same input, do the two decoders differ, and does either
-beat AR -- by putting all three on one axis.
+Panel c holds the ground truth and the Seq2Seq and probGRU forecasts reading input c. The grid
+(plot_clip_model_grid.py) spreads the two decoders over two rows; this puts them on one axis so
+"on the same input, do they differ" is read without the eye travelling between rows.
 
-STYLE is the grid's, so the two figures read as one family: hue encodes the INPUT exactly as it
-does there (physical state blue, flatten orange, cnn green), AR keeps its pink, truth is black.
-Within a panel the input is fixed, so hue cannot separate the backbones; line style does --
-Seq2Seq solid, probGRU dashed, both lightened. The sigma bands are off by default because two
-same-hue bands on one axis merge into one; --bands draws them anyway.
+COLOUR encodes the BACKBONE, not the input: within a panel the input is fixed and the panel title
+already names it, so hue is spent where it separates something. probGRU is pink and Seq2Seq
+green, both solid, from the Ocean Pearl Delight palette (#E29578, #83C5BE); truth is black.
+The sigma bands are off by default; --bands draws them in each backbone's colour.
+
+Drawing lives in render(), which takes plain (t, value) series, so the figure can be rebuilt from
+any source of those series with exactly this styling.
 """
 from __future__ import annotations
 
@@ -24,28 +25,65 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "actionsense"))
-from plot_clip_model_grid import (COLOR, GRID, INK, LAYOUTS, MUTED, PAPER_W,  # noqa: E402
-                                  PT_LABEL, PT_LEGEND, PT_TICK, PT_TITLE, TRUTH, load_clip,
-                                  rolling)
+from plot_clip_model_grid import (GRID, INK, LAYOUTS, MUTED, PAPER_W, PT_LABEL,  # noqa: E402
+                                  PT_LEGEND, PT_TICK, PT_TITLE, TRUTH, load_clip, rolling)
 
-AR_COLOR = COLOR["ar"]
-LEGEND_GREY = "#9a9992"
-
-
-def lighten(hex_color: str, f: float) -> str:
-    """Blend a hue toward white by fraction f. At full saturation the input colours sat on top
-    of the black truth and buried it; lightened, the truth reads first and the forecasts second,
-    which is the order the figure is meant to be read in."""
-    r, g, b = (int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
-    return "#{:02x}{:02x}{:02x}".format(*(round(v + (255 - v) * f) for v in (r, g, b)))
+PG_COLOR, S2S_COLOR = "#E29578", "#83C5BE"
+# Thin throughout: at 7.16 in the three panels hold ~500 points each, and at 0.9-1.0 pt the
+# forecasts merged into a band over the truth.
+LW_TRUTH, LW_S2S, LW_PG, LW_GRID, LW_SPINE = 0.6, 0.6, 0.6, 0.3, 0.5
 
 
-# Both backbones are lightened; Seq2Seq more than probGRU, so the pair stays separable by
-# tone as well as by line style when the curves cross.
-LIGHT_S2S, LIGHT_PG = 0.42, 0.18
-# Thin throughout: at 7.16 in the three panels hold ~500 points each, and at the old widths
-# the forecasts merged into a band.
-LW_TRUTH, LW_S2S, LW_PG, LW_AR, LW_GRID, LW_SPINE = 0.6, 0.6, 0.6, 0.5, 0.3, 0.5
+def render(panels, tmax, out, height=2.15, bands=False):
+    """panels: one dict per input, keys `title`, `truth`, and optionally `s2s` / `pg`, each a
+    tuple (t, value) or (t, value, sigma)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+
+    def draw(ax, series, color, lw, z):
+        t, v = np.asarray(series[0]), np.asarray(series[1])
+        sig = series[2] if len(series) > 2 else None
+        if bands and sig is not None:
+            sig = np.asarray(sig)
+            ax.fill_between(t, v - 2 * sig, v + 2 * sig, color=color, alpha=0.18, lw=0,
+                            zorder=z - 1)
+        ax.plot(t, v, "-", color=color, lw=lw, zorder=z)
+
+    fig, axes = plt.subplots(1, len(panels), figsize=(PAPER_W, height), sharex=True,
+                             sharey=True)
+    for c, (ax, p) in enumerate(zip(np.atleast_1d(axes), panels)):
+        draw(ax, p["truth"], TRUTH, LW_TRUTH, 2)
+        if p.get("pg") is not None:
+            draw(ax, p["pg"], PG_COLOR, LW_PG, 5)
+        if p.get("s2s") is not None:
+            draw(ax, p["s2s"], S2S_COLOR, LW_S2S, 6)
+        ax.set_title(p["title"], fontsize=PT_TITLE, color=INK, loc="left", pad=2.5)
+        ax.set_xlabel("time  (s)", fontsize=PT_LABEL, color=MUTED, labelpad=1.5)
+        if c == 0:
+            ax.set_ylabel("Total Force F", fontsize=PT_LABEL, color=MUTED, labelpad=1.5)
+        ax.tick_params(colors=MUTED, labelsize=PT_TICK, length=0, pad=1.5)
+        ax.grid(color=GRID, lw=LW_GRID, zorder=0)
+        ax.set_axisbelow(True)
+        for sp in ("top", "right"):
+            ax.spines[sp].set_visible(False)
+        for sp in ("bottom", "left"):
+            ax.spines[sp].set_color(GRID)
+            ax.spines[sp].set_linewidth(LW_SPINE)
+        ax.set_xlim(0, tmax)
+
+    handles = [Line2D([], [], color=TRUTH, lw=LW_TRUTH, label="ground truth"),
+               Line2D([], [], color=PG_COLOR, lw=LW_PG, label="probGRU"),
+               Line2D([], [], color=S2S_COLOR, lw=LW_S2S, label="Seq2Seq")]
+    fig.tight_layout(rect=(0, 0, 1, 0.915), w_pad=0.8)
+    fig.legend(handles=handles, frameon=False, fontsize=PT_LEGEND, labelcolor=INK,
+               ncols=len(handles), loc="upper center", bbox_to_anchor=(0.5, 0.995),
+               handlelength=2.4)
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    fig.savefig(out, dpi=400, facecolor="white", bbox_inches="tight", pad_inches=0.01)
+    plt.close(fig)
+    print(f"[done] {out}  ({PAPER_W}x{height} in)")
 
 
 def main():
@@ -61,14 +99,8 @@ def main():
     ap.add_argument("--height", type=float, default=2.15, help="figure height, inches")
     a = ap.parse_args()
 
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    from matplotlib.lines import Line2D
-
     layout = LAYOUTS[a.dataset]
-    s2s_row, pg_row, base_row = layout[0][1], layout[1][1], layout[-1][1]
-    ar_arm = next((c[0] for c in base_row if c and c[1] == "ar"), None)
+    s2s_row, pg_row = layout[0][1], layout[1][1]
 
     data = load_clip(a.preds, a.clip)
     chans, fps, y = data["channels"], data["fps"], data["y"]
@@ -79,63 +111,27 @@ def main():
     tt = np.arange(len(y)) / fps
     tmax = min(a.seconds, tt[-1]) if a.seconds else tt[-1]
 
-    want = [c[0] for c in s2s_row + pg_row if c] + ([ar_arm] if ar_arm else [])
+    want = [c[0] for c in s2s_row + pg_row if c]
     missing = [m for m in want if m not in data["arms"]]
     print(f"  clip {a.clip}  action={data['action']!r}  {len(y)} frames @ {fps:g} Hz  "
           f"H={H} ({H / fps:g} s)")
     if missing:
         print(f"  MISSING (drawn without them): {missing}")
 
-    def draw(ax, arm, color, ls, lw, z):
+    def series(arm):
+        if arm is None or arm not in data["arms"]:
+            return None
         mu, sg, ors = data["arms"][arm]
         idx, val, sig = rolling(mu, sg, ors, H)
-        t = idx / fps
-        if a.bands and sig is not None:
-            ax.fill_between(t, val[:, k] - 2 * sig[:, k], val[:, k] + 2 * sig[:, k],
-                            color=color, alpha=0.14, lw=0, zorder=z - 1)
-        ax.plot(t, val[:, k], ls=ls, color=color, lw=lw, zorder=z)
+        return (idx / fps, val[:, k]) + ((sig[:, k],) if sig is not None else ())
 
-    fig, axes = plt.subplots(1, 3, figsize=(PAPER_W, a.height), sharex=True, sharey=True)
-    for c, ax in enumerate(axes):
-        s2s, pg = s2s_row[c], pg_row[c]
-        key, title = (s2s or pg)[1], (s2s or pg)[2]
-        hue = COLOR[key]
-        ax.plot(tt, y[:, k], "-", color=TRUTH, lw=LW_TRUTH, zorder=2)
-        if ar_arm in data["arms"]:
-            draw(ax, ar_arm, AR_COLOR, "-", LW_AR, 3)
-        if pg and pg[0] in data["arms"]:
-            draw(ax, pg[0], lighten(hue, LIGHT_PG), (0, (3.2, 1.6)), LW_PG, 5)
-        if s2s and s2s[0] in data["arms"]:
-            draw(ax, s2s[0], lighten(hue, LIGHT_S2S), "-", LW_S2S, 6)
-        ax.set_title(title, fontsize=PT_TITLE, color=INK, loc="left", pad=2.5)
-        ax.set_xlabel("time  (s)", fontsize=PT_LABEL, color=MUTED, labelpad=1.5)
-        if c == 0:
-            ax.set_ylabel("Total Force F", fontsize=PT_LABEL, color=MUTED, labelpad=1.5)
-        ax.tick_params(colors=MUTED, labelsize=PT_TICK, length=0, pad=1.5)
-        ax.grid(color=GRID, lw=LW_GRID, zorder=0)
-        ax.set_axisbelow(True)
-        for sp in ("top", "right"):
-            ax.spines[sp].set_visible(False)
-        for sp in ("bottom", "left"):
-            ax.spines[sp].set_color(GRID)
-            ax.spines[sp].set_linewidth(LW_SPINE)
-        ax.set_xlim(0, tmax)
-
-    # Backbone entries are drawn in neutral grey: their hue changes panel to panel, and what
-    # the legend has to carry is the line style that stays fixed. Not ink -- the truth is ink,
-    # and a black solid "Seq2Seq" swatch was indistinguishable from the "ground truth" one.
-    handles = [Line2D([], [], color=TRUTH, lw=LW_TRUTH, label="ground truth"),
-               Line2D([], [], color=LEGEND_GREY, lw=LW_S2S, label="Seq2Seq"),
-               Line2D([], [], color=LEGEND_GREY, lw=LW_PG, ls=(0, (3.2, 1.6)),
-                      label="probGRU"),
-               Line2D([], [], color=AR_COLOR, lw=LW_AR, label="AR")]
-    fig.tight_layout(rect=(0, 0, 1, 0.915), w_pad=0.8)
-    fig.legend(handles=handles, frameon=False, fontsize=PT_LEGEND, labelcolor=INK,
-               ncols=len(handles), loc="upper center", bbox_to_anchor=(0.5, 0.995),
-               handlelength=2.4)
-    os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
-    fig.savefig(a.out, dpi=400, facecolor="white", bbox_inches="tight", pad_inches=0.01)
-    print(f"[done] {a.out}  ({PAPER_W}x{a.height} in)")
+    panels = []
+    for s2s, pg in zip(s2s_row, pg_row):
+        cell = s2s or pg
+        panels.append(dict(title=cell[2], truth=(tt, y[:, k]),
+                           s2s=series(s2s[0] if s2s else None),
+                           pg=series(pg[0] if pg else None)))
+    render(panels, tmax, a.out, height=a.height, bands=a.bands)
 
 
 if __name__ == "__main__":
