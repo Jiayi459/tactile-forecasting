@@ -42,6 +42,9 @@ PG_COLOR, S2S_COLOR = "#C62828", "#1F5AA6"
 LW_TRUTH, LW_S2S, LW_PG, LW_GRID, LW_SPINE = 0.6, 0.6, 0.6, 0.3, 0.5
 # An enlarged panel is ~3x the width of one in the row, so it carries a heavier line.
 ZOOM_LW = 1.45
+# One panel of the three-panel row. A standalone enlargement drawn at this width lines up
+# with the panel it came from when the two are placed one above the other.
+PANEL_W = PAPER_W / 3
 # Reserve a fixed ~0.18 in for the legend rather than a fixed fraction: a fraction tuned for
 # the 2.15 in row left a wide gap above a taller figure. 0.18275 in is exactly the 0.915 the
 # row figure was drawn with, so that figure is unchanged.
@@ -96,6 +99,13 @@ def _panel(ax, p, xlim, show_ylabel, bands, lw_scale=1.0, shade=False):
     ax.set_xlim(*xlim)
 
 
+def _box(ax, t0, t1):
+    """Outline on a full-range panel showing which stretch the enlargement below covers."""
+    from matplotlib.patches import Rectangle
+    ax.add_patch(Rectangle((t0, 0.012), t1 - t0, 0.976, transform=ax.get_xaxis_transform(),
+                           fill=False, ec=MUTED, lw=0.5, zorder=8))
+
+
 def _legend(fig):
     from matplotlib.lines import Line2D
     handles = [Line2D([], [], color=TRUTH, lw=LW_TRUTH, label="ground truth"),
@@ -106,13 +116,14 @@ def _legend(fig):
                handlelength=2.4)
 
 
-def _save(fig, out, height):
+def _save(fig, out, height, width=PAPER_W):
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     fig.savefig(out, dpi=400, facecolor="white", bbox_inches="tight", pad_inches=0.01)
-    print(f"[done] {out}  ({PAPER_W}x{height} in)")
+    print(f"[done] {out}  ({width:.3g}x{height} in)")
 
 
-def render(panels, xlim, out, height=2.15, bands=False, lw_scale=1.0, shade=False):
+def render(panels, xlim, out, height=2.15, bands=False, lw_scale=1.0, shade=False,
+           width=PAPER_W, legend=True, ylim=None):
     """One row of panels on a shared axis. xlim is (t0, t1), or a bare t1."""
     import matplotlib
     matplotlib.use("Agg")
@@ -120,18 +131,25 @@ def render(panels, xlim, out, height=2.15, bands=False, lw_scale=1.0, shade=Fals
 
     if not isinstance(xlim, (tuple, list)):
         xlim = (0, xlim)
-    fig, axes = plt.subplots(1, len(panels), figsize=(PAPER_W, height), sharex=True,
+    fig, axes = plt.subplots(1, len(panels), figsize=(width, height), sharex=True,
                              sharey=True)
     for c, (ax, p) in enumerate(zip(np.atleast_1d(axes), panels)):
         _panel(ax, p, xlim, c == 0, bands, lw_scale=lw_scale, shade=shade)
-    fig.tight_layout(rect=(0, 0, 1, 1 - LEGEND_IN / height), w_pad=0.8)
-    _legend(fig)
-    _save(fig, out, height)
+        # Separately rendered panels autoscale separately, so three of them side by side end up
+        # with different y ticks and gridlines. A shared limit is what makes them comparable.
+        if ylim is not None:
+            ax.set_ylim(*ylim)
+    # The legend keeps its size while the figure narrows, so at one panel's width it would
+    # crowd the axes it explains. Panels meant to sit under the row share the row's legend.
+    fig.tight_layout(rect=(0, 0, 1, 1 - (LEGEND_IN / height if legend else 0.02)), w_pad=0.8)
+    if legend:
+        _legend(fig)
+    _save(fig, out, height, width)
     plt.close(fig)
 
 
-def render_with_zoom(panels, xlim, zoom, zoom_xlim, out, height=4.0, bands=False):
-    """The row above, and one of its panels enlarged across the full width below."""
+def render_with_zoom(panels, xlim, zooms, zoom_xlim, out, height=4.0, bands=False, box=None):
+    """The row above, and its panels enlarged below -- one each, or one spanning the width."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -145,7 +163,15 @@ def render_with_zoom(panels, xlim, zoom, zoom_xlim, out, height=4.0, bands=False
         _panel(ax, p, xlim, c == 0, bands)
         if c:
             ax.tick_params(labelleft=False)
-    _panel(fig.add_subplot(gs[1, :]), zoom, zoom_xlim, True, bands, lw_scale=ZOOM_LW, shade=True)
+        if box:
+            _box(ax, *box)
+    below = None
+    for c, z in enumerate(zooms):
+        ax = fig.add_subplot(gs[1, :] if len(zooms) == 1 else gs[1, c], sharey=below)
+        below = below or ax
+        _panel(ax, z, zoom_xlim, c == 0, bands, lw_scale=ZOOM_LW, shade=True)
+        if c:
+            ax.tick_params(labelleft=False)
     fig.tight_layout(rect=(0, 0, 1, 1 - LEGEND_IN / height), w_pad=0.8, h_pad=1.2)
     _legend(fig)
     _save(fig, out, height)
@@ -163,6 +189,10 @@ def main():
                     help="plot only the first N seconds (clamped to the recording)")
     ap.add_argument("--bands", action="store_true", help="draw ±2σ for both backbones")
     ap.add_argument("--height", type=float, default=None, help="figure height, inches")
+    ap.add_argument("--no-legend", action="store_true",
+                    help="omit the legend, for a panel that sits beside one carrying it")
+    ap.add_argument("--panel-width", action="store_true",
+                    help="draw at the width of one row panel instead of the full text width")
     ap.add_argument("--only", choices=["aggregate", "flatten", "cnn"], default=None,
                     help="draw a single input as one large panel (aggregate = physical state)")
     ap.add_argument("--window", type=float, nargs=2, metavar=("T0", "T1"),
@@ -210,14 +240,15 @@ def main():
 
     if a.zoom:
         t0, t1, hist = a.zoom
-        zoom = dict(panels[0], forecast_from=t0 + hist)
-        render_with_zoom(panels, (0, tmax), zoom, (t0, t1), a.out,
-                         height=a.height or 4.0, bands=a.bands)
+        zooms = [dict(p, forecast_from=t0 + hist) for p in panels]
+        render_with_zoom(panels, (0, tmax), zooms, (t0, t1), a.out,
+                         height=a.height or 4.0, bands=a.bands, box=(t0, t1))
     elif a.window:
         t0, t1 = a.window
         panels = [dict(p, forecast_from=t0 + a.history) for p in panels]
         render(panels, (t0, t1), a.out, height=a.height or 2.15, bands=a.bands,
-               lw_scale=ZOOM_LW, shade=True)
+               lw_scale=ZOOM_LW, shade=True, legend=not a.no_legend,
+               width=PANEL_W if a.panel_width else PAPER_W)
     else:
         render(panels, (0, tmax), a.out, height=a.height or 2.15, bands=a.bands)
 
