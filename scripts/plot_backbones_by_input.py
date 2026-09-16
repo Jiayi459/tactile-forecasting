@@ -40,13 +40,19 @@ PG_COLOR, S2S_COLOR = "#C62828", "#1F5AA6"
 # Thin throughout: at 7.16 in the three panels hold ~500 points each, and at 0.9-1.0 pt the
 # forecasts merged into a band over the truth.
 LW_TRUTH, LW_S2S, LW_PG, LW_GRID, LW_SPINE = 0.6, 0.6, 0.6, 0.3, 0.5
+# An enlarged panel is ~3x the width of one in the row, so it carries a heavier line.
+ZOOM_LW = 1.45
 # Reserve a fixed ~0.18 in for the legend rather than a fixed fraction: a fraction tuned for
 # the 2.15 in row left a wide gap above a taller figure. 0.18275 in is exactly the 0.915 the
 # row figure was drawn with, so that figure is unchanged.
 LEGEND_IN = 0.18275
+# Shading for a panel split into the history the models were given and the stretch they
+# predict. The split is the point of such a panel, and a band of colour says it without
+# spending the title on it.
+HIST_FILL, PRED_FILL = "#DEE6F2", "#FAE3D2"
 
 
-def _draw(ax, series, color, lw, z, bands, tmin=None):
+def _draw(ax, series, color, lw, z, bands, tmin=None, lw_scale=1.0):
     """One series, optionally withheld before tmin -- the stretch shown as history only."""
     t, v = np.asarray(series[0]), np.asarray(series[1])
     sig = np.asarray(series[2]) if len(series) > 2 else None
@@ -57,17 +63,24 @@ def _draw(ax, series, color, lw, z, bands, tmin=None):
     if bands and sig is not None:
         ax.fill_between(t, v - 2 * sig, v + 2 * sig, color=color, alpha=0.18, lw=0,
                         zorder=z - 1)
-    ax.plot(t, v, "-", color=color, lw=lw, zorder=z)
+    ax.plot(t, v, "-", color=color, lw=lw * lw_scale, zorder=z)
 
 
-def _panel(ax, p, xlim, show_ylabel, bands):
+def _panel(ax, p, xlim, show_ylabel, bands, lw_scale=1.0, shade=False):
     """panel dict: `title`, `truth`, optional `s2s` / `pg`, optional `forecast_from`."""
     start = p.get("forecast_from")
-    _draw(ax, p["truth"], TRUTH, LW_TRUTH, 2, False)
+    if shade and start is not None:
+        # Behind the grid as well as the lines: these are regions of the axis, not data.
+        ax.axvspan(xlim[0], start, color=HIST_FILL, lw=0, zorder=-2)
+        ax.axvspan(start, xlim[1], color=PRED_FILL, lw=0, zorder=-2)
+        for lo, hi, name in ((xlim[0], start, "history"), (start, xlim[1], "prediction")):
+            ax.text((lo + hi) / 2, 0.955, name, transform=ax.get_xaxis_transform(),
+                    ha="center", va="top", fontsize=PT_LABEL, color=INK, weight="bold")
+    _draw(ax, p["truth"], TRUTH, LW_TRUTH, 2, False, lw_scale=lw_scale)
     if p.get("pg") is not None:
-        _draw(ax, p["pg"], PG_COLOR, LW_PG, 5, bands, start)
+        _draw(ax, p["pg"], PG_COLOR, LW_PG, 5, bands, start, lw_scale)
     if p.get("s2s") is not None:
-        _draw(ax, p["s2s"], S2S_COLOR, LW_S2S, 6, bands, start)
+        _draw(ax, p["s2s"], S2S_COLOR, LW_S2S, 6, bands, start, lw_scale)
     ax.set_title(p["title"], fontsize=PT_TITLE, color=INK, loc="left", pad=2.5)
     ax.set_xlabel("time  (s)", fontsize=PT_LABEL, color=MUTED, labelpad=1.5)
     if show_ylabel:
@@ -99,7 +112,7 @@ def _save(fig, out, height):
     print(f"[done] {out}  ({PAPER_W}x{height} in)")
 
 
-def render(panels, xlim, out, height=2.15, bands=False):
+def render(panels, xlim, out, height=2.15, bands=False, lw_scale=1.0, shade=False):
     """One row of panels on a shared axis. xlim is (t0, t1), or a bare t1."""
     import matplotlib
     matplotlib.use("Agg")
@@ -110,7 +123,7 @@ def render(panels, xlim, out, height=2.15, bands=False):
     fig, axes = plt.subplots(1, len(panels), figsize=(PAPER_W, height), sharex=True,
                              sharey=True)
     for c, (ax, p) in enumerate(zip(np.atleast_1d(axes), panels)):
-        _panel(ax, p, xlim, c == 0, bands)
+        _panel(ax, p, xlim, c == 0, bands, lw_scale=lw_scale, shade=shade)
     fig.tight_layout(rect=(0, 0, 1, 1 - LEGEND_IN / height), w_pad=0.8)
     _legend(fig)
     _save(fig, out, height)
@@ -132,7 +145,7 @@ def render_with_zoom(panels, xlim, zoom, zoom_xlim, out, height=4.0, bands=False
         _panel(ax, p, xlim, c == 0, bands)
         if c:
             ax.tick_params(labelleft=False)
-    _panel(fig.add_subplot(gs[1, :]), zoom, zoom_xlim, True, bands)
+    _panel(fig.add_subplot(gs[1, :]), zoom, zoom_xlim, True, bands, lw_scale=ZOOM_LW, shade=True)
     fig.tight_layout(rect=(0, 0, 1, 1 - LEGEND_IN / height), w_pad=0.8, h_pad=1.2)
     _legend(fig)
     _save(fig, out, height)
@@ -197,15 +210,14 @@ def main():
 
     if a.zoom:
         t0, t1, hist = a.zoom
-        zoom = dict(panels[0], forecast_from=t0 + hist,
-                    title=f"{panels[0]['title']} · {hist:g} s history, then "
-                          f"{t1 - t0 - hist:g} s of forecasts")
+        zoom = dict(panels[0], forecast_from=t0 + hist)
         render_with_zoom(panels, (0, tmax), zoom, (t0, t1), a.out,
                          height=a.height or 4.0, bands=a.bands)
     elif a.window:
         t0, t1 = a.window
         panels = [dict(p, forecast_from=t0 + a.history) for p in panels]
-        render(panels, (t0, t1), a.out, height=a.height or 2.15, bands=a.bands)
+        render(panels, (t0, t1), a.out, height=a.height or 2.15, bands=a.bands,
+               lw_scale=ZOOM_LW, shade=True)
     else:
         render(panels, (0, tmax), a.out, height=a.height or 2.15, bands=a.bands)
 
