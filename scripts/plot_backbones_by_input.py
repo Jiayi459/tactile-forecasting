@@ -84,7 +84,8 @@ def _panel(ax, p, xlim, show_ylabel, bands, lw_scale=1.0, shade=False):
         _draw(ax, p["pg"], PG_COLOR, LW_PG, 5, bands, start, lw_scale)
     if p.get("s2s") is not None:
         _draw(ax, p["s2s"], S2S_COLOR, LW_S2S, 6, bands, start, lw_scale)
-    ax.set_title(p["title"], fontsize=PT_TITLE, color=INK, loc="left", pad=2.5)
+    if p.get("title"):
+        ax.set_title(p["title"], fontsize=PT_TITLE, color=INK, loc="left", pad=2.5)
     ax.set_xlabel("time  (s)", fontsize=PT_LABEL, color=MUTED, labelpad=1.5)
     if show_ylabel:
         ax.set_ylabel("Total Force F", fontsize=PT_LABEL, color=MUTED, labelpad=1.5)
@@ -148,31 +149,46 @@ def render(panels, xlim, out, height=2.15, bands=False, lw_scale=1.0, shade=Fals
     plt.close(fig)
 
 
-def render_with_zoom(panels, xlim, zooms, zoom_xlim, out, height=4.0, bands=False, box=None):
+def render_with_zoom(panels, xlim, zooms, zoom_xlim, out, height=4.0, bands=False, box=None,
+                     zoom_titles=False):
     """The row above, and its panels enlarged below -- one each, or one spanning the width."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.patches import ConnectionPatch
 
     fig = plt.figure(figsize=(PAPER_W, height))
     gs = fig.add_gridspec(2, len(panels), height_ratios=[1.0, 0.95])
-    top = None
+    tops, bottoms = [], []
     for c, p in enumerate(panels):
-        ax = fig.add_subplot(gs[0, c], sharey=top)
-        top = top or ax
+        ax = fig.add_subplot(gs[0, c], sharey=tops[0] if tops else None)
+        tops.append(ax)
         _panel(ax, p, xlim, c == 0, bands)
         if c:
             ax.tick_params(labelleft=False)
         if box:
             _box(ax, *box)
-    below = None
     for c, z in enumerate(zooms):
-        ax = fig.add_subplot(gs[1, :] if len(zooms) == 1 else gs[1, c], sharey=below)
-        below = below or ax
-        _panel(ax, z, zoom_xlim, c == 0, bands, lw_scale=ZOOM_LW, shade=True)
+        ax = fig.add_subplot(gs[1, :] if len(zooms) == 1 else gs[1, c],
+                             sharey=bottoms[0] if bottoms else None)
+        bottoms.append(ax)
+        # The row above already names each input, and the enlargement sits directly under its
+        # own panel, so repeating the title here would say nothing the position does not.
+        _panel(ax, z if zoom_titles else dict(z, title=""), zoom_xlim, c == 0, bands,
+               lw_scale=ZOOM_LW, shade=True)
         if c:
             ax.tick_params(labelleft=False)
     fig.tight_layout(rect=(0, 0, 1, 1 - LEGEND_IN / height), w_pad=0.8, h_pad=1.2)
+    # Leader lines from the boxed stretch down to the panel that enlarges it: without them the
+    # reader has to infer which box the row below belongs to.
+    if box:
+        for c, bot in enumerate(bottoms):
+            src = tops[c] if len(bottoms) > 1 else tops[0]
+            for x, corner in ((box[0], 0.0), (box[1], 1.0)):
+                fig.add_artist(ConnectionPatch(
+                    xyA=(x, 0.012), coordsA=src.get_xaxis_transform(),
+                    xyB=(corner, 1.0), coordsB=bot.transAxes,
+                    color=MUTED, lw=0.45, ls=(0, (2.5, 1.8)), zorder=-1))
     _legend(fig)
     _save(fig, out, height)
     plt.close(fig)
