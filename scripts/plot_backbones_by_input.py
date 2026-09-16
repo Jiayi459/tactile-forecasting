@@ -13,8 +13,13 @@ already names it, so hue is spent where it separates something. probGRU is deep 
 (#C62828) and Seq2Seq deep blue (#1F5AA6), both solid; truth is black.
 The sigma bands are off by default; --bands draws them in each backbone's colour.
 
-Drawing lives in render(), which takes plain (t, value) series, so the figure can be rebuilt from
-any source of those series with exactly this styling.
+--window/--history cut the axis down to one stretch of the recording and hold the forecasts back
+over its first seconds, so the truth alone carries the history the models were given before
+anything is predicted. --zoom puts such a stretch in a second row under the full-width row;
+--only draws a single input large.
+
+Drawing lives in render()/render_with_zoom(), which take plain (t, value) series, so a figure can
+be rebuilt from any source of those series with exactly this styling.
 """
 from __future__ import annotations
 
@@ -35,61 +40,103 @@ PG_COLOR, S2S_COLOR = "#C62828", "#1F5AA6"
 # Thin throughout: at 7.16 in the three panels hold ~500 points each, and at 0.9-1.0 pt the
 # forecasts merged into a band over the truth.
 LW_TRUTH, LW_S2S, LW_PG, LW_GRID, LW_SPINE = 0.6, 0.6, 0.6, 0.3, 0.5
+# Reserve a fixed ~0.18 in for the legend rather than a fixed fraction: a fraction tuned for
+# the 2.15 in row left a wide gap above a taller figure. 0.18275 in is exactly the 0.915 the
+# row figure was drawn with, so that figure is unchanged.
+LEGEND_IN = 0.18275
 
 
-def render(panels, tmax, out, height=2.15, bands=False):
-    """panels: one dict per input, keys `title`, `truth`, and optionally `s2s` / `pg`, each a
-    tuple (t, value) or (t, value, sigma)."""
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+def _draw(ax, series, color, lw, z, bands, tmin=None):
+    """One series, optionally withheld before tmin -- the stretch shown as history only."""
+    t, v = np.asarray(series[0]), np.asarray(series[1])
+    sig = np.asarray(series[2]) if len(series) > 2 else None
+    if tmin is not None:
+        m = t >= tmin
+        t, v = t[m], v[m]
+        sig = sig[m] if sig is not None else None
+    if bands and sig is not None:
+        ax.fill_between(t, v - 2 * sig, v + 2 * sig, color=color, alpha=0.18, lw=0,
+                        zorder=z - 1)
+    ax.plot(t, v, "-", color=color, lw=lw, zorder=z)
+
+
+def _panel(ax, p, xlim, show_ylabel, bands):
+    """panel dict: `title`, `truth`, optional `s2s` / `pg`, optional `forecast_from`."""
+    start = p.get("forecast_from")
+    _draw(ax, p["truth"], TRUTH, LW_TRUTH, 2, False)
+    if p.get("pg") is not None:
+        _draw(ax, p["pg"], PG_COLOR, LW_PG, 5, bands, start)
+    if p.get("s2s") is not None:
+        _draw(ax, p["s2s"], S2S_COLOR, LW_S2S, 6, bands, start)
+    ax.set_title(p["title"], fontsize=PT_TITLE, color=INK, loc="left", pad=2.5)
+    ax.set_xlabel("time  (s)", fontsize=PT_LABEL, color=MUTED, labelpad=1.5)
+    if show_ylabel:
+        ax.set_ylabel("Total Force F", fontsize=PT_LABEL, color=MUTED, labelpad=1.5)
+    ax.tick_params(colors=MUTED, labelsize=PT_TICK, length=0, pad=1.5)
+    ax.grid(color=GRID, lw=LW_GRID, zorder=0)
+    ax.set_axisbelow(True)
+    for sp in ("top", "right"):
+        ax.spines[sp].set_visible(False)
+    for sp in ("bottom", "left"):
+        ax.spines[sp].set_color(GRID)
+        ax.spines[sp].set_linewidth(LW_SPINE)
+    ax.set_xlim(*xlim)
+
+
+def _legend(fig):
     from matplotlib.lines import Line2D
-
-    def draw(ax, series, color, lw, z):
-        t, v = np.asarray(series[0]), np.asarray(series[1])
-        sig = series[2] if len(series) > 2 else None
-        if bands and sig is not None:
-            sig = np.asarray(sig)
-            ax.fill_between(t, v - 2 * sig, v + 2 * sig, color=color, alpha=0.18, lw=0,
-                            zorder=z - 1)
-        ax.plot(t, v, "-", color=color, lw=lw, zorder=z)
-
-    fig, axes = plt.subplots(1, len(panels), figsize=(PAPER_W, height), sharex=True,
-                             sharey=True)
-    for c, (ax, p) in enumerate(zip(np.atleast_1d(axes), panels)):
-        draw(ax, p["truth"], TRUTH, LW_TRUTH, 2)
-        if p.get("pg") is not None:
-            draw(ax, p["pg"], PG_COLOR, LW_PG, 5)
-        if p.get("s2s") is not None:
-            draw(ax, p["s2s"], S2S_COLOR, LW_S2S, 6)
-        ax.set_title(p["title"], fontsize=PT_TITLE, color=INK, loc="left", pad=2.5)
-        ax.set_xlabel("time  (s)", fontsize=PT_LABEL, color=MUTED, labelpad=1.5)
-        if c == 0:
-            ax.set_ylabel("Total Force F", fontsize=PT_LABEL, color=MUTED, labelpad=1.5)
-        ax.tick_params(colors=MUTED, labelsize=PT_TICK, length=0, pad=1.5)
-        ax.grid(color=GRID, lw=LW_GRID, zorder=0)
-        ax.set_axisbelow(True)
-        for sp in ("top", "right"):
-            ax.spines[sp].set_visible(False)
-        for sp in ("bottom", "left"):
-            ax.spines[sp].set_color(GRID)
-            ax.spines[sp].set_linewidth(LW_SPINE)
-        ax.set_xlim(0, tmax)
-
     handles = [Line2D([], [], color=TRUTH, lw=LW_TRUTH, label="ground truth"),
                Line2D([], [], color=PG_COLOR, lw=LW_PG, label="probGRU"),
                Line2D([], [], color=S2S_COLOR, lw=LW_S2S, label="Seq2Seq")]
-    # Reserve a fixed ~0.18 in for the legend rather than a fixed fraction: a fraction tuned for
-    # the 2.15 in row left a wide gap above a taller single panel. 0.18275 in is exactly the
-    # 0.915 the row figure was drawn with, so that figure is unchanged.
-    fig.tight_layout(rect=(0, 0, 1, 1 - 0.18275 / height), w_pad=0.8)
     fig.legend(handles=handles, frameon=False, fontsize=PT_LEGEND, labelcolor=INK,
                ncols=len(handles), loc="upper center", bbox_to_anchor=(0.5, 0.995),
                handlelength=2.4)
+
+
+def _save(fig, out, height):
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     fig.savefig(out, dpi=400, facecolor="white", bbox_inches="tight", pad_inches=0.01)
-    plt.close(fig)
     print(f"[done] {out}  ({PAPER_W}x{height} in)")
+
+
+def render(panels, xlim, out, height=2.15, bands=False):
+    """One row of panels on a shared axis. xlim is (t0, t1), or a bare t1."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    if not isinstance(xlim, (tuple, list)):
+        xlim = (0, xlim)
+    fig, axes = plt.subplots(1, len(panels), figsize=(PAPER_W, height), sharex=True,
+                             sharey=True)
+    for c, (ax, p) in enumerate(zip(np.atleast_1d(axes), panels)):
+        _panel(ax, p, xlim, c == 0, bands)
+    fig.tight_layout(rect=(0, 0, 1, 1 - LEGEND_IN / height), w_pad=0.8)
+    _legend(fig)
+    _save(fig, out, height)
+    plt.close(fig)
+
+
+def render_with_zoom(panels, xlim, zoom, zoom_xlim, out, height=4.0, bands=False):
+    """The row above, and one of its panels enlarged across the full width below."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig = plt.figure(figsize=(PAPER_W, height))
+    gs = fig.add_gridspec(2, len(panels), height_ratios=[1.0, 0.95])
+    top = None
+    for c, p in enumerate(panels):
+        ax = fig.add_subplot(gs[0, c], sharey=top)
+        top = top or ax
+        _panel(ax, p, xlim, c == 0, bands)
+        if c:
+            ax.tick_params(labelleft=False)
+    _panel(fig.add_subplot(gs[1, :]), zoom, zoom_xlim, True, bands)
+    fig.tight_layout(rect=(0, 0, 1, 1 - LEGEND_IN / height), w_pad=0.8, h_pad=1.2)
+    _legend(fig)
+    _save(fig, out, height)
+    plt.close(fig)
 
 
 def main():
@@ -102,9 +149,15 @@ def main():
     ap.add_argument("--seconds", type=float, default=None,
                     help="plot only the first N seconds (clamped to the recording)")
     ap.add_argument("--bands", action="store_true", help="draw ±2σ for both backbones")
-    ap.add_argument("--height", type=float, default=2.15, help="figure height, inches")
+    ap.add_argument("--height", type=float, default=None, help="figure height, inches")
     ap.add_argument("--only", choices=["aggregate", "flatten", "cnn"], default=None,
                     help="draw a single input as one large panel (aggregate = physical state)")
+    ap.add_argument("--window", type=float, nargs=2, metavar=("T0", "T1"),
+                    help="restrict the axis to this stretch of the recording")
+    ap.add_argument("--history", type=float, default=0.0,
+                    help="with --window: seconds at its start showing the truth alone")
+    ap.add_argument("--zoom", type=float, nargs=3, metavar=("T0", "T1", "HISTORY"),
+                    help="add a second row enlarging the first panel over this window")
     a = ap.parse_args()
 
     layout = LAYOUTS[a.dataset]
@@ -141,7 +194,20 @@ def main():
         panels.append(dict(title=cell[2], truth=(tt, y[:, k]),
                            s2s=series(s2s[0] if s2s else None),
                            pg=series(pg[0] if pg else None)))
-    render(panels, tmax, a.out, height=a.height, bands=a.bands)
+
+    if a.zoom:
+        t0, t1, hist = a.zoom
+        zoom = dict(panels[0], forecast_from=t0 + hist,
+                    title=f"{panels[0]['title']} · {hist:g} s history, then "
+                          f"{t1 - t0 - hist:g} s of forecasts")
+        render_with_zoom(panels, (0, tmax), zoom, (t0, t1), a.out,
+                         height=a.height or 4.0, bands=a.bands)
+    elif a.window:
+        t0, t1 = a.window
+        panels = [dict(p, forecast_from=t0 + a.history) for p in panels]
+        render(panels, (t0, t1), a.out, height=a.height or 2.15, bands=a.bands)
+    else:
+        render(panels, (0, tmax), a.out, height=a.height or 2.15, bands=a.bands)
 
 
 if __name__ == "__main__":
